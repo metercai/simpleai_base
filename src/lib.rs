@@ -24,6 +24,7 @@ pub struct TokenDid {
     pub(crate) nickname: String,
     pub(crate) did: String,
     pub(crate) local_ip: String,
+    pub(crate) local_port: u16,
     pub(crate) public_ip: String,
     pub(crate) mac_address: String,
     claims: HashMap<String, IdClaim>,
@@ -62,11 +63,15 @@ impl TokenDid {
 
         let s_public_ip = Arc::new(Mutex::new(None));
         let s_public_ip_clone = Arc::clone(&s_public_ip);
+        let s_local_port = Arc::new(Mutex::new(None));
+        let s_local_port_clone = Arc::clone(&s_local_port);
         let rt_handle1 = thread::spawn(move || {
             let runtime = Runtime::new().unwrap();
             runtime.block_on(async {
                 let public_ip = env_utils::get_ipaddr_from_public().await;
                 *s_public_ip_clone.lock().unwrap() = Some(public_ip);
+                let port = env_utils::get_port_availability(local_ip.clone(), 8186);
+                *s_local_port_clone.lock().unwrap() = port;
             });
         });
         rt_handle1.join().unwrap();
@@ -75,6 +80,7 @@ impl TokenDid {
             Some(Err(_)) => "Error occurred while retrieving IP".to_string(), // 如果 Result 是 Err，则返回错误信息
             None => "No IP available".to_string(), // 如果 Option 是 None，则返回无IP可用信息
         };
+        let local_port = *s_local_port.lock().unwrap();
         let config = "client.toml";
         let _rt_handle2 = thread::spawn(move || {
             let runtime = Runtime::new().unwrap();
@@ -87,6 +93,7 @@ impl TokenDid {
             nickname,
             did,
             local_ip: local_ip.to_string(),
+            local_port,
             public_ip,
             mac_address: net_mac_addr,
             claims,
@@ -96,8 +103,14 @@ impl TokenDid {
 
     pub fn get_name(&self) -> String { self.nickname.clone() }
     pub fn get_did(&self) -> String { self.did.clone() }
-    pub fn get_get_local_ip(&self) -> String { self.local_ip.clone() }
+    pub fn get_local_ip_port(&self) -> String {
+        format!("{}:{}", self.local_ip.clone(), self.local_port.clone());
+    }
+
+    #[pyfunction]
     pub fn get_mac_address(&self) -> String { self.mac_address.clone() }
+
+    #[pyfunction]
     pub fn get_public_ip(&self) -> String { self.public_ip.clone() }
 
     pub fn push_claim(&mut self, claim: &IdClaim) {

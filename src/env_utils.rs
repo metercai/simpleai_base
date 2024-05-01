@@ -1,10 +1,8 @@
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Write, Error, ErrorKind};
 use std::env;
 use std::path::Path;
-use std::net::{IpAddr, Ipv4Addr};
-use std::net::{SocketAddr, TcpStream};
-use std::io::{Error, ErrorKind};
+use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
 use libp2p::identity::ed25519;
 use openssl::pkey::PKey;
@@ -22,6 +20,7 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key };
 use argon2::Argon2;
+use tokio::time::{self, Duration};
 use crate::error::TokenError;
 
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
@@ -83,6 +82,28 @@ pub(crate) async fn get_ipaddr_from_public() -> Result<Ipv4Addr, TokenError> {
     let ip_addr = ip_str.parse::<Ipv4Addr>()?;
     tracing::info!("CURL({}) public_ip={}", default_url, ip_addr);
     Ok(ip_addr)
+}
+
+pub(crate) async fn get_port_availability(ip: IpAddr, port: u16) -> u16 {
+    let addr = format!("{}:{}", ip, port);
+    match TcpListener::bind(addr) {
+        Ok(_) => port,
+        Err(_) => {
+            let mut rng = rand::thread_rng();
+            loop {
+                let random_port = rng.gen_range(8000..=9000);
+                let addr = format!("{}:{}", ip, random_port);
+                match TcpListener::bind(addr) {
+                    Ok(_) => return random_port, // 随机端口未被占用，返回
+                    Err(_) => {
+                        time::sleep(Duration::from_millis(10)).await;
+                        continue
+                    },
+                }
+            }
+        }
+    }
+    0
 }
 
 pub(crate) fn get_mac_address(ip: IpAddr) -> Option<String> {
@@ -172,6 +193,7 @@ pub fn decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     cipher.decrypt(&nonce, data).unwrap()
 }
+
 
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 
