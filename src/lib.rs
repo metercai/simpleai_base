@@ -1,16 +1,22 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use x25519_dalek::PublicKey;
 use ed25519_dalek::{VerifyingKey, Verifier, Signature};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use tokio::runtime::Runtime;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use pyo3::prelude::*;
 use crate::claim::IdClaim;
+use crate::rathole::Rathole;
 
 mod claim;
 mod env_utils;
 mod error;
+mod rathole;
 
 #[pyclass]
 #[derive(Clone, Debug)]
@@ -18,6 +24,7 @@ pub struct TokenDid {
     pub(crate) nickname: String,
     pub(crate) did: String,
     pub(crate) local_ip: String,
+    pub(crate) public_ip: String,
     pub(crate) mac_address: String,
     claims: HashMap<String, IdClaim>,
     crypt_secret: [u8; 32],
@@ -53,28 +60,52 @@ impl TokenDid {
         let mut claims = HashMap::new();
         claims.insert(did.clone(), local_claim);
 
+        let s_public_ip = Arc::new(Mutex::new(None));
+        let s_public_ip_clone = Arc::clone(&s_public_ip);
+        let rt_handle1 = thread::spawn(move || {
+            let runtime = Runtime::new().unwrap();
+            runtime.block_on(async {
+                let public_ip = env_utils::get_ipaddr_from_public().await;
+                *s_public_ip_clone.lock().unwrap() = Some(public_ip);
+            });
+        });
+        rt_handle1.join().unwrap();
+        let public_ip = match *s_public_ip.lock().unwrap() {
+            Some(Ok(ip)) => ip.to_string(), // 如果 Option 是 Some 并且 Result 是 Ok，则转换为 String
+            Some(Err(_)) => "Error occurred while retrieving IP".to_string(), // 如果 Result 是 Err，则返回错误信息
+            None => "No IP available".to_string(), // 如果 Option 是 None，则返回无IP可用信息
+        };
+        let config = "client.toml";
+        let _rt_handle2 = thread::spawn(move || {
+            let runtime = Runtime::new().unwrap();
+            runtime.block_on(async {
+                let _ = Rathole::new(&config).start_service();
+            });
+        });
+
         TokenDid {
             nickname,
             did,
             local_ip: local_ip.to_string(),
+            public_ip,
             mac_address: net_mac_addr,
             claims,
             crypt_secret,
         }
     }
 
+    pub fn get_name(&self) -> String { self.nickname.clone() }
+    pub fn get_did(&self) -> String { self.did.clone() }
     pub fn get_get_local_ip(&self) -> String { self.local_ip.clone() }
-    pub(crate) fn get_mac_address(&self) -> String {
-        self.mac_address.clone()
-    }
+    pub fn get_mac_address(&self) -> String { self.mac_address.clone() }
+    pub fn get_public_ip(&self) -> String { self.public_ip.clone() }
+
     pub fn push_claim(&mut self, claim: &IdClaim) {
         let did = claim.gen_did();
         self.claims.insert(did, claim.clone());
     }
 
-    pub fn get_did(&self) -> String {
-        self.did.clone()
-    }
+
 
     pub fn get_claim(&self, for_did: &str) -> Option<IdClaim> {
         let did = if for_did.is_empty() { self.did.to_string().clone() } else { for_did.to_string() };
@@ -128,11 +159,25 @@ fn init_local_did(nick: String) -> PyResult<TokenDid> {
     Ok(TokenDid::new(nick))
 }
 
+#[pyfunction]
+fn sha256(input: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(env_utils::calc_sha256(input))
+}
+
+#[pyfunction]
+fn file_hash_size(path: String) -> (String, u64) {
+    let Ok((hash, size)) = env_utils::get_file_hash_size(Path::new(&path))
+        else { return ("".to_string(), 0) };
+    (hash, size)
+}
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn tokendid(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local_did, m)?)?;
+    m.add_function(wrap_pyfunction!(sha256, m)?)?;
+    m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
     m.add_class::<TokenDid>()?;
+    m.add_class::<IdClaim>()?;
     Ok(())
 }

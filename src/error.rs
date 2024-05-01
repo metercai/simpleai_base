@@ -44,3 +44,5 @@ impl From<TokenError> for PyErr {
         PyBaseException::new_err(format!("TokenError: {:?}", err))
     }
 }
+
+unsafe impl Send for TokenError {}
