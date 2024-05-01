@@ -70,3 +70,6 @@ docs/_build/
 
 # Pyenv
 .python-version
+
+.token_user.pem
+Cargo.lock

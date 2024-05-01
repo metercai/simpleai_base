@@ -37,6 +37,8 @@ impl TokenDid {
     pub fn new(
         nickname: String,
     ) -> Self {
+        print!("TokenDid init: {}", nickname.clone());
+
         let local_ip = env_utils::get_ipaddr_from_stream(None).unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
         let net_mac_addr = env_utils::get_mac_address(local_ip.into()).unwrap_or_else(|| String::from("unknown"));
         let mac_address_hash = env_utils::calc_sha256(format!("{}-{}", nickname, net_mac_addr).as_bytes());
@@ -61,24 +63,26 @@ impl TokenDid {
         let mut claims = HashMap::new();
         claims.insert(did.clone(), local_claim);
 
+        print!("did is ok: {}", did.clone());
+
         let s_public_ip = Arc::new(Mutex::new(None));
         let s_public_ip_clone = Arc::clone(&s_public_ip);
-        let s_local_port = Arc::new(Mutex::new(None));
+        let s_local_port = Arc::new(Mutex::new(0));
         let s_local_port_clone = Arc::clone(&s_local_port);
         let rt_handle1 = thread::spawn(move || {
             let runtime = Runtime::new().unwrap();
             runtime.block_on(async {
                 let public_ip = env_utils::get_ipaddr_from_public().await;
                 *s_public_ip_clone.lock().unwrap() = Some(public_ip);
-                let port = env_utils::get_port_availability(local_ip.clone(), 8186);
+                let port = env_utils::get_port_availability(local_ip.clone(), 8186).await;
                 *s_local_port_clone.lock().unwrap() = port;
             });
         });
         rt_handle1.join().unwrap();
         let public_ip = match *s_public_ip.lock().unwrap() {
-            Some(Ok(ip)) => ip.to_string(), // 如果 Option 是 Some 并且 Result 是 Ok，则转换为 String
-            Some(Err(_)) => "Error occurred while retrieving IP".to_string(), // 如果 Result 是 Err，则返回错误信息
-            None => "No IP available".to_string(), // 如果 Option 是 None，则返回无IP可用信息
+            Some(Ok(ip)) => ip.to_string(), 
+            Some(Err(_)) => "Error occurred while retrieving IP".to_string(), 
+            None => "No IP available".to_string(), 
         };
         let local_port = *s_local_port.lock().unwrap();
         let config = "client.toml";
@@ -104,13 +108,9 @@ impl TokenDid {
     pub fn get_name(&self) -> String { self.nickname.clone() }
     pub fn get_did(&self) -> String { self.did.clone() }
     pub fn get_local_ip_port(&self) -> String {
-        format!("{}:{}", self.local_ip.clone(), self.local_port.clone());
+        format!("{}:{}", self.local_ip.clone(), self.local_port.clone())
     }
-
-    #[pyfunction]
     pub fn get_mac_address(&self) -> String { self.mac_address.clone() }
-
-    #[pyfunction]
     pub fn get_public_ip(&self) -> String { self.public_ip.clone() }
 
     pub fn push_claim(&mut self, claim: &IdClaim) {
@@ -169,7 +169,10 @@ impl TokenDid {
 
 #[pyfunction]
 fn init_local_did(nick: String) -> PyResult<TokenDid> {
-    Ok(TokenDid::new(nick))
+    print!("begin to TokenDid");
+    let token = TokenDid::new(nick);
+    print!("TokenDid init success");
+    Ok(token)
 }
 
 #[pyfunction]
@@ -179,13 +182,14 @@ fn sha256(input: &[u8]) -> String {
 
 #[pyfunction]
 fn file_hash_size(path: String) -> (String, u64) {
+    print!("begin to file_hash_size");
     let Ok((hash, size)) = env_utils::get_file_hash_size(Path::new(&path))
         else { return ("".to_string(), 0) };
     (hash, size)
 }
 
 #[pymodule]
-fn tokendid(_py: Python, m: &PyModule) -> PyResult<()> {
+fn tokendid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local_did, m)?)?;
     m.add_function(wrap_pyfunction!(sha256, m)?)?;
     m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
