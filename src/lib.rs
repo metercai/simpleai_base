@@ -18,8 +18,8 @@ mod env_utils;
 mod error;
 mod rathole;
 
-#[pyclass]
 #[derive(Clone, Debug)]
+#[pyclass]
 pub struct TokenDid {
     pub(crate) nickname: String,
     pub(crate) did: String,
@@ -171,7 +171,6 @@ fn file_hash_size(path: String) -> (String, u64) {
     (hash, size)
 }
 
-/// A Python module implemented in Rust.
 #[pymodule]
 fn tokendid(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local_did, m)?)?;

@@ -9,8 +9,8 @@ use serde_derive::{Serialize, Deserialize};
 use crate::env_utils;
 use pyo3::prelude::*;
 
-#[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[pyclass]
 pub struct IdClaim {
     pub nickname: String,
     pub verify_key: [u8; 32],
