@@ -42,15 +42,10 @@ impl TokenDid {
         let telephone_hash = env_utils::calc_sha256(format!("{}-telephone:-", nickname).as_bytes());
         let face_image_hash = env_utils::calc_sha256(format!("{}-face_image:-", nickname).as_bytes());
         let file_hash_hash = env_utils::calc_sha256(format!("{}-file_hash:-", nickname).as_bytes());
-        let mut fingerprint = HashMap::new();
-        fingerprint.insert("id_card".to_string(), mac_address_hash);
-        fingerprint.insert("telephone".to_string(), telephone_hash);
-        fingerprint.insert("face_image".to_string(), face_image_hash);
-        fingerprint.insert("file_hash".to_string(), file_hash_hash);
 
         let zeroed_key: [u8; 32] = [0; 32];
         let verify_key = env_utils::get_verify_key().unwrap_or_else(|_| zeroed_key);
-        let mut local_claim = IdClaim::new(&nickname, verify_key, &fingerprint);
+        let mut local_claim = IdClaim::new(nickname.clone(), verify_key, telephone_hash, mac_address_hash, face_image_hash, file_hash_hash);
 
         let did = local_claim.gen_did();
         let crypt_secret = env_utils::get_secret_key(&did).unwrap_or_else(|_| zeroed_key);

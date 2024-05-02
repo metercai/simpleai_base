@@ -146,11 +146,14 @@ pub(crate) fn get_signature(text: &str) -> Result<Vec<u8>, TokenError> {
     Ok(Vec::from(signature.to_bytes()))
 }
 
-pub fn calc_sha256(input: &[u8]) -> Vec<u8> {
+pub fn calc_sha256(input: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(input);
     //URL_SAFE_NO_PAD.encode(hasher.finalize())
-    hasher.finalize().to_vec()
+    let result = hasher.finalize();
+    let mut output = [0u8; 32];
+    output[..result.len()].copy_from_slice(&result[..]);
+    output
 }
 
 pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
