@@ -21,7 +21,12 @@ use aes_gcm::{
     Aes256Gcm, Key };
 use argon2::Argon2;
 use tokio::time::{self, Duration};
+use tokio::runtime::Runtime;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
 use crate::error::TokenError;
+use crate::claim::SystemInfo;
 
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
@@ -33,7 +38,7 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let exe_path = env::current_exe()?;
     let cpu = sys.cpus().get(0).unwrap();
     let password = format!("{}@{}/{}/{}/{}/{}/{}/{}", exe_path.display(), System::host_name().unwrap(),
-                           System::distribution_id(), System::name().unwrap(), cpu.brand(),sys.cpus().len(), cpu.frequency(), sys.total_memory()/(1024*1024*1024));
+                           System::distribution_id(), System::name().unwrap(), cpu.brand(), sys.cpus().len(), cpu.frequency(), sys.total_memory()/(1024*1024*1024));
     tracing::info!("password: {password}");
 
     let file_path = Path::new(".token_user.pem");
@@ -57,6 +62,65 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
     Ok(private_key.try_into().unwrap())
 }
 
+pub fn get_system_info() -> SystemInfo {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let exe_path = match env::current_exe() {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => "".to_string(),
+    };
+    let cpu = sys.cpus().get(0).unwrap();
+    let local_ip = get_ipaddr_from_stream(None).unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
+    let local_ip_out = get_ipaddr_from_stream(Some("8.8.8.8")).unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
+
+    let s_public_ip = Arc::new(Mutex::new(None));
+    let s_public_ip_clone = Arc::clone(&s_public_ip);
+    let s_public_ip_out = Arc::new(Mutex::new(None));
+    let s_public_ip_out_clone = Arc::clone(&s_public_ip_out);
+    let s_local_port = Arc::new(Mutex::new(0));
+    let s_local_port_clone = Arc::clone(&s_local_port);
+    let rt_handle = thread::spawn(move || {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let public_ip = get_ipaddr_from_public(false).await;
+            *s_public_ip_clone.lock().unwrap() = Some(public_ip);
+            let public_ip_out = get_ipaddr_from_public(true).await;
+            *s_public_ip_out_clone.lock().unwrap() = Some(public_ip_out);
+            let port = get_port_availability(local_ip.clone(), 8186).await;
+            *s_local_port_clone.lock().unwrap() = port;
+        });
+    });
+    rt_handle.join().unwrap();
+    let public_ip = match *s_public_ip.lock().unwrap() {
+        Some(Ok(ip)) => ip.to_string(),
+        Some(Err(_)) => "Error occurred while retrieving IP".to_string(),
+        None => "No IP available".to_string(),
+    };
+    let public_ip_out = match *s_public_ip_out.lock().unwrap() {
+        Some(Ok(ip)) => ip.to_string(),
+        Some(Err(_)) => "Error occurred while retrieving IP".to_string(),
+        None => "No IP available".to_string(),
+    };
+    let local_port = *s_local_port.lock().unwrap();
+
+    SystemInfo {
+        sys_name: System::name().unwrap(),
+        local_ip: local_ip.to_string(),
+        local_port: local_port,
+        public_ip: public_ip,
+        mac_address: get_mac_address(local_ip.into()),
+        local_ip_out: local_ip_out.to_string(),
+        public_ip_out: public_ip_out,
+        current_dir: get_current_dir(),
+        current_exe: exe_path,
+        host_name: System::host_name().unwrap(),
+        distribution_id: System::distribution_id(),
+        cpu_brand: cpu.brand().to_string(),
+        cpu_cores: sys.cpus().len(),
+        cpu_frequency: cpu.frequency(),
+        total_memory: sys.total_memory(),
+    }
+}
 
 pub(crate) fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, TokenError> {
     let default_ip = Ipv4Addr::new(114,114,114,114);
@@ -74,8 +138,11 @@ pub(crate) fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, T
     }
 }
 
-pub(crate) async fn get_ipaddr_from_public() -> Result<Ipv4Addr, TokenError> {
-    let default_url = "https://ipinfo.io/ip";
+pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, TokenError> {
+    let default_url =  match is_out {
+        true => "https://ipinfo.io/ip",
+        false => "https://ipinfo.io/ip",
+    };
     let client = reqwest::Client::new();
     let response = client.get(default_url).send().await?;
     let ip_str = response.text().await?;
@@ -105,16 +172,16 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     }
 }
 
-pub(crate) fn get_mac_address(ip: IpAddr) -> Option<String> {
+pub(crate) fn get_mac_address(ip: IpAddr) -> String {
     let interfaces = interfaces();
     for interface in interfaces {
         for network in interface.ips {
             if network.contains(ip) {
-                return Some(format!("{:?}",interface.mac));
+                return format!("{:?}",interface.mac);
             }
         }
     }
-    None
+    "unknown".to_string()
 }
 
 pub(crate) fn get_verify_key() -> Result<[u8; 32], TokenError> {

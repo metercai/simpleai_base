@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -81,6 +80,31 @@ impl fmt::Display for IdClaim {
     }
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[pyclass]
+pub struct SystemInfo {
+    pub sys_name: String,
+    pub local_ip: String,
+    pub local_port: u16,
+    pub public_ip: String,
+    pub mac_address: String,
+    pub local_ip_out: String,
+    pub public_ip_out: String,
+    pub current_dir: String,
+    pub current_exe: String,
+    pub host_name: String,
+    pub distribution_id: String,
+    pub cpu_brand: String,
+    pub cpu_cores: usize,
+    pub cpu_frequency: u64,
+    pub total_memory: u64,
+}
+#[pymethods]
+impl SystemInfo {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or("Unknown".to_string())
+    }
+}
 
 pub struct FileToken {
     pub muid: Vec<u8>,
