@@ -14,11 +14,11 @@ use pyo3::prelude::*;
 pub struct IdClaim {
     pub nickname: String,
     pub verify_key: [u8; 32],
-    pub fingerprint: [u8; 32],
-    pub telephone_hash: [u8; 32],
-    pub id_card_hash: [u8; 32],
-    pub face_image_hash: [u8; 32],
-    pub file_hash_hash: [u8; 32],
+    pub fingerprint: String,
+    pub telephone_hash: String,
+    pub id_card_hash: String,
+    pub face_image_hash: String,
+    pub file_hash_hash: String,
     pub crypt_key: [u8; 32],
 }
 
@@ -36,20 +36,19 @@ impl IdClaim {
         Self{
             nickname,
             verify_key: verify_key,
-            fingerprint: fingerprint_hash,
-            telephone_hash: telephone_hash,
-            id_card_hash: id_card_hash,
-            face_image_hash: face_image_hash,
-            file_hash_hash: file_hash_hash,
+            fingerprint: URL_SAFE_NO_PAD.encode(fingerprint_hash),
+            telephone_hash: telephone_base64,
+            id_card_hash: id_card_base64,
+            face_image_hash: face_image_base64,
+            file_hash_hash: file_hash_base64,
             crypt_key: [0; 32],
         }
     }
 
     pub fn gen_did(&self) -> String {
         let verify_key_base64 = URL_SAFE_NO_PAD.encode(self.verify_key);
-        let fingerprint_base64 = URL_SAFE_NO_PAD.encode(self.fingerprint.clone());
         let did_claim_str = format!("nickname:{},verify_key:{},fingerprint:{}",
-                                    self.nickname, verify_key_base64, fingerprint_base64);
+                                    self.nickname, verify_key_base64, self.fingerprint);
         let mut hasher = Ripemd160::new();
         hasher.update(env_utils::calc_sha256(&did_claim_str.as_bytes()));
         let did = hasher.finalize();

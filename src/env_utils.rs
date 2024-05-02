@@ -196,6 +196,12 @@ pub fn decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     cipher.decrypt(&nonce, data).unwrap()
 }
 
+pub fn get_current_dir() -> String {
+    match env::current_dir() {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => "".to_string(),
+    }
+}
 
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 

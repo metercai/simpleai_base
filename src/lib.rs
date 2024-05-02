@@ -35,6 +35,10 @@ fn file_hash_size(path: String) -> (String, u64) {
     (hash, size)
 }
 
+#[pyfunction]
+fn get_current_dir() -> String {
+    env_utils::get_current_dir()
+}
 #[pymodule]
 fn tokendid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local_did, m)?)?;
