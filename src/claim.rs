@@ -6,6 +6,7 @@ use sha2::Digest;
 use ripemd::Ripemd160;
 use serde_derive::{Serialize, Deserialize};
 use crate::env_utils;
+use crate::gpureport::AdapterReport;
 use pyo3::prelude::*;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -98,6 +99,7 @@ pub struct SystemInfo {
     pub cpu_cores: usize,
     pub cpu_frequency: u64,
     pub total_memory: u64,
+    pub gpu_devices: Vec<AdapterReport>,
 }
 #[pymethods]
 impl SystemInfo {

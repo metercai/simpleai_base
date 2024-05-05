@@ -27,6 +27,7 @@ use std::thread;
 
 use crate::error::TokenError;
 use crate::claim::SystemInfo;
+use crate::gpureport::GpuReport;
 
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
@@ -103,6 +104,7 @@ pub fn get_system_info() -> SystemInfo {
     };
     let local_port = *s_local_port.lock().unwrap();
 
+    let report = GpuReport::generate();
     SystemInfo {
         sys_name: System::name().unwrap(),
         local_ip: local_ip.to_string(),
@@ -119,6 +121,7 @@ pub fn get_system_info() -> SystemInfo {
         cpu_cores: sys.cpus().len(),
         cpu_frequency: cpu.frequency(),
         total_memory: sys.total_memory(),
+        gpu_devices: report.devices,
     }
 }
 

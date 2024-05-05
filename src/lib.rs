@@ -5,13 +5,14 @@ use base64::Engine;
 use pyo3::prelude::*;
 use crate::token::TokenDid;
 use crate::claim::{IdClaim, SystemInfo};
-
+use crate::gpureport::AdapterReport;
 
 mod claim;
 mod env_utils;
 mod error;
 mod rathole;
 mod token;
+mod gpureport;
 
 
 #[pyfunction]
@@ -39,6 +40,8 @@ fn file_hash_size(path: String) -> (String, u64) {
 fn get_current_dir() -> String {
     env_utils::get_current_dir()
 }
+
+
 #[pymodule]
 fn tokendid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local_did, m)?)?;
@@ -48,5 +51,7 @@ fn tokendid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TokenDid>()?;
     m.add_class::<IdClaim>()?;
     m.add_class::<SystemInfo>()?;
+    m.add_class::<AdapterReport>()?;
+
     Ok(())
 }
