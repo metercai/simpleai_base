@@ -242,7 +242,7 @@ fn get_disk_info() -> (u64, u64, String) {
                     free = line.get(3).unwrap().to_string().parse::<u64>().unwrap_or(0);
                     let uuid_resault = run_command("blkid", &[&sysdisk]);
                     let uuid_str = uuid_resault.split_whitespace().nth(1).unwrap();
-                    uuid = uuid_str[7..uuid_str.len()-2].to_string();
+                    uuid = uuid_str[6..uuid_str.len()-1].to_string();
                 }
             }
             (total, free, uuid)
@@ -296,10 +296,10 @@ fn get_gpu_info() -> (String, String, u64){
         }
 
         "linux" => {
-            let mut gpu_brand = run_command("lspci", &["|", "grep", "VGA", "|", "grep", "NVIDIA"]);
+            let mut gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep NVIDIA"]);
             print!("gpu_brand_resault:{}", gpu_brand);
             if gpu_brand.is_empty() {
-                gpu_brand = run_command("lspci", &["|", "grep", "VGA", "|", "grep", "-E", "AMD|ATI"]);
+                gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep -E AMD|ATI"]);
                 if gpu_brand.is_empty() {
                     gpu_brand = "Unknown".to_string();
                 } else { gpu_brand = "AMD".to_string();  }
