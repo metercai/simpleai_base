@@ -127,8 +127,11 @@ fn get_os_info() -> (String, String) {
             let os_version_str = run_command("cat", &["/etc/os-release"]);
             let mut os_version = "".to_string();
             for line in os_version_str.lines() {
-                if line.starts_with("VERSION_ID") {
-                    os_version = line.split('=').nth(1).unwrap().trim_matches(|c: char| c == '"' || c.is_whitespace()).to_string();
+                if line.starts_with("NAME") {
+                    os_version = line.split('=').nth(1).unwrap().trim().to_string() + " ";
+                }
+                if line.starts_with("VERSION") {
+                    os_version += line.split('=').nth(1).unwrap().trim_matches(|c: char| c == '"' || c.is_whitespace());
                 }
             }
             let host_name = run_command("hostname", &[]).trim().to_string();
@@ -297,7 +300,6 @@ fn get_gpu_info() -> (String, String, u64){
 
         "linux" => {
             let mut gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep NVIDIA"]);
-            print!("gpu_brand_resault:{}", gpu_brand);
             if gpu_brand.is_empty() {
                 gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep -E AMD|ATI"]);
                 if gpu_brand.is_empty() {
