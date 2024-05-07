@@ -127,10 +127,10 @@ fn get_os_info() -> (String, String) {
             let os_version_str = run_command("cat", &["/etc/os-release"]);
             let mut os_version = "".to_string();
             for line in os_version_str.lines() {
-                if line.starts_with("NAME") {
-                    os_version = line.split('=').nth(1).unwrap().trim().to_string() + " ";
+                if line.starts_with("NAME=") {
+                    os_version = line.split('=').nth(1).unwrap().trim_matches(|c: char| c == '"' || c.is_whitespace()).to_string() + " ";
                 }
-                if line.starts_with("VERSION") {
+                if line.starts_with("VERSION=") {
                     os_version += line.split('=').nth(1).unwrap().trim_matches(|c: char| c == '"' || c.is_whitespace());
                 }
             }
