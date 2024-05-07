@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use std::process::Command;
 use std::env;
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -30,6 +31,9 @@ pub struct SystemInfo {
     pub disk_total: u64,
     pub disk_free: u64,
     pub disk_uuid: String,
+    pub root_dir: String,
+    pub exe_dir: String,
+    pub exe_name: String,
 }
 
 
@@ -42,6 +46,19 @@ impl SystemInfo {
         let (ram_total, ram_free, ram_swap) = get_ram_info();
         let (disk_total, disk_free, disk_uuid) = get_disk_info();
         let (gpu_brand, gpu_name, gpu_memory) = get_gpu_info();
+
+        let root_dir = match env::current_dir() {
+            Ok(dir) => dir,
+            Err(e) => { PathBuf::from("/") }
+        };
+        let exe_dir = match env::current_exe() {
+            Ok(dir) => dir,
+            Err(e) => { PathBuf::from("/") }
+        };
+        let mut exe_name = "simpleai".to_string();
+        if let Some(exe) = env::args().collect::<Vec<_>>().first() {
+            exe_name = exe.to_string()
+        }
 
         let local_ip = env_utils::get_ipaddr_from_stream(None).unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
         let s_public_ip = Arc::new(Mutex::new(None));
@@ -85,6 +102,9 @@ impl SystemInfo {
             disk_total,
             disk_free,
             disk_uuid,
+            root_dir: root_dir.to_string_lossy().into_owned(),
+            exe_dir: exe_dir.to_string_lossy().into_owned(),
+            exe_name,
         }
     }
 }

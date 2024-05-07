@@ -8,8 +8,7 @@ use libp2p::identity::ed25519;
 
 use pkcs8::{EncryptedPrivateKeyInfo, PrivateKeyInfo, LineEnding, ObjectIdentifier, SecretDocument};
 
-use sysinfo::System;
-use pnet::datalink::interfaces;
+//use pnet::datalink::interfaces;
 use ed25519_dalek::{VerifyingKey, SigningKey, Signer};
 use x25519_dalek::{StaticSecret, PublicKey};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -22,9 +21,11 @@ use aes_gcm::{
     Aes256Gcm, Key };
 use argon2::Argon2;
 use tokio::time::{self, Duration};
-
+use lazy_static::lazy_static;
 
 use crate::error::TokenError;
+use crate::systeminfo::SystemInfo;
+
 pub const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 
 /// Ed25519 Algorithm Identifier.
@@ -33,28 +34,29 @@ pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::Algorith
     parameters: None,
 };
 
+lazy_static! {
+    static ref SYSTEM_INFO: SystemInfo = SystemInfo::generate();
+}
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
 }
 fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let sysinfo =  SYSTEM_INFO.clone();
 
-    let exe_path = env::current_exe()?;
-    let cpu = sys.cpus().get(0).unwrap();
-    let password = format!("{}@{}/{}/{}/{}/{}/{}/{}", exe_path.display(), System::host_name().unwrap(),
-                           System::distribution_id(), System::name().unwrap(), cpu.brand(), sys.cpus().len(), cpu.frequency(), sys.total_memory()/(1024*1024*1024));
+    let password = format!("{}:{}@{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.exe_name, sysinfo.host_name,
+                           sysinfo.os_version, sysinfo.os_name, sysinfo.cpu_brand, sysinfo.cpu_cores,
+                           sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
     tracing::info!("password: {password}");
 
-    let file_path = Path::new(".token_user.pem");
+    let file_path = Path::new(".token_user_new.pem");
     let pem_label = "SIMPLE_AI_USER_KEY";
     let private_key = match file_path.exists() {
         false => {
             let mut csprng = OsRng {};
             let secret_key = SigningKey::generate(&mut csprng).to_bytes();
             PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
-                .encrypt(csprng, &password.as_bytes())
-                .write_pem_file(file_path, pem_label, LineEnding::default)?;
+                .encrypt(csprng, &password.as_bytes())?
+                .write_pem_file(file_path, pem_label, LineEnding::default())?;
 
             secret_key
 
@@ -65,14 +67,17 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
             //private_key.raw_private_key()?
         }
         true => {
-            let (label, s_doc) = SecretDocument::read_pem_file(file_path);
-            let private_key = EncryptedPrivateKeyInfo.try_from(s_doc.to_bytes()).unwrap().decrypt(&password.as_bytes()).to_bytes()?;
+            let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
+            let private_key = EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&password.as_bytes())?;
 
             //let mut file = File::open(file_path)?;
             //let mut key_data = Vec::new();
             //file.read_to_end(&mut key_data)?;
             //let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
-            private_key.raw_private_key()?
+            let pk = private_key.as_bytes();
+            let mut pk_array: [u8; 32] = [0; 32];
+            pk_array.copy_from_slice(&pk);
+            pk_array
         }
     };
 
@@ -131,14 +136,14 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
 }
 
 pub(crate) fn get_mac_address(ip: IpAddr) -> String {
-    let interfaces = interfaces();
-    for interface in interfaces {
-        for network in interface.ips {
-            if network.contains(ip) {
-                return format!("{:?}",interface.mac);
-            }
-        }
-    }
+    //let interfaces = interfaces();
+    //for interface in interfaces {
+    //    for network in interface.ips {
+    //        if network.contains(ip) {
+    //            return format!("{:?}",interface.mac);
+    //        }
+    //    }
+    //}
     "unknown".to_string()
 }
 
