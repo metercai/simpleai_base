@@ -188,10 +188,19 @@ fn get_ram_info() -> (u64, u64, u64) {
         },
         "linux" => {
             let ram_info = run_command("free", &[]);
-            let lines: Vec<&str> = ram_info.split_whitespace().collect();
-            let total = lines.get(1).and_then(|line| line.split_whitespace().nth(1)).expect("raminfo parsing").parse::<u64>().unwrap_or(0);
-            let free = lines.get(1).and_then(|line| line.split_whitespace().nth(3)).expect("raminfo parsing").parse::<u64>().unwrap_or(0);
-            let swap = lines.get(2).and_then(|line| line.split_whitespace().nth(1)).expect("raminfo parsing").parse::<u64>().unwrap_or(0);
+            let parts: Vec<Vec<&str>> = ram_info
+                .lines()
+                .map(|line| {
+                    line.split_whitespace()
+                        .map(|part| { part.trim() })
+                        .collect::<Vec<&str>>()
+                }).collect();
+            let total = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
+                .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
+            let free = parts.get(1).and_then(|row| row.get(3)).map(|value| value.to_string())
+                .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
+            let swap = parts.get(2).and_then(|row| row.get(1)).map(|value| value.to_string())
+                .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
             (total, free, swap)
         },
         "macos" => {
@@ -216,32 +225,44 @@ fn get_disk_info() -> (u64, u64, String) {
         }
         "linux" => {
             let disk_info = run_command("df", &[]);
-            let lines: Vec<&str> = disk_info.split_whitespace().collect();
+            let lines: Vec<Vec<&str>> = disk_info
+                .lines()
+                .map(|line| {
+                    line.split_whitespace()
+                        .map(|part| { part.trim() })
+                        .collect::<Vec<&str>>()
+                }).collect();
             let mut total = 0;
             let mut free = 0;
             let mut uuid = "".to_string();
             for line in lines {
-                if line.split_whitespace().nth(5).unwrap() == "/" {
-                    let sysdisk = line.split_whitespace().nth(0).unwrap();
-                    total = line.split_whitespace().nth(1).expect("diskinfo parsing").parse::<u64>().unwrap_or(0);
-                    free = line.split_whitespace().nth(3).expect("diskinfo parsing").parse::<u64>().unwrap_or(0);
-                    uuid = run_command("blkid", &[sysdisk]).trim().to_string();
+                if line.get(5).unwrap().to_string() == "/" {
+                    let sysdisk = line.get(0).unwrap().to_string();
+                    total = line.get(1).unwrap().to_string().parse::<u64>().unwrap_or(0);
+                    free = line.get(3).unwrap().to_string().parse::<u64>().unwrap_or(0);
+                    uuid = run_command("blkid", &[&sysdisk]).trim().to_string();
                 }
             }
             (total, free, uuid)
         }
         "macos" => {
             let disk_info = run_command("df", &[]);
-            let lines: Vec<&str> = disk_info.split_whitespace().collect();
+            let lines: Vec<Vec<&str>> = disk_info
+                .lines()
+                .map(|line| {
+                    line.split_whitespace()
+                        .map(|part| { part.trim() })
+                        .collect::<Vec<&str>>()
+                }).collect();
             let mut total = 0;
             let mut free = 0;
             let mut uuid = "".to_string();
             for line in lines {
-                if line.split_whitespace().nth(8).unwrap() == "/" {
-                    let sysdisk = line.split_whitespace().nth(0).unwrap();
-                    total = line.split_whitespace().nth(1).expect("diskinfo parsing").parse::<u64>().unwrap_or(0);
-                    free = line.split_whitespace().nth(3).expect("diskinfo parsing").parse::<u64>().unwrap_or(0);
-                    let sysdiskinfo = run_command("diskutil", &["info", sysdisk]);
+                if line.get(8).unwrap().to_string() == "/" {
+                    let sysdisk = line.get(0).unwrap().to_string();
+                    total = line.get(1).unwrap().to_string().parse::<u64>().unwrap_or(0);
+                    free = line.get(3).unwrap().to_string().parse::<u64>().unwrap_or(0);
+                    let sysdiskinfo = run_command("diskutil", &["info", &sysdisk]);
                     let parts: Vec<Vec<&str>> = sysdiskinfo
                         .lines()
                         .map(|line| {
