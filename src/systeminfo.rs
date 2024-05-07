@@ -131,7 +131,7 @@ fn get_os_info() -> (String, String) {
                     os_version = line.split('=').nth(1).unwrap().trim_matches(|c: char| c == '"' || c.is_whitespace()).to_string();
                 }
             }
-            let host_name = run_command("hostname", &[]);
+            let host_name = run_command("hostname", &[]).trim().to_string();
             (os_version, host_name)
         }
         "macos" => {
@@ -240,7 +240,9 @@ fn get_disk_info() -> (u64, u64, String) {
                     let sysdisk = line.get(0).unwrap().to_string();
                     total = line.get(1).unwrap().to_string().parse::<u64>().unwrap_or(0);
                     free = line.get(3).unwrap().to_string().parse::<u64>().unwrap_or(0);
-                    uuid = run_command("blkid", &[&sysdisk]).trim().to_string();
+                    let uuid_resault = run_command("blkid", &[&sysdisk]);
+                    let uuid_str = uuid_resault.split_whitespace().nth(1).unwrap();
+                    uuid = uuid_str[7..uuid_str.len()-2].to_string();
                 }
             }
             (total, free, uuid)
@@ -295,6 +297,7 @@ fn get_gpu_info() -> (String, String, u64){
 
         "linux" => {
             let mut gpu_brand = run_command("lspci", &["|", "grep", "VGA", "|", "grep", "NVIDIA"]);
+            print!("gpu_brand_resault:{}", gpu_brand);
             if gpu_brand.is_empty() {
                 gpu_brand = run_command("lspci", &["|", "grep", "VGA", "|", "grep", "-E", "AMD|ATI"]);
                 if gpu_brand.is_empty() {
