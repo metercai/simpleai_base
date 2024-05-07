@@ -56,7 +56,7 @@ impl SystemInfo {
             Err(e) => { PathBuf::from("/") }
         };
         let mut exe_name = "simpleai".to_string();
-        if let Some(exe) = env::args().collect::<Vec<_>>().first() {
+        if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {
             exe_name = exe.to_string()
         }
 
