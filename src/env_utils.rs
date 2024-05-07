@@ -69,14 +69,17 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
         true => {
             let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
             let private_key = EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&password.as_bytes())?;
+            let pkey = private_key.as_bytes();
+            let pkinfo = PrivateKeyInfo::try_from(pkey)?;
 
             //let mut file = File::open(file_path)?;
             //let mut key_data = Vec::new();
             //file.read_to_end(&mut key_data)?;
             //let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
-            let pk = private_key.as_bytes();
+
+            //let pk = private_key.as_bytes();
             let mut pk_array: [u8; 32] = [0; 32];
-            pk_array.copy_from_slice(&pk);
+            pk_array.copy_from_slice(pkinfo.private_key);
             pk_array
         }
     };
