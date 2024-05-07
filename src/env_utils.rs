@@ -1,12 +1,13 @@
 use std::fs::File;
-use std::io::{self, Read, Write, Error, ErrorKind};
+use std::io::{self, Error, ErrorKind};
 use std::env;
 use std::path::Path;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
 use libp2p::identity::ed25519;
-use openssl::pkey::PKey;
-use openssl::symm::Cipher;
+
+use pkcs8::{EncryptedPrivateKeyInfo, PrivateKeyInfo, LineEnding, ObjectIdentifier, SecretDocument};
+
 use sysinfo::System;
 use pnet::datalink::interfaces;
 use ed25519_dalek::{VerifyingKey, SigningKey, Signer};
@@ -21,13 +22,16 @@ use aes_gcm::{
     Aes256Gcm, Key };
 use argon2::Argon2;
 use tokio::time::{self, Duration};
-use tokio::runtime::Runtime;
-use std::sync::{Arc, Mutex};
-use std::thread;
+
 
 use crate::error::TokenError;
-use crate::claim::SystemInfo;
-use crate::gpureport::GpuReport;
+pub const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
+
+/// Ed25519 Algorithm Identifier.
+pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIdentifierRef {
+    oid: ALGORITHM_OID,
+    parameters: None,
+};
 
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
@@ -43,19 +47,31 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
     tracing::info!("password: {password}");
 
     let file_path = Path::new(".token_user.pem");
+    let pem_label = "SIMPLE_AI_USER_KEY";
     let private_key = match file_path.exists() {
         false => {
-            let private_key = PKey::generate_ed25519()?;
-            let pem_key = private_key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
-            let mut file = File::create(file_path)?;
-            file.write_all(&pem_key)?;
-            private_key.raw_private_key()?
+            let mut csprng = OsRng {};
+            let secret_key = SigningKey::generate(&mut csprng).to_bytes();
+            PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
+                .encrypt(csprng, &password.as_bytes())
+                .write_pem_file(file_path, pem_label, LineEnding::default)?;
+
+            secret_key
+
+            //let private_key = PKey::generate_ed25519()?;
+            //let pem_key = private_key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
+            //let mut file = File::create(file_path)?;
+            //file.write_all(&pem_key)?;
+            //private_key.raw_private_key()?
         }
         true => {
-            let mut file = File::open(file_path)?;
-            let mut key_data = Vec::new();
-            file.read_to_end(&mut key_data)?;
-            let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
+            let (label, s_doc) = SecretDocument::read_pem_file(file_path);
+            let private_key = EncryptedPrivateKeyInfo.try_from(s_doc.to_bytes()).unwrap().decrypt(&password.as_bytes()).to_bytes()?;
+
+            //let mut file = File::open(file_path)?;
+            //let mut key_data = Vec::new();
+            //file.read_to_end(&mut key_data)?;
+            //let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
             private_key.raw_private_key()?
         }
     };
@@ -63,67 +79,6 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
     Ok(private_key.try_into().unwrap())
 }
 
-pub fn get_system_info() -> SystemInfo {
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let exe_path = match env::current_exe() {
-        Ok(path) => path.to_string_lossy().into_owned(),
-        Err(_) => "".to_string(),
-    };
-    let cpu = sys.cpus().get(0).unwrap();
-    let local_ip = get_ipaddr_from_stream(None).unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
-    let local_ip_out = get_ipaddr_from_stream(Some("8.8.8.8")).unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
-
-    let s_public_ip = Arc::new(Mutex::new(None));
-    let s_public_ip_clone = Arc::clone(&s_public_ip);
-    let s_public_ip_out = Arc::new(Mutex::new(None));
-    let s_public_ip_out_clone = Arc::clone(&s_public_ip_out);
-    let s_local_port = Arc::new(Mutex::new(0));
-    let s_local_port_clone = Arc::clone(&s_local_port);
-    let rt_handle = thread::spawn(move || {
-        let runtime = Runtime::new().unwrap();
-        runtime.block_on(async {
-            let public_ip = get_ipaddr_from_public(false).await;
-            *s_public_ip_clone.lock().unwrap() = Some(public_ip);
-            let public_ip_out = get_ipaddr_from_public(true).await;
-            *s_public_ip_out_clone.lock().unwrap() = Some(public_ip_out);
-            let port = get_port_availability(local_ip.clone(), 8186).await;
-            *s_local_port_clone.lock().unwrap() = port;
-        });
-    });
-    rt_handle.join().unwrap();
-    let public_ip = match *s_public_ip.lock().unwrap() {
-        Some(Ok(ip)) => ip.to_string(),
-        Some(Err(_)) => "Error occurred while retrieving IP".to_string(),
-        None => "No IP available".to_string(),
-    };
-    let public_ip_out = match *s_public_ip_out.lock().unwrap() {
-        Some(Ok(ip)) => ip.to_string(),
-        Some(Err(_)) => "Error occurred while retrieving IP".to_string(),
-        None => "No IP available".to_string(),
-    };
-    let local_port = *s_local_port.lock().unwrap();
-
-    let report = GpuReport::generate();
-    SystemInfo {
-        sys_name: System::name().unwrap(),
-        local_ip: local_ip.to_string(),
-        local_port: local_port,
-        public_ip: public_ip,
-        mac_address: get_mac_address(local_ip.into()),
-        local_ip_out: local_ip_out.to_string(),
-        public_ip_out: public_ip_out,
-        current_dir: get_current_dir(),
-        current_exe: exe_path,
-        host_name: System::host_name().unwrap(),
-        distribution_id: System::distribution_id(),
-        cpu_brand: cpu.brand().to_string(),
-        cpu_cores: sys.cpus().len(),
-        cpu_frequency: cpu.frequency(),
-        total_memory: sys.total_memory(),
-        gpu_devices: report.devices,
-    }
-}
 
 pub(crate) fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, TokenError> {
     let default_ip = Ipv4Addr::new(114,114,114,114);

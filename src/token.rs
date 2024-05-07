@@ -6,9 +6,10 @@ use base64::Engine;
 use std::thread;
 use std::fs;
 
-use crate::claim::{IdClaim, SystemInfo};
+use crate::claim::IdClaim;
 use crate::rathole::Rathole;
 use crate::env_utils;
+use crate::systeminfo::SystemInfo;
 use pyo3::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -28,7 +29,7 @@ impl TokenDid {
         nickname: String,
     ) -> Self {
         print!("TokenDid init: {}", nickname.clone());
-        let sysinfo = env_utils::get_system_info();
+        let sysinfo = SystemInfo::generate();
         let mac_address_hash = env_utils::calc_sha256(format!("{}-{}", nickname, sysinfo.mac_address).as_bytes());
         let telephone_hash = env_utils::calc_sha256(format!("{}-telephone:-", nickname).as_bytes());
         let face_image_hash = env_utils::calc_sha256(format!("{}-face_image:-", nickname).as_bytes());

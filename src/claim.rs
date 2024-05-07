@@ -6,7 +6,6 @@ use sha2::Digest;
 use ripemd::Ripemd160;
 use serde_derive::{Serialize, Deserialize};
 use crate::env_utils;
-use crate::gpureport::AdapterReport;
 use pyo3::prelude::*;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -81,32 +80,6 @@ impl fmt::Display for IdClaim {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[pyclass]
-pub struct SystemInfo {
-    pub sys_name: String,
-    pub local_ip: String,
-    pub local_port: u16,
-    pub public_ip: String,
-    pub mac_address: String,
-    pub local_ip_out: String,
-    pub public_ip_out: String,
-    pub current_dir: String,
-    pub current_exe: String,
-    pub host_name: String,
-    pub distribution_id: String,
-    pub cpu_brand: String,
-    pub cpu_cores: usize,
-    pub cpu_frequency: u64,
-    pub total_memory: u64,
-    pub gpu_devices: Vec<AdapterReport>,
-}
-#[pymethods]
-impl SystemInfo {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or("Unknown".to_string())
-    }
-}
 
 pub struct FileToken {
     pub muid: Vec<u8>,

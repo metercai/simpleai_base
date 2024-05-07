@@ -4,15 +4,15 @@ use base64::Engine;
 
 use pyo3::prelude::*;
 use crate::token::TokenDid;
-use crate::claim::{IdClaim, SystemInfo};
-use crate::gpureport::AdapterReport;
+use crate::claim::IdClaim;
+use crate::systeminfo::SystemInfo;
 
 mod claim;
 mod env_utils;
 mod error;
 mod rathole;
 mod token;
-mod gpureport;
+mod systeminfo;
 
 
 #[pyfunction]
@@ -51,7 +51,6 @@ fn tokendid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TokenDid>()?;
     m.add_class::<IdClaim>()?;
     m.add_class::<SystemInfo>()?;
-    m.add_class::<AdapterReport>()?;
 
     Ok(())
 }
