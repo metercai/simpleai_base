@@ -48,7 +48,7 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
                            sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
     tracing::info!("password: {password}");
 
-    let file_path = Path::new(".token_user_new.pem");
+    let file_path = Path::new(".token_user.pem");
     let pem_label = "SIMPLE_AI_USER_KEY";
     let private_key = match file_path.exists() {
         false => {
