@@ -15,7 +15,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use sha2::{Sha256, Digest};
 use hkdf::Hkdf;
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, rngs::SmallRng};
+use rand::SeedableRng;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key };
@@ -122,9 +123,9 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     match TcpListener::bind(addr) {
         Ok(_) => port,
         Err(_) => {
-            let mut rng = rand::thread_rng();
+            let mut rng = SmallRng::from_entropy();
             loop {
-                let random_port = rng.gen_range(8000..=9000);
+                let random_port = rng.gen_range((port-100)..=(port+100));
                 let addr = format!("{}:{}", ip, random_port);
                 match TcpListener::bind(addr) {
                     Ok(_) => return random_port, 

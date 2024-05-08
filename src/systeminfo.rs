@@ -25,9 +25,9 @@ pub struct SystemInfo {
     pub gpu_name: String,
     pub gpu_memory: u64,
     pub local_ip: String,
-    pub local_port: u16,
+    //pub local_port: u16,
     pub mac_address: String,
-    pub public_ip: String,
+    //pub public_ip: String,
     pub disk_total: u64,
     pub disk_free: u64,
     pub disk_uuid: String,
@@ -59,10 +59,9 @@ impl SystemInfo {
         if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {
             exe_name = exe.to_string()
         }
-
         let local_ip = env_utils::get_ipaddr_from_stream(None).unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
-        let s_public_ip = Arc::new(Mutex::new(None));
-        let s_public_ip_clone = Arc::clone(&s_public_ip);
+
+        /*let s_public_ip_clone = Arc::clone(&s_public_ip);
         let s_local_port = Arc::new(Mutex::new(0));
         let s_local_port_clone = Arc::clone(&s_local_port);
         let rt_handle = thread::spawn(move || {
@@ -81,7 +80,7 @@ impl SystemInfo {
             None => "No IP available".to_string(),
         };
         let local_port = *s_local_port.lock().unwrap();
-
+*/
         Self {
             os_name,
             os_version,
@@ -96,9 +95,9 @@ impl SystemInfo {
             gpu_name,
             gpu_memory,
             local_ip: local_ip.to_string(),
-            local_port,
+            //local_port,
             mac_address: env_utils::get_mac_address(local_ip.into()),
-            public_ip,
+            //public_ip,
             disk_total,
             disk_free,
             disk_uuid,
