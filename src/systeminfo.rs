@@ -151,9 +151,12 @@ fn get_os_info() -> (String, String) {
 fn get_cpu_info() -> (String, u32) {
     match env::consts::OS {
         "windows" => {
-            let cpu_info = run_command("powershell", &["Get-WmiObject", "-Class", "Win32_Processor"]);
-            let mut cpu_brand = "".to_string();
-            let mut cpu_cores = 0;
+            let cpu_name_resault = run_command("powershell", &["Get-CimInstance", "-ClassName Win32_Processor | Select Name"]);
+            let cpu_name_lines: Vec<&str> = cpu_name_resault.lines().collect();
+            let cpu_brand = cpu_name_lines.get(3).unwrap().trim().to_string();
+            let cpu_cores_resault = run_command("powershell", &["Get-CimInstance", "-ClassName Win32_Processor | Select NumberOfLogicalProcessors"]);
+            let cpu_cores_lines: Vec<&str> = cpu_cores_resault.lines().collect();
+            let cpu_cores = cpu_cores_lines.get(3).unwrap().trim().parse::<u32>().unwrap();
             (cpu_brand, cpu_cores)
         },
         "linux" => {
@@ -182,7 +185,7 @@ fn get_cpu_info() -> (String, u32) {
 fn get_ram_info() -> (u64, u64, u64) {
     match env::consts::OS {
         "windows" => {
-            let ram_info = run_command("powershell", &["Get-WmiObject", "-Class", "Win32_PhysicalMemory"]);
+            let ram_info = run_command("powershell", &["Get-CimInstance", "-ClassName Win32_PhysicalMemory | Select Capacity"]);
             let mut total_ram = 0;
             let mut swap_ram = 0;
             let mut free_ram = 0;
