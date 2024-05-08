@@ -2,8 +2,7 @@ import asyncio
 
 from simpleai import simpleai
 
-public_ip = None
-port = None
+
 async def async_task():
     global public_ip, port
     public_ip = await simpleai.get_ipaddr_from_public(False)

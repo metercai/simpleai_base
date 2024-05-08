@@ -28,7 +28,7 @@ impl SimpleAI {
     pub fn new(
         nickname: String,
     ) -> Self {
-        let sysinfo = SystemInfo::generate();
+        let sysinfo = env_utils::SYSTEM_INFO.clone();
         let mac_address_hash = env_utils::calc_sha256(format!("{}-{}", nickname, sysinfo.mac_address).as_bytes());
         let telephone_hash = env_utils::calc_sha256(format!("{}-telephone:-", nickname).as_bytes());
         let face_image_hash = env_utils::calc_sha256(format!("{}-face_image:-", nickname).as_bytes());

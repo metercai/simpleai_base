@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{self, Error, ErrorKind};
-use std::env;
 use std::path::Path;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
@@ -36,7 +35,7 @@ pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::Algorith
 };
 
 lazy_static! {
-    static ref SYSTEM_INFO: SystemInfo = SystemInfo::generate();
+    pub static ref SYSTEM_INFO: SystemInfo = SystemInfo::generate();
 }
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
@@ -45,9 +44,9 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let sysinfo =  SYSTEM_INFO.clone();
 
     let password = format!("{}:{}@{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.exe_name, sysinfo.host_name,
-                           sysinfo.os_version, sysinfo.os_name, sysinfo.cpu_brand, sysinfo.cpu_cores,
+                           sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
                            sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
-    tracing::info!("password: {password}");
+    //tracing::info!("password: {password}");
 
     let file_path = Path::new(".token_user.pem");
     let pem_label = "SIMPLE_AI_USER_KEY";
@@ -89,7 +88,7 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
 }
 
 
-pub(crate) fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, TokenError> {
+pub(crate) async fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, TokenError> {
     let default_ip = Ipv4Addr::new(114,114,114,114);
     let socket_addr = match dns_ip {
         Some(dns_ip) => SocketAddr::new(IpAddr::V4(Ipv4Addr::from_str(dns_ip).unwrap_or(default_ip)), 53),
@@ -139,7 +138,7 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     }
 }
 
-pub(crate) fn get_mac_address(ip: IpAddr) -> String {
+pub(crate) async fn get_mac_address(ip: IpAddr) -> String {
     //let interfaces = interfaces();
     //for interface in interfaces {
     //    for network in interface.ips {
@@ -230,12 +229,6 @@ pub fn decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     cipher.decrypt(&nonce, data).unwrap()
 }
 
-pub fn get_current_dir() -> String {
-    match env::current_dir() {
-        Ok(path) => path.to_string_lossy().into_owned(),
-        Err(_) => "".to_string(),
-    }
-}
 
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 
