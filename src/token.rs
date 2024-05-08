@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 
 #[derive(Clone, Debug)]
 #[pyclass]
-pub struct TokenDid {
+pub struct SimpleAI {
     pub(crate) nickname: String,
     pub(crate) did: String,
     pub(crate) sysinfo: SystemInfo,
@@ -23,12 +23,11 @@ pub struct TokenDid {
 }
 
 #[pymethods]
-impl TokenDid {
+impl SimpleAI {
     #[new]
     pub fn new(
         nickname: String,
     ) -> Self {
-        print!("TokenDid init: {}", nickname.clone());
         let sysinfo = SystemInfo::generate();
         let mac_address_hash = env_utils::calc_sha256(format!("{}-{}", nickname, sysinfo.mac_address).as_bytes());
         let telephone_hash = env_utils::calc_sha256(format!("{}-telephone:-", nickname).as_bytes());
@@ -62,7 +61,7 @@ impl TokenDid {
             });
         });
 
-        TokenDid {
+        Self {
             nickname,
             did,
             sysinfo,
