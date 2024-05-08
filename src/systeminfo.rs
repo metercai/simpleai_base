@@ -118,9 +118,10 @@ impl SystemInfo {
 fn get_os_info() -> (String, String) {
     match env::consts::OS {
         "windows" => {
-            let os_version_str = run_command("powershell", &["Get-WmiObject", "-Class", "Win32_OperatingSystem"]);
-            let host_name_str = run_command("powershell", &["Get-WmiObject", "-Class", "Win32_ComputerSystem"]);
-            (os_version_str, host_name_str)
+            let os_version_str = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).Name"]);
+            let os_version = os_version_str.split('|').nth(0).unwrap().trim().to_string();
+            let host_name = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).Name"]).trim().to_string();
+            (os_version, host_name)
         }
         "linux" => {
             let os_version_str = run_command("cat", &["/etc/os-release"]);
@@ -151,12 +152,8 @@ fn get_os_info() -> (String, String) {
 fn get_cpu_info() -> (String, u32) {
     match env::consts::OS {
         "windows" => {
-            let cpu_name_resault = run_command("powershell", &["Get-CimInstance", "-ClassName Win32_Processor | Select Name"]);
-            let cpu_name_lines: Vec<&str> = cpu_name_resault.lines().collect();
-            let cpu_brand = cpu_name_lines.get(3).unwrap().trim().to_string();
-            let cpu_cores_resault = run_command("powershell", &["Get-CimInstance", "-ClassName Win32_Processor | Select NumberOfLogicalProcessors"]);
-            let cpu_cores_lines: Vec<&str> = cpu_cores_resault.lines().collect();
-            let cpu_cores = cpu_cores_lines.get(3).unwrap().trim().parse::<u32>().unwrap();
+            let cpu_brand = run_command("powershell", &["(Get-CimInstance Win32_Processor).Name"]).trim().to_string();
+            let cpu_cores = run_command("powershell", &["(Get-CimInstance Win32_Processor).NumberOfLogicalProcessors"]).trim().parse::<u32>().unwrap();
             (cpu_brand, cpu_cores)
         },
         "linux" => {
@@ -185,11 +182,10 @@ fn get_cpu_info() -> (String, u32) {
 fn get_ram_info() -> (u64, u64, u64) {
     match env::consts::OS {
         "windows" => {
-            let ram_info = run_command("powershell", &["Get-CimInstance", "-ClassName Win32_PhysicalMemory | Select Capacity"]);
-            let mut total_ram = 0;
-            let mut swap_ram = 0;
-            let mut free_ram = 0;
-            (total_ram, free_ram, swap_ram)
+            let mut total_ram = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"]).trim().parse::<u64>().unwrap();
+            let mut swap_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).TotalVirtualMemorySize"]).trim().parse::<u64>().unwrap();
+            let mut free_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"]).trim().parse::<u64>().unwrap();
+            (total_ram, free_ram * 1024, swap_ram * 1024)
         },
         "linux" => {
             let ram_info = run_command("free", &[]);
@@ -222,10 +218,9 @@ fn get_ram_info() -> (u64, u64, u64) {
 fn get_disk_info() -> (u64, u64, String) {
     match env::consts::OS {
         "windows" => {
-            let disk_info = run_command("powershell", &["Get-WmiObject", "-Class", "Win32_LogicalDisk"]);
-            let mut total = 0;
-            let mut free = 0;
-            let mut uuid = "".to_string();
+            let mut total = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size"]).trim().parse::<u64>().unwrap_or(0); 
+            let mut free = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace"]).trim().parse::<u64>().unwrap_or(0); 
+            let mut uuid = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").VolumeSerialNumber"]).trim().to_string();
             (total, free, uuid)
         }
         "linux" => {
@@ -295,9 +290,25 @@ fn get_disk_info() -> (u64, u64, String) {
 fn get_gpu_info() -> (String, String, u64){
     match env::consts::OS {
         "windows" => {
-            let gpu_info = run_command("powershell", &["path", "Win32_VideoController", "get", "Name"]);
-            let lines: Vec < &str > = gpu_info.split_whitespace().collect();
-            ("".to_string(), "".to_string(), 0)
+            let mut gpu_name = "reserve".to_string();
+            let mut gpu_memory = 0;
+            let mut gpu_brand = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%NVIDIA%'\").Name"]).trim().to_string();
+            if gpu_brand.is_empty() {
+                gpu_brand = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%AMD%'\").Name"]).trim().to_string();
+                if gpu_brand.is_empty() {
+                    gpu_brand = "Unknown".to_string();
+                } else {
+                    gpu_name = gpu_brand;
+                    gpu_brand = "AMD".to_string();
+                    gpu_memory = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%AMD%'\").AdapterRAM"]).trim().parse::<u64>().unwrap_or(0);
+                }
+            } else {
+                gpu_name = gpu_brand;
+                gpu_brand = "NVIDIA".to_string();
+                gpu_memory = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%NVIDIA%'\").AdapterRAM"]).trim().parse::<u64>().unwrap_or(0);   
+            }
+            
+            (gpu_brand, gpu_name, gpu_memory)
         }
 
         "linux" => {
