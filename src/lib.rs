@@ -61,6 +61,7 @@ fn simpleai(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
     m.add_function(wrap_pyfunction!(get_ipaddr_from_public, m)?)?;
     m.add_function(wrap_pyfunction!(get_port_availability, m)?)?;
+    m.add_function(wrap_pyfunction!(get_ipaddr_from_stream, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
     m.add_class::<SystemInfo>()?;
