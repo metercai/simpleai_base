@@ -35,8 +35,19 @@ fn file_hash_size(path: String) -> (String, u64) {
 }
 
 #[pyfunction]
-async fn get_ipaddr_from_public(is_out: bool) -> PyResult<String> {
-    Ok(env_utils::get_ipaddr_from_public(is_out).await?.to_string())
+fn get_ipaddr_from_stream() -> String {
+    match env_utils::get_ipaddr_from_stream(None) {
+        Ok(ip) => ip.to_string(),
+        Err(_) => "".to_string(),
+    }
+}
+
+#[pyfunction]
+async fn get_ipaddr_from_public(is_out: bool) -> String {
+    match env_utils::get_ipaddr_from_public(is_out).await {
+        Ok(ip) => ip.to_string(),
+        Err(_) => "".to_string(),
+    }
 }
 
 #[pyfunction]
