@@ -1,6 +1,6 @@
 import asyncio
 
-from .simpleai import simpleai
+from simpleai import simpleai
 
 public_ip = None
 port = None
