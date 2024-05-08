@@ -60,11 +60,15 @@ impl SystemInfo {
 
         let root_dir = match env::current_dir() {
             Ok(dir) => dir,
-            Err(e) => { PathBuf::from("/") }
+            Err(e) => {
+                tracing::error!("env::current_dir, error:{:?}", e);
+                PathBuf::from("/") }
         };
         let exe_dir = match env::current_exe() {
             Ok(dir) => dir,
-            Err(e) => { PathBuf::from("/") }
+            Err(e) => {
+                tracing::error!("env::current_exe, error:{:?}", e);
+                PathBuf::from("/") }
         };
         let mut exe_name = "simpleai".to_string();
         if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {

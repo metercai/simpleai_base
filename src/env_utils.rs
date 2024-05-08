@@ -41,7 +41,7 @@ pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, B
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
 }
 fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
-    let sysinfo =  SYSTEM_INFO.clone();
+    let sysinfo =  &SYSTEM_INFO;
 
     let password = format!("{}:{}@{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.exe_name, sysinfo.host_name,
                            sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,

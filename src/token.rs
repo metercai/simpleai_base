@@ -15,9 +15,9 @@ use pyo3::prelude::*;
 #[derive(Clone, Debug)]
 #[pyclass]
 pub struct SimpleAI {
-    pub(crate) nickname: String,
-    pub(crate) did: String,
-    pub(crate) sysinfo: SystemInfo,
+    pub nickname: String,
+    pub did: String,
+    pub sysinfo: SystemInfo,
     claims: HashMap<String, IdClaim>,
     crypt_secret: [u8; 32],
 }
@@ -57,7 +57,8 @@ impl SimpleAI {
                 .unwrap();
 
             runtime.block_on(async {
-                let _ = Rathole::new(&config).start_service().await;
+                //let _ = Rathole::new(&config).start_service().await;
+                println!("Rathole service started");
             });
         });
 

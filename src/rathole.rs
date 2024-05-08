@@ -26,7 +26,7 @@ impl Rathole {
     pub async fn start_service(&self) {
 
         let is_atty = atty::is(atty::Stream::Stdout);
-        let level = "info";
+        let level = "error";
         tracing_subscriber::fmt()
             .with_env_filter(
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::from(level)),

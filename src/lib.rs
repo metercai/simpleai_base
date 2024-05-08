@@ -16,8 +16,8 @@ mod systeminfo;
 
 
 #[pyfunction]
-fn init_local(nick: String) -> PyResult<SimpleAI> {
-    Ok(SimpleAI::new(nick))
+fn init_local(nickname: String) -> PyResult<SimpleAI> {
+    Ok(SimpleAI::new(nickname))
 }
 
 #[pyfunction]
@@ -34,7 +34,7 @@ fn file_hash_size(path: String) -> (String, u64) {
 
 
 #[pymodule]
-fn simpleai(py: Python, m: &PyModule) -> PyResult<()> {
+fn simpleai(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
     m.add_function(wrap_pyfunction!(sha256, m)?)?;
     m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
