@@ -43,19 +43,24 @@ fn get_ipaddr_from_stream() -> String {
 }
 
 #[pyfunction]
-async fn get_ipaddr_from_public(is_out: bool) -> String {
-    match env_utils::get_ipaddr_from_public(is_out).await {
-        Ok(ip) => ip.to_string(),
-        Err(_) => "".to_string(),
-    }
+fn get_ipaddr_from_public(py: Python, is_out: bool) -> PyResult<&PyAny> {
+    pyo3_asyncio::tokio::future_into_py(py, async move {
+        match env_utils::get_ipaddr_from_public(is_out).await {
+            Ok(ip) => Ok(ip.to_string()),
+            Err(_) => Ok("".to_string()),
+        }
+    })
 }
 
 #[pyfunction]
-async fn get_port_availability(ip: String, port: u16) -> u16 {
-    env_utils::get_port_availability(Ipv4Addr::from_str(&ip).unwrap(), port).await
+fn get_port_availability(py: Python, ip: String, port: u16) -> PyResult<&PyAny> {
+    pyo3_asyncio::tokio::future_into_py(py, async move {
+        Ok(env_utils::get_port_availability(Ipv4Addr::from_str(&ip).unwrap(), port).await)
+    })
 }
+
 #[pymodule]
-fn simpleai(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn simpleai(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
     m.add_function(wrap_pyfunction!(sha256, m)?)?;
     m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
