@@ -73,3 +73,4 @@ docs/_build/
 
 .token_user.pem
 Cargo.lock
+*.did
