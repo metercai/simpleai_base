@@ -27,12 +27,12 @@ impl Rathole {
 
         let is_atty = atty::is(atty::Stream::Stdout);
         let level = "error";
-        tracing_subscriber::fmt()
+        /*tracing_subscriber::fmt()
             .with_env_filter(
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::from(level)),
             )
             .with_ansi(is_atty)
-            .init();
+            .init();*/
         let shutdown_rx = self.shutdown_tx.subscribe();
         let _ = run(self.args.clone(), shutdown_rx).await;
     }
