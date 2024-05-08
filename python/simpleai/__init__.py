@@ -10,4 +10,4 @@ async def async_task():
     port = await simpleai.get_port_availability(simpleai.get_ipaddr_from_stream(), 8186)
 
 
-asyncio.run(async_task())
+#asyncio.run(async_task())
