@@ -302,60 +302,49 @@ async fn get_gpu_info() -> (String, String, u64){
             } else {
                 gpu_name = gpu_brand;
                 gpu_brand = "NVIDIA".to_string();
-                gpu_memory = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%NVIDIA%'\").AdapterRAM"]).trim().parse::<u64>().unwrap_or(0);   
+                let gpu_info = run_command("nvidia-smi", &["--query-gpu=name,memory.total,memory.free", "--format=csv"]);
+                let parts: Vec<Vec<&str>> = gpu_info
+                    .lines()
+                    .map(|line| {
+                        line.split(',')
+                            .map(|part| { part.trim() })
+                            .collect::<Vec<&str>>()
+                    }).collect();
+                let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
+                    .unwrap_or_else(|| "".to_string());
+                let gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
             }
-            
             (gpu_brand, gpu_name, gpu_memory)
         }
 
         "linux" => {
+            let mut gpu_name = "reserve".to_string();
+            let mut gpu_memory = 0;
             let mut gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep NVIDIA"]);
             if gpu_brand.is_empty() {
                 gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep -E AMD|ATI"]);
                 if gpu_brand.is_empty() {
                     gpu_brand = "Unknown".to_string();
-                } else { gpu_brand = "AMD".to_string();  }
-            } else { gpu_brand = "NVIDIA".to_string();   }
-
-            match gpu_brand.as_str() {
-                "NVIDIA"  => {
-                    let gpu_info = run_command("nvidia-smi", &["--query-gpu=name,memory.total,memory.free", "--format=csv"]);
-                    let parts: Vec<Vec<&str>> = gpu_info
-                        .lines()
-                        .map(|line| {
-                            line.split(',')
-                                .map(|part| { part.trim() })
-                                .collect::<Vec<&str>>()
-                        }).collect();
-                    let gpu_name = parts.get(1).and_then(|row| row.get(0)).map(|value| value.to_string())
-                        .unwrap_or_else(|| "".to_string());
-                    let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
-                        .unwrap_or_else(|| "".to_string());
-                    let gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
-                    (gpu_brand, gpu_name, gpu_memory)
+                } else {
+                    gpu_brand = "AMD".to_string();
                 }
-                "AMD"     => {
-                    let gpu_info = run_command("radeontop", &["--query-gpu=name,memory.total,memory.free", "--format=csv"]);
-                    let parts: Vec<Vec<&str>> = gpu_info
-                        .lines()
-                        .map(|line| {
-                            line.split(',')
-                                .map(|part| { part.trim() })
-                                .collect::<Vec<&str>>()
-                        }).collect();
-                    let gpu_name = parts.get(1).and_then(|row| row.get(0)).map(|value| value.to_string())
-                        .unwrap_or_else(|| "".to_string());
-                    let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
-                        .unwrap_or_else(|| "".to_string());
-                    let gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
-                    (gpu_brand, gpu_name, gpu_memory)
-                }
-                "Unknown" | _ => {
-                    ("Unknown".to_string(), "reserve".to_string(), 0)
-                }
-
+            } else {
+                gpu_brand = "NVIDIA".to_string();
+                let gpu_info = run_command("nvidia-smi", &["--query-gpu=name,memory.total,memory.free", "--format=csv"]);
+                let parts: Vec<Vec<&str>> = gpu_info
+                    .lines()
+                    .map(|line| {
+                        line.split(',')
+                            .map(|part| { part.trim() })
+                            .collect::<Vec<&str>>()
+                    }).collect();
+                gpu_name = parts.get(1).and_then(|row| row.get(0)).map(|value| value.to_string())
+                    .unwrap_or_else(|| "".to_string());
+                let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
+                    .unwrap_or_else(|| "".to_string());
+                gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
             }
-
+            (gpu_brand, gpu_name, gpu_memory)
         }
         "macos" => {
             ("Apple".to_string(), "reserve".to_string(), 0)
