@@ -26,6 +26,7 @@ pub struct SystemInfo {
     pub local_port: u16,
     pub mac_address: String,
     pub public_ip: String,
+    pub location: String,
     pub disk_total: u64,
     pub disk_free: u64,
     pub disk_uuid: String,
@@ -77,6 +78,7 @@ impl SystemInfo {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
         let public_ip = env_utils::get_ipaddr_from_public(false).await.unwrap().to_string();
         let local_port = env_utils::get_port_availability(local_ip.clone(), 8186).await;
+        let location = env_utils::get_location().await.unwrap().to_string();;
 
         Self {
             os_type,
@@ -95,6 +97,7 @@ impl SystemInfo {
             local_port,
             mac_address: env_utils::get_mac_address(local_ip.into()).await,
             public_ip,
+            location,
             disk_total,
             disk_free,
             disk_uuid,

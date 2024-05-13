@@ -4,6 +4,7 @@ use std::path::Path;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
 use libp2p::identity::ed25519;
+use serde_json::Value;
 
 use pkcs8::{EncryptedPrivateKeyInfo, PrivateKeyInfo, LineEnding, ObjectIdentifier, SecretDocument};
 
@@ -110,11 +111,26 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
         false => "https://ipinfo.io/ip",
     };
     let client = reqwest::Client::new();
-    let response = client.get(default_url).send().await?;
-    let ip_str = response.text().await?;
-    let ip_addr = ip_str.parse::<Ipv4Addr>()?;
+    let response = client.get(default_url)
+        .send()
+        .await?
+        .text()
+        .await?;
+    let ip_addr = response.parse::<Ipv4Addr>()?;
     tracing::info!("CURL({}) public_ip={}", default_url, ip_addr);
     Ok(ip_addr)
+}
+
+pub(crate) async fn get_location() -> Result<String, TokenError> {
+    let client = reqwest::Client::new();
+    let response = client.get("http://ip-api.com/json")
+        .send()
+        .await?
+        .text()
+        .await?;
+    let json: Value = serde_json::from_str(&response)?;
+    let country_code = json["countryCode"].as_str().map(|s| s.to_string()).unwrap_or("CN".to_string());
+    Ok(country_code)
 }
 
 pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {

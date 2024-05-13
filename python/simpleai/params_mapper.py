@@ -1,9 +1,8 @@
 
 class ComfyTaskParams:
-    def __init__(self, params, result_filter=None):
+    def __init__(self, params):
         self.params = params
         self.workflow = ''
-        self.result_filter = result_filter if result_filter is not None else ['result_image']
 
     fooo2node = {
         'seed': 'KSampler:main_sampler:seed',
@@ -36,9 +35,6 @@ class ComfyTaskParams:
             nk = self.fooo2node[pk1]
             self.replace_key(nk,v)
         return self.workflow
-
-    def get_result_filter(self):
-        return self.result_filter
 
 
     def replace_key(self,nk,v):
