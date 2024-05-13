@@ -203,5 +203,5 @@ def sync_model_info(downurls):
         models_info_file[1] = time.localtime(os.path.getmtime(models_info_path))
     return keylist
 
-init_models_info()
+
 
