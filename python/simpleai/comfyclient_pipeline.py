@@ -54,7 +54,7 @@ def get_images(ws, prompt, callback=None):
         if isinstance(out, str):
             message = json.loads(out)
             current_type = message['type']
-            print(f'current_message={message}')
+            #print(f'current_message={message}')
             if message['type'] == 'executing':
                 data = message['data']
                 if data['node'] is None and data['prompt_id'] == prompt_id:
