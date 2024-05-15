@@ -16,8 +16,8 @@ mod systeminfo;
 
 
 #[pyfunction]
-fn init_local(nick: String) -> PyResult<SimpleAI> {
-    Ok(SimpleAI::new(nick))
+fn init_local(nickname: String) -> PyResult<SimpleAI> {
+    Ok(SimpleAI::new(nickname))
 }
 
 #[pyfunction]

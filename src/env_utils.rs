@@ -1,10 +1,10 @@
 use std::fs::File;
 use std::io::{self, Error, ErrorKind};
-use std::env;
 use std::path::Path;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
 use libp2p::identity::ed25519;
+use serde_json::Value;
 
 use pkcs8::{EncryptedPrivateKeyInfo, PrivateKeyInfo, LineEnding, ObjectIdentifier, SecretDocument};
 
@@ -15,7 +15,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use sha2::{Sha256, Digest};
 use hkdf::Hkdf;
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, rngs::SmallRng};
+use rand::SeedableRng;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key };
@@ -35,18 +36,18 @@ pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::Algorith
 };
 
 lazy_static! {
-    static ref SYSTEM_INFO: SystemInfo = SystemInfo::generate();
+    pub static ref SYSTEM_INFO: SystemInfo = SystemInfo::generate();
 }
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
 }
 fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
-    let sysinfo =  SYSTEM_INFO.clone();
+    let sysinfo =  &SYSTEM_INFO;
 
     let password = format!("{}:{}@{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.exe_name, sysinfo.host_name,
-                           sysinfo.os_version, sysinfo.os_name, sysinfo.cpu_brand, sysinfo.cpu_cores,
+                           sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
                            sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
-    tracing::info!("password: {password}");
+    //tracing::info!("password: {password}");
 
     let file_path = Path::new(".token_user.pem");
     let pem_label = "SIMPLE_AI_USER_KEY";
@@ -88,7 +89,7 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
 }
 
 
-pub(crate) fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, TokenError> {
+pub(crate) async fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, TokenError> {
     let default_ip = Ipv4Addr::new(114,114,114,114);
     let socket_addr = match dns_ip {
         Some(dns_ip) => SocketAddr::new(IpAddr::V4(Ipv4Addr::from_str(dns_ip).unwrap_or(default_ip)), 53),
@@ -110,11 +111,26 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
         false => "https://ipinfo.io/ip",
     };
     let client = reqwest::Client::new();
-    let response = client.get(default_url).send().await?;
-    let ip_str = response.text().await?;
-    let ip_addr = ip_str.parse::<Ipv4Addr>()?;
+    let response = client.get(default_url)
+        .send()
+        .await?
+        .text()
+        .await?;
+    let ip_addr = response.parse::<Ipv4Addr>()?;
     tracing::info!("CURL({}) public_ip={}", default_url, ip_addr);
     Ok(ip_addr)
+}
+
+pub(crate) async fn get_location() -> Result<String, TokenError> {
+    let client = reqwest::Client::new();
+    let response = client.get("http://ip-api.com/json")
+        .send()
+        .await?
+        .text()
+        .await?;
+    let json: Value = serde_json::from_str(&response)?;
+    let country_code = json["countryCode"].as_str().map(|s| s.to_string()).unwrap_or("CN".to_string());
+    Ok(country_code)
 }
 
 pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
@@ -122,9 +138,9 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     match TcpListener::bind(addr) {
         Ok(_) => port,
         Err(_) => {
-            let mut rng = rand::thread_rng();
+            let mut rng = SmallRng::from_entropy();
             loop {
-                let random_port = rng.gen_range(8000..=9000);
+                let random_port = rng.gen_range((port-100)..=(port+100));
                 let addr = format!("{}:{}", ip, random_port);
                 match TcpListener::bind(addr) {
                     Ok(_) => return random_port, 
@@ -138,7 +154,7 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     }
 }
 
-pub(crate) fn get_mac_address(ip: IpAddr) -> String {
+pub(crate) async fn get_mac_address(ip: IpAddr) -> String {
     //let interfaces = interfaces();
     //for interface in interfaces {
     //    for network in interface.ips {
@@ -229,12 +245,6 @@ pub fn decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     cipher.decrypt(&nonce, data).unwrap()
 }
 
-pub fn get_current_dir() -> String {
-    match env::current_dir() {
-        Ok(path) => path.to_string_lossy().into_owned(),
-        Err(_) => "".to_string(),
-    }
-}
 
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 

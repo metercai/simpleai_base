@@ -15,9 +15,9 @@ use pyo3::prelude::*;
 #[derive(Clone, Debug)]
 #[pyclass]
 pub struct SimpleAI {
-    pub(crate) nickname: String,
-    pub(crate) did: String,
-    pub(crate) sysinfo: SystemInfo,
+    pub nickname: String,
+    pub did: String,
+    pub sysinfo: SystemInfo,
     claims: HashMap<String, IdClaim>,
     crypt_secret: [u8; 32],
 }
@@ -28,7 +28,7 @@ impl SimpleAI {
     pub fn new(
         nickname: String,
     ) -> Self {
-        let sysinfo = SystemInfo::generate();
+        let sysinfo = env_utils::SYSTEM_INFO.clone();
         let mac_address_hash = env_utils::calc_sha256(format!("{}-{}", nickname, sysinfo.mac_address).as_bytes());
         let telephone_hash = env_utils::calc_sha256(format!("{}-telephone:-", nickname).as_bytes());
         let face_image_hash = env_utils::calc_sha256(format!("{}-face_image:-", nickname).as_bytes());
@@ -57,7 +57,8 @@ impl SimpleAI {
                 .unwrap();
 
             runtime.block_on(async {
-                let _ = Rathole::new(&config).start_service().await;
+                //let _ = Rathole::new(&config).start_service().await;
+                println!("Rathole service started");
             });
         });
 

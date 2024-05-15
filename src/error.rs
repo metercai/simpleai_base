@@ -4,6 +4,7 @@ use serde::ser::StdError;
 use argon2::Error as Argon2Error;
 use pyo3::exceptions::PyBaseException;
 use pyo3::PyErr;
+use serde_json::Error as SerdeJsonError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum TokenError {
@@ -17,6 +18,8 @@ pub enum TokenError {
     BoxStdError(#[from] Box<dyn StdError>),
     #[error("io Error ")]
     IoError(#[from] io::Error),
+    #[error("Error in serde_json")]
+    JsonParseError(#[from] SerdeJsonError),
     #[error("Unknown error")]
     Unknown,
 }
@@ -44,5 +47,6 @@ impl From<TokenError> for PyErr {
         PyBaseException::new_err(format!("TokenError: {:?}", err))
     }
 }
+
 
 unsafe impl Send for TokenError {}
