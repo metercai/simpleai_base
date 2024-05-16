@@ -14,4 +14,4 @@ dynamic = ["version"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-compatibility = "manylinux"
+compatibility = "manylinux2014"
