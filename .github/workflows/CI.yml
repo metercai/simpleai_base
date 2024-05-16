@@ -33,12 +33,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install pkg-config
-        run: perl -MIPC::Cmd -e 1
-      - name: Install Cpanminus
-        run: sudo apt install cpanminus
-      - name: Install CPAN
-        run: cpan IPC::Cmd
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -49,6 +43,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
+          container: off
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
