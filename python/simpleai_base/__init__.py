@@ -1,7 +1,7 @@
 import os
 import importlib.util
 
-#from simple_ai import simple_ai
+#from simpleai_base import simpleai_base
 
 __all__ = ['models_info', 'models_hub_host', 'comfyclient_pipeline', 'params_mapper', 'config']
 
