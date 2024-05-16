@@ -38,8 +38,8 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
-          manylinux: auto
-          container: off
+          manylinux: 2_28
+          before-script-linux: cpan IPC::Cmd
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
