@@ -34,7 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set OPENSSL_LIB_DIR && OPENSSL_INCLUDE_DIR
-        run: export OPENSSL_LIB_DIR=/usr/lib OPENSSL_INCLUDE_DIR=/usr/include/openssl
+        env:
+          OPENSSL_LIB_DIR: /usr/lib
+          OPENSSL_INCLUDE_DIR: /usr/include/openssl
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
