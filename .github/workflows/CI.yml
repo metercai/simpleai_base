@@ -22,8 +22,10 @@ jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
     env:
-      OPENSSL_LIB_DIR: /usr/lib:/usr/lib/x86_64-linux-gnu
-      OPENSSL_INCLUDE_DIR: /usr/include/openssl:/usr/include/x86_64-linux-gnu/openssl
+      OPENSSL_LIB_DIR: /usr/lib
+      OPENSSL_INCLUDE_DIR: /usr/include/openssl
+      I686_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
+      I686_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR: /usr/include/x86_64-linux-gnu/openssl
     strategy:
       matrix:
         platform:
