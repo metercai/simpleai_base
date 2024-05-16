@@ -1,14 +1,16 @@
 import os
 import importlib.util
 
-#from simpleai_base import simpleai_base
+# from simpleai_base import simpleai_base
 
 __all__ = ['models_info', 'models_hub_host', 'comfyclient_pipeline', 'params_mapper', 'config']
 
+
 def get_torch_xformers_cuda_version():
+    torch_ver = ""
+    cuda_ver = ""
+    xformers_ver = ""
     try:
-        torch_version = ""
-        cuda_version = ""
         torch_spec = importlib.util.find_spec("torch")
         for folder in torch_spec.submodule_search_locations:
             ver_file = os.path.join(folder, "version.py")
@@ -16,9 +18,8 @@ def get_torch_xformers_cuda_version():
                 spec = importlib.util.spec_from_file_location("torch_version_import", ver_file)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-                torch_version = module.__version__
-                cuda_version = getattr(module, 'cuda', "")
-        xformers_version = ""
+                torch_ver = module.__version__
+                cuda_ver = getattr(module, 'cuda', "")
         xformers_spec = importlib.util.find_spec("xformers")
         for folder in xformers_spec.submodule_search_locations:
             ver_file = os.path.join(folder, "version.py")
@@ -26,10 +27,10 @@ def get_torch_xformers_cuda_version():
                 spec = importlib.util.spec_from_file_location("xformers_version_import", ver_file)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-                xformers_version = module.__version__
+                xformers_ver = module.__version__
     except:
         pass
-    return torch_version, xformers_version, cuda_version
+    return torch_ver, xformers_ver, cuda_ver
+
 
 torch_version, xformers_version, cuda_version = get_torch_xformers_cuda_version()
-

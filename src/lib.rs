@@ -34,7 +34,7 @@ fn file_hash_size(path: String) -> (String, u64) {
 
 
 #[pymodule]
-fn simple_ai(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
     m.add_function(wrap_pyfunction!(sha256, m)?)?;
     m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
