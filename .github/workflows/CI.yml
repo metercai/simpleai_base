@@ -21,13 +21,6 @@ permissions:
 jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
-    env:
-      OPENSSL_LIB_DIR: /usr/lib
-      OPENSSL_INCLUDE_DIR: /usr/include/openssl
-      I686_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-      I686_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR: /usr/include/x86_64-linux-gnu/openssl
-      AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR: /usr/lib/aarch64-linux-gnu/
-      AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR: /usr/include/aarch64-linux-gnu/openssl
     strategy:
       matrix:
         platform:
@@ -41,8 +34,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: env ver
-        run: echo $OPENSSL_LIB_DIR $OPENSSL_INCLUDE_DIR
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
