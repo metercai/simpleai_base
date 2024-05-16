@@ -21,6 +21,9 @@ permissions:
 jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      OPENSSL_LIB_DIR: /usr/lib
+      OPENSSL_INCLUDE_DIR: /usr/include/openssl
     strategy:
       matrix:
         platform:
@@ -32,11 +35,7 @@ jobs:
             target: aarch64
 
     steps:
-      - uses: actions/checkout@v4
-      - name: Set OPENSSL_LIB_DIR && OPENSSL_INCLUDE_DIR
-        env:
-          OPENSSL_LIB_DIR: /usr/lib
-          OPENSSL_INCLUDE_DIR: /usr/include/openssl
+      - uses: actions/checkout@v4  
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
