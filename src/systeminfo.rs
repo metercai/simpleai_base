@@ -71,7 +71,7 @@ impl SystemInfo {
                 tracing::error!("env::current_exe, error:{:?}", e);
                 PathBuf::from("/") }
         };
-        let mut exe_name = "simpleai".to_string();
+        let mut exe_name = "simple_ai".to_string();
         if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {
             exe_name = exe.to_string()
         }

@@ -1,11 +1,11 @@
 [package]
-name = "simpleai"
+name = "simple_ai"
 version = "0.2.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "simpleai"
+name = "simple_ai"
 crate-type = ["cdylib"]
 
 [dependencies.pyo3]

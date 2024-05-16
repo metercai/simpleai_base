@@ -3,7 +3,7 @@ requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "simpleai"
+name = "simple_ai"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
