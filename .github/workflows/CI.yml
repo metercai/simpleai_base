@@ -34,9 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install pkg-config
-        run: sudo apt-get install -y pkg-config
+        run: perl -MIPC::Cmd -e 1
+      - name: Install Cpanminus
+        run: sudo apt install cpanminus
       - name: Install CPAN
-        run: sudo apt-get install -y perl
+        run: cpan IPC::Cmd
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
