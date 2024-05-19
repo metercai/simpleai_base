@@ -79,8 +79,9 @@ impl SimpleAI {
                     sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
                 let shared_key = b"Simple_114";
                 let aes_key = env_utils::hkdf_key(shared_key);
-                let ctext = env_utils::encrypt(loginfo.as_bytes(), &aes_key);
-                match tokio::time::timeout(Duration::from_secs(2), env_utils::logging_launch_info(&URL_SAFE_NO_PAD.encode(ctext))).await {
+                let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), &aes_key));
+                println!("ctext: {}", ctext);
+                match tokio::time::timeout(Duration::from_secs(5), env_utils::logging_launch_info(&ctext)).await {
                     Ok(_) => {},
                     Err(e) => {
                         tracing::info!("start_base_services is err{:}", e);
