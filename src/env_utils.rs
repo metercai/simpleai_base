@@ -157,9 +157,9 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     }
 }
 
-pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
+pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let path_py = vec!["/", "/modules", "/ldm_patched", "/enhanced", "/comfy", "/comfy/comfy"];
-    let path_ui = vec!["/language/cn.json", "/simplesdxl_log.md", "/webui.py", "/enhanced/attached/welcome.jpg", "/comfy", "/config"];
+    let path_ui = vec!["/language/cn.json", "/simplesdxl_log.md", "/webui.py", "/enhanced/attached/welcome.jpg"];
 
     let path_root = env::current_dir()?;
 
@@ -170,9 +170,10 @@ pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
         if full_path.is_dir() {
             for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
+                println!("check path_py: {}", entry.path().to_string_lossy());
                 if entry.file_type()?.is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("py") {
-                    println!("ready to read path_py: {}", entry.path().to_string_lossy());
                     let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
+                    println!("hash path_py: {}, {}", hash, entry.path().to_string_lossy());
                     py_hashes.insert(entry.file_name().into_string().unwrap(), hash);
                 }
             }
@@ -196,10 +197,9 @@ pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
     let mut ui_hashes = Vec::new();
     for path in path_ui {
         let full_path = path_root.join(path);
-        println!("ready to read path_ui: {}", full_path.to_string_lossy());
         if full_path.is_file() {
-            let content = std::fs::read(&full_path)?;
-            let hash = Sha256::digest(&content);
+            let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
+            println!("hash path_ui: {}, {}", hash, full_path.to_string_lossy());
             ui_hashes.push(hash);
         }
     }
