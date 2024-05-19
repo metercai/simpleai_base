@@ -1,4 +1,5 @@
-use std::fs::{File, read_dir, read};
+use std::collections::HashMap;
+use std::fs::File;
 use std::io::{self, Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::env;
@@ -160,49 +161,55 @@ pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
     let path_py = vec!["/", "/modules", "/ldm_patched", "/enhanced", "/comfy", "/comfy/comfy"];
     let path_ui = vec!["/language/cn.json", "/simplesdxl_log.md", "/webui.py", "/enhanced/attached/welcome.jpg", "/comfy", "/config"];
 
-    let path_root = env::current_dir()?;
+    let path_root = std::fs::canonicalize(".")?;
 
-    let mut py_files = Vec::new();
+    let mut py_hashes: HashMap<String, String> = HashMap::new();
     for path in path_py {
         let full_path = path_root.join(path);
+        println!("ready to check {}", full_path.to_string_lossy());
         if full_path.is_dir() {
-            for entry in read_dir(&full_path)? {
+            for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
-                let path = entry.path();
-                if path.is_file() && path.extension().unwrap_or_default() == "py" && path.file_name() != Some("webui.py".as_ref()){
-                    py_files.push(path);
+                if entry.file_type()?.is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("py") {
+                    let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
+                    py_hashes.insert(entry.file_name().into_string().unwrap(), hash);
                 }
             }
-        } else if full_path.is_file() && full_path.extension().unwrap_or_default() == "py" {
-            py_files.push(full_path);
+        } else if full_path.is_file() && full_path.extension().and_then(|s| s.to_str()) == Some("py") {
+            let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
+            let file_name = full_path.file_name().and_then(|os_str| os_str.to_str()).unwrap().to_string();
+            py_hashes.insert(file_name, hash);
         }
     }
-    py_files.sort(); // 按文件名排序
-    let mut py_files_content = Vec::new();
-    for file in py_files {
-        let content = read(&file)?;
-        py_files_content.extend_from_slice(&content);
+    let mut keys: Vec<&String> = py_hashes.keys().collect();
+    keys.sort();
+
+    let mut combined_py_hash = Sha256::new();
+    for key in keys {
+        combined_py_hash.update(&py_hashes[key]);
     }
-    let py_hash = calc_sha256(&py_files_content);
-    let py_hash_base64 = base64::encode(&py_hash);
+    let combined_py_hash = combined_py_hash.finalize();
+    let py_hash_base64 = URL_SAFE_NO_PAD.encode(&combined_py_hash);
     let py_hash_output = &py_hash_base64[..7];
 
-    let mut ui_files = Vec::new();
+    let mut ui_hashes = Vec::new();
     for path in path_ui {
         let full_path = path_root.join(path);
+        println!("ready to check {}", full_path.to_string_lossy());
         if full_path.is_file() {
-            ui_files.push(full_path);
+            let content = std::fs::read(&full_path)?;
+            let hash = Sha256::digest(&content);
+            ui_hashes.push(hash);
         }
     }
-    ui_files.sort(); // 按文件名排序
-    let mut ui_files_content = Vec::new();
-    for file in ui_files {
-        let content = read(&file)?;
-        ui_files_content.extend_from_slice(&content);
+    let mut combined_ui_hash = Sha256::new();
+    for ui_hash in ui_hashes {
+        combined_ui_hash.update(&ui_hash);
     }
-    let ui_hash = calc_sha256(&ui_files_content);
-    let ui_hash_base64 = base64::encode(&ui_hash);
+    let combined_ui_hash = combined_ui_hash.finalize();
+    let ui_hash_base64 = URL_SAFE_NO_PAD.encode(&combined_ui_hash);
     let ui_hash_output = &ui_hash_base64[..7];
+
 
     Ok((py_hash_output.to_string(), ui_hash_output.to_string()))
 }
