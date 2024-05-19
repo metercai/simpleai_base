@@ -166,7 +166,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let mut py_hashes: HashMap<String, String> = HashMap::new();
     for path in path_py {
         let full_path = path_root.join(path);
-        println!("ready to check path_py: {}", full_path.to_string_lossy());
+        println!("ready to check path_py: {}, {}", path_root.as_path().to_string_lossy(), full_path.to_string_lossy());
         if full_path.is_dir() {
             for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
@@ -217,7 +217,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
 
 pub(crate) async fn logging_launch_info(info: &str) -> Result<(), TokenError>{
     let info = format!("{}", info);
-    let url = reqwest::Url::parse_with_params("https://124.222.60.66/log.gif", &[("ping", info)])?;
+    let url = reqwest::Url::parse_with_params("https://edge.tokentm.net//log.gif", &[("ping", info)])?;
     let client = reqwest::Client::new();
     let _ = client.get(url.as_str())
         .send()
