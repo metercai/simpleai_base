@@ -171,7 +171,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
             for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
                 if entry.file_type()?.is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("py") {
-                    println!("ready to read path_py: {}", entry.to_string_lossy());
+                    println!("ready to read path_py: {}", entry.path().to_string_lossy());
                     let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
                     py_hashes.insert(entry.file_name().into_string().unwrap(), hash);
                 }
