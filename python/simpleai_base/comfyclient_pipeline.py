@@ -83,7 +83,9 @@ def get_images(ws, prompt, callback=None):
 
     output_images = {k: np.array(Image.open(BytesIO(v))) for k, v in output_images.items()}
     print(f'[ComfyClient] The ComfyTask:{prompt_id} has finished: {len(output_images)}')
-    return output_images
+    images_keys = sorted(output_images.keys(), reverse=True)
+    imgs = [output_images[key] for key in images_keys]
+    return imgs
 
 def images_upload(images):
     result = {}

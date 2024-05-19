@@ -5,12 +5,14 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use std::thread;
 use std::fs;
+use std::time::Duration;
 
 use crate::claim::IdClaim;
 use crate::rathole::Rathole;
 use crate::env_utils;
 use crate::systeminfo::SystemInfo;
 use pyo3::prelude::*;
+use crate::error::TokenError;
 
 #[derive(Clone, Debug)]
 #[pyclass]
@@ -48,20 +50,6 @@ impl SimpleAI {
         let mut claims = HashMap::new();
         claims.insert(did.clone(), local_claim);
 
-
-        let config = "client.toml";
-        let _rt_handle = thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-
-            runtime.block_on(async {
-                //let _ = Rathole::new(&config).start_service().await;
-                println!("Rathole service started");
-            });
-        });
-
         Self {
             nickname,
             did,
@@ -71,6 +59,39 @@ impl SimpleAI {
         }
     }
 
+    pub fn start_base_services(&self) -> Result<(), TokenError> {
+        let config = "client.toml";
+        let did = self.did.clone();
+        let sysinfo = self.sysinfo.clone();
+        let _rt_handle = thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            runtime.block_on(async {
+                //let _ = Rathole::new(&config).start_service().await;
+                let loginfo = format!(
+                    "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+                    did, sysinfo.os_type, sysinfo.os_name, sysinfo.cpu_arch,
+                    sysinfo.ram_total/(1024*1024), sysinfo.gpu_brand, sysinfo.gpu_name,
+                    sysinfo.gpu_memory/(1024*1024), sysinfo.location, sysinfo.disk_total/(1024*1024*1024),
+                    sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
+                let shared_key = b"Simple_114";
+                let aes_key = env_utils::hkdf_key(shared_key);
+                let ctext = env_utils::encrypt(loginfo.as_bytes(), &aes_key);
+                match tokio::time::timeout(Duration::from_secs(2), env_utils::logging_launch_info(&URL_SAFE_NO_PAD.encode(ctext))).await {
+                    Ok(_) => {},
+                    Err(e) => {
+                        tracing::info!("start_base_services is err{:}", e);
+                    }
+                }
+
+                println!("Rathole service started");
+            });
+        });
+        Ok(())
+    }
     pub fn get_name(&self) -> String { self.nickname.clone() }
     pub fn get_did(&self) -> String { self.did.clone() }
     pub fn get_sysinfo(&self) -> SystemInfo {

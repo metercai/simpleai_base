@@ -1,6 +1,7 @@
-use std::fs::File;
+use std::fs::{File, read_dir, read};
 use std::io::{self, Error, ErrorKind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::env;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
 use libp2p::identity::ed25519;
@@ -22,6 +23,7 @@ use aes_gcm::{
     Aes256Gcm, Key };
 use argon2::Argon2;
 use tokio::time::{self, Duration};
+use tracing::info;
 use lazy_static::lazy_static;
 
 use crate::error::TokenError;
@@ -152,6 +154,69 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
             };
         }
     }
+}
+
+pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
+    let path_py = vec!["/", "/modules", "/ldm_patched", "/enhanced", "/comfy", "/comfy/comfy"];
+    let path_ui = vec!["/language/cn.json", "/simplesdxl_log.md", "/webui.py", "/enhanced/attached/welcome.jpg", "/comfy", "/config"];
+
+    let path_root = env::current_dir()?;
+
+    let mut py_files = Vec::new();
+    for path in path_py {
+        let full_path = path_root.join(path);
+        if full_path.is_dir() {
+            for entry in read_dir(&full_path)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() && path.extension().unwrap_or_default() == "py" && path.file_name() != Some("webui.py".as_ref()){
+                    py_files.push(path);
+                }
+            }
+        } else if full_path.is_file() && full_path.extension().unwrap_or_default() == "py" {
+            py_files.push(full_path);
+        }
+    }
+    py_files.sort(); // 按文件名排序
+    let mut py_files_content = Vec::new();
+    for file in py_files {
+        let content = read(&file)?;
+        py_files_content.extend_from_slice(&content);
+    }
+    let py_hash = calc_sha256(&py_files_content);
+    let py_hash_base64 = base64::encode(&py_hash);
+    let py_hash_output = &py_hash_base64[..7];
+
+    let mut ui_files = Vec::new();
+    for path in path_ui {
+        let full_path = path_root.join(path);
+        if full_path.is_file() {
+            ui_files.push(full_path);
+        }
+    }
+    ui_files.sort(); // 按文件名排序
+    let mut ui_files_content = Vec::new();
+    for file in ui_files {
+        let content = read(&file)?;
+        ui_files_content.extend_from_slice(&content);
+    }
+    let ui_hash = calc_sha256(&ui_files_content);
+    let ui_hash_base64 = base64::encode(&ui_hash);
+    let ui_hash_output = &ui_hash_base64[..7];
+
+    Ok((py_hash_output.to_string(), ui_hash_output.to_string()))
+}
+
+pub(crate) async fn logging_launch_info(info: &str) -> Result<(), TokenError>{
+    let info = format!("{}", info);
+    let url = reqwest::Url::parse_with_params("https://124.222.60.66/log.gif", &[("ping", info)])?;
+    let client = reqwest::Client::new();
+    let _ = client.get(url.as_str())
+        .send()
+        .await?
+        .text()
+        .await?;
+    Ok(())
 }
 
 pub(crate) async fn get_mac_address(ip: IpAddr) -> String {

@@ -20,6 +20,8 @@ pub enum TokenError {
     IoError(#[from] io::Error),
     #[error("Error in serde_json")]
     JsonParseError(#[from] SerdeJsonError),
+    #[error("Error in url parser")]
+    UrlParseError(#[from] url::ParseError),
     #[error("Unknown error")]
     Unknown,
 }

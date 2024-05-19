@@ -24,6 +24,7 @@ pub struct SystemInfo {
     pub gpu_memory: u64,
     pub local_ip: String,
     pub local_port: u16,
+    pub loopback_port: u16,
     pub mac_address: String,
     pub public_ip: String,
     pub location: String,
@@ -33,6 +34,8 @@ pub struct SystemInfo {
     pub root_dir: String,
     pub exe_dir: String,
     pub exe_name: String,
+    pub pyhash: String,
+    pub uihash: String,
 }
 
 
@@ -78,7 +81,9 @@ impl SystemInfo {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
         let public_ip = env_utils::get_ipaddr_from_public(false).await.unwrap().to_string();
         let local_port = env_utils::get_port_availability(local_ip.clone(), 8186).await;
-        let location = env_utils::get_location().await.unwrap().to_string();;
+        let loopback_port = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188).await;
+        let location = env_utils::get_location().await.unwrap().to_string();
+        let (pyhash, uihash) = env_utils::get_program_hash().await.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
 
         Self {
             os_type,
@@ -95,6 +100,7 @@ impl SystemInfo {
             gpu_memory,
             local_ip: local_ip.to_string(),
             local_port,
+            loopback_port,
             mac_address: env_utils::get_mac_address(local_ip.into()).await,
             public_ip,
             location,
@@ -104,6 +110,8 @@ impl SystemInfo {
             root_dir: root_dir.to_string_lossy().into_owned(),
             exe_dir: exe_dir.to_string_lossy().into_owned(),
             exe_name,
+            pyhash,
+            uihash,
         }
     }
 }
@@ -141,7 +149,7 @@ async fn get_os_info() -> (String, String) {
             let os_version_str = run_command("sw_vers", &["-productVersion"]);
             let (os_version, _) = os_version_str.rsplit_once('.').unwrap();
             //let host_name = run_command("scutil", &["-n", "ComputerName"]);
-            let host_name = run_command("hostname", &[]);
+            let host_name = run_command("hostname", &[]).trim().to_string();
             (os_version.to_string(), host_name)
         }
         _ => ("".to_string(), "".to_string()),
@@ -171,7 +179,7 @@ async fn get_cpu_info() -> (String, u32) {
             (cpu_brand, cpu_cores)
         },
         "macos" => {
-            let cpu_brand = run_command("sysctl", &["-n", "machdep.cpu.brand_string"]);
+            let cpu_brand = run_command("sysctl", &["-n", "machdep.cpu.brand_string"]).trim().to_string();
             let cpu_cores = run_command("sysctl", &["-n", "hw.ncpu"]).trim().parse::<u32>().unwrap();
             (cpu_brand, cpu_cores)
         },

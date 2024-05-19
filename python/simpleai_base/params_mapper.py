@@ -25,7 +25,7 @@ class ComfyTaskParams:
     def set_mapping_rule(self, maps):
         self.fooo2node.update(maps)
 
-    def add_params(self, new_parms):
+    def update_params(self, new_parms):
         self.params.update(new_parms)
 
     def convert2comfy(self, workflow):
