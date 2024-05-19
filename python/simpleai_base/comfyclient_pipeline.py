@@ -83,9 +83,7 @@ def get_images(ws, prompt, callback=None):
 
     output_images = {k: np.array(Image.open(BytesIO(v))) for k, v in output_images.items()}
     print(f'[ComfyClient] The ComfyTask:{prompt_id} has finished: {len(output_images)}')
-    images_keys = sorted(output_images.keys(), reverse=True)
-    imgs = [output_images[key] for key in images_keys]
-    return imgs
+    return output_images
 
 def images_upload(images):
     result = {}
@@ -112,13 +110,14 @@ def process_flow(flow_name, params, images, callback=None):
         ws = websocket.WebSocket()
         ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
     images_map = images_upload(images)
-    params.add_params(images_map)
+    params.update_params(images_map)
     with open(flow_file, 'r', encoding="utf-8") as workflow_api_file:
         flowdata = json.load(workflow_api_file)
     print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}, params={params.params}')
     images = get_images(ws, params.convert2comfy(flowdata), callback=callback)
-
-    return images
+    images_keys = sorted(images.keys(), reverse=True)
+    imgs = [images[key] for key in images_keys]
+    return imgs
 
 WORKFLOW_DIR = 'workflows'
 COMFYUI_ENDPOINT = '127.0.0.1:8188'
