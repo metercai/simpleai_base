@@ -5,6 +5,7 @@ use std::path::Path;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
+use std::time::SystemTime;
 use libp2p::identity::ed25519;
 use serde_json::Value;
 
@@ -270,7 +271,7 @@ pub fn calc_sha256(input: &[u8]) -> [u8; 32] {
     //URL_SAFE_NO_PAD.encode(hasher.finalize())
     let result = hasher.finalize();
     let mut output = [0u8; 32];
-    output[..result.len()].copy_from_slice(&result[..]);
+    output.copy_from_slice(&result[..]);
     output
 }
 
@@ -292,7 +293,14 @@ pub fn hkdf_key(key: &[u8]) -> [u8; 32] {
     let mut rng = thread_rng();
     let mut salt = [0u8; 12];
     rng.fill(&mut salt);
-    let info = b"model_file_hub_sys";
+    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let input = format!("now()={}", timestamp / 600);
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let result = hasher.finalize();
+    salt.copy_from_slice(&result[..]);
+
+    let info = b"SimpleAI_SYS";
     let hk = Hkdf::<Sha256>::new(Some(&salt[..]), key);
     let mut aes_key = [0u8; 32];
     hk.expand(info, &mut aes_key).unwrap();

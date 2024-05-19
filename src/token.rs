@@ -87,7 +87,7 @@ impl SimpleAI {
                     }
                 }
 
-                println!("Rathole service started");
+                //println!("Rathole service started");
             });
         });
         Ok(())

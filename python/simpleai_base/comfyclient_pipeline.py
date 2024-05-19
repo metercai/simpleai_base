@@ -113,7 +113,9 @@ def process_flow(flow_name, params, images, callback=None):
     params.update_params(images_map)
     with open(flow_file, 'r', encoding="utf-8") as workflow_api_file:
         flowdata = json.load(workflow_api_file)
-    print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}, params={params.params}')
+    print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
+    for k,v in params.params.items():
+        print(f'\n{k} = {v}')
     images = get_images(ws, params.convert2comfy(flowdata), callback=callback)
     images_keys = sorted(images.keys(), reverse=True)
     imgs = [images[key] for key in images_keys]
