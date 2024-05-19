@@ -158,8 +158,8 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
 }
 
 pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
-    let path_py = vec!["/", "/modules", "/ldm_patched", "/enhanced", "/comfy", "/comfy/comfy"];
-    let path_ui = vec!["/language/cn.json", "/simplesdxl_log.md", "/webui.py", "/enhanced/attached/welcome.jpg"];
+    let path_py = vec!["", "modules", "ldm_patched", "enhanced", "comfy", "comfy/comfy"];
+    let path_ui = vec!["language/cn.json", "simplesdxl_log.md", "webui.py", "enhanced/attached/welcome.jpg"];
 
     let path_root = env::current_dir()?;
 
