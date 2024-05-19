@@ -213,8 +213,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
 
 pub(crate) async fn logging_launch_info(info: &str) -> Result<(), TokenError>{
     let info = format!("{}", info);
-    let url = reqwest::Url::parse_with_params("https://edge.tokentm.net/log.gif", &[("ping", info)])?;
-    println!("url: {}", url);
+    let url = reqwest::Url::parse_with_params("https://edge.tokentm.net/log.gif", &[("p", info)])?;
     let client = reqwest::Client::new();
     let _ = client.get(url.as_str())
         .send()
