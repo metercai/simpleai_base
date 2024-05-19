@@ -161,16 +161,17 @@ pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
     let path_py = vec!["/", "/modules", "/ldm_patched", "/enhanced", "/comfy", "/comfy/comfy"];
     let path_ui = vec!["/language/cn.json", "/simplesdxl_log.md", "/webui.py", "/enhanced/attached/welcome.jpg", "/comfy", "/config"];
 
-    let path_root = std::fs::canonicalize(".")?;
+    let path_root = env::current_dir()?;
 
     let mut py_hashes: HashMap<String, String> = HashMap::new();
     for path in path_py {
         let full_path = path_root.join(path);
-        println!("ready to check {}", full_path.to_string_lossy());
+        println!("ready to check path_py: {}", full_path.to_string_lossy());
         if full_path.is_dir() {
             for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
                 if entry.file_type()?.is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("py") {
+                    println!("ready to read path_py: {}", entry.to_string_lossy());
                     let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
                     py_hashes.insert(entry.file_name().into_string().unwrap(), hash);
                 }
@@ -195,7 +196,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String),TokenError> {
     let mut ui_hashes = Vec::new();
     for path in path_ui {
         let full_path = path_root.join(path);
-        println!("ready to check {}", full_path.to_string_lossy());
+        println!("ready to read path_ui: {}", full_path.to_string_lossy());
         if full_path.is_file() {
             let content = std::fs::read(&full_path)?;
             let hash = Sha256::digest(&content);
