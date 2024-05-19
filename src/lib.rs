@@ -17,7 +17,9 @@ mod systeminfo;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {
-    Ok(SimpleAI::new(nickname))
+    let token = SimpleAI::new(nickname);
+    let _ = token.start_base_services();
+    Ok(token)
 }
 
 #[pyfunction]
