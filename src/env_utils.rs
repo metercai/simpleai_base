@@ -291,14 +291,14 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], TokenError> {
 
 pub fn hkdf_key(key: &[u8]) -> [u8; 32] {
     let mut rng = thread_rng();
-    let mut salt = [0u8; 12];
+    let mut salt = [0u8; 16];
     rng.fill(&mut salt);
     let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     let input = format!("now()={}", timestamp / 600);
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let result = hasher.finalize();
-    salt.copy_from_slice(&result[..]);
+    salt.copy_from_slice(&result[..16]);
 
     let info = b"SimpleAI_SYS";
     let hk = Hkdf::<Sha256>::new(Some(&salt[..]), key);
