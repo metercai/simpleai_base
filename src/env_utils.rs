@@ -27,6 +27,7 @@ use argon2::Argon2;
 use tokio::time::{self, Duration};
 use tracing::info;
 use lazy_static::lazy_static;
+use zeroize::Zeroizing;
 
 use crate::error::TokenError;
 use crate::systeminfo::SystemInfo;
@@ -66,22 +67,25 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
         }
         true => {
             let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
+            let mut pkey: [u8; 32] = [0; 32];
             let private_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&password.as_bytes()) {
-                Ok(key) => key,
+                Ok(key) => {
+                    pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key)
+                },
                 Err(e) => {
                     let mut csprng = OsRng {};
                     let secret_key = SigningKey::generate(&mut csprng).to_bytes();
                     PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
                         .encrypt(csprng, &password.as_bytes())?
                         .write_pem_file(file_path, pem_label, LineEnding::default())?;
-                    secret_key
+                    pkey.copy_from_slice(secret_key.as_slice())
                 }
             };
-            let pkey = private_key.as_bytes();
-            let pkinfo = PrivateKeyInfo::try_from(pkey)?;
-            let mut pk_array: [u8; 32] = [0; 32];
-            pk_array.copy_from_slice(pkinfo.private_key);
-            pk_array
+
+            //let pkinfo = PrivateKeyInfo::try_from(pkey)?;
+            //let mut pk_array: [u8; 32] = [0; 32];
+            //pk_array.copy_from_slice(pkinfo.private_key);
+            pkey
         }
     };
 

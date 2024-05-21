@@ -78,7 +78,7 @@ impl SimpleAI {
                     sysinfo.gpu_memory/1024, sysinfo.location, sysinfo.disk_total/1024,
                     sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
                 let shared_key = b"Simple_114.124";
-                let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), &shared_key));
+                let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key));
                 println!("loginfo: {}\nctext: {}", loginfo, ctext);
                 match tokio::time::timeout(Duration::from_secs(3), env_utils::logging_launch_info(&ctext)).await {
                     Ok(_) => {},
