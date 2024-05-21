@@ -48,9 +48,9 @@ pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, B
 fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let sysinfo =  &SYSTEM_INFO;
 
-    let password = format!("{}:{}@{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.exe_name, sysinfo.host_name,
+    let password = format!("{}:{}@{}/{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.exe_name, sysinfo.host_name,
                            sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
-                           sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
+                           sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name, sysinfo.disk_uuid);
     //tracing::info!("password: {password}");
 
     let file_path = Path::new(".token_user.pem");
@@ -62,27 +62,23 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
             PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
                 .encrypt(csprng, &password.as_bytes())?
                 .write_pem_file(file_path, pem_label, LineEnding::default())?;
-
             secret_key
-
-            //let private_key = PKey::generate_ed25519()?;
-            //let pem_key = private_key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
-            //let mut file = File::create(file_path)?;
-            //file.write_all(&pem_key)?;
-            //private_key.raw_private_key()?
         }
         true => {
             let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
-            let private_key = EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&password.as_bytes())?;
+            let private_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&password.as_bytes()) {
+                Ok(key) => key,
+                Err(e) => {
+                    let mut csprng = OsRng {};
+                    let secret_key = SigningKey::generate(&mut csprng).to_bytes();
+                    PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
+                        .encrypt(csprng, &password.as_bytes())?
+                        .write_pem_file(file_path, pem_label, LineEnding::default())?;
+                    secret_key
+                }
+            };
             let pkey = private_key.as_bytes();
             let pkinfo = PrivateKeyInfo::try_from(pkey)?;
-
-            //let mut file = File::open(file_path)?;
-            //let mut key_data = Vec::new();
-            //file.read_to_end(&mut key_data)?;
-            //let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
-
-            //let pk = private_key.as_bytes();
             let mut pk_array: [u8; 32] = [0; 32];
             pk_array.copy_from_slice(pkinfo.private_key);
             pk_array
@@ -309,49 +305,19 @@ pub fn encrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     let key = Key::<Aes256Gcm>::from_slice(&aes_key);
     let cipher = Aes256Gcm::new(&key);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    cipher.encrypt(&nonce, data).unwrap()
+    let encrypted = cipher.encrypt(&nonce, data).unwrap();
+    let mut result = Vec::with_capacity(nonce.len() + encrypted.len());
+    result.extend_from_slice(&nonce);
+    result.extend_from_slice(&encrypted);
+    result
 }
 
 pub fn decrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
     let aes_key = hkdf_key(key);
     let key = Key::<Aes256Gcm>::from_slice(&aes_key);
     let cipher = Aes256Gcm::new(&key);
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    cipher.decrypt(&nonce, data).unwrap()
+    let nonce = &data[..12]; // Nonce is 12 bytes for AES-256-GCM
+    let encrypted = &data[12..];
+    cipher.decrypt(nonce.into(), encrypted).unwrap()
 }
-
-
-/*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-
-    //let key2 = pbkdf2_hmac_array::<Sha256, 20>(password, salt, n);
-    let file_path = Path::new(".token_user.pem");
-    let private_key = match file_path.exists() {
-        false => {
-            let mut csprng = OsRng;
-            let private_key = SigningKey::generate(&mut csprng).to_bytes();
-            let private_key_pkcs8_bytes = PrivateKeyInfo::try_from(private_key.as_ref()).unwrap()
-                    .encrypt(csprng, password.as_bytes())?;
-            //let private_key_pem = pem::encode(Pem::new("ENCRYPTED PRIVATE KEY", private_key_pkcs8_bytes.as_ref()));
-            let private_key_pem =
-                EncryptedPrivateKeyInfo::try_from(private_key_pkcs8_bytes).unwrap()
-                    .to_pem(Default::default()).unwrap();
-
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .open(file_path)?;
-            file.write_all(private_key_pem.as_ref())?;
-            private_key
-        },
-        true => {
-            let private_key_pem = fs::read_to_string(file_path)?;
-            println!("File content:\n{}", private_key_pem);
-            let enc_pk = EncryptedPrivateKeyInfo::try_from(pem::parse(private_key_pem).unwrap().contents()).unwrap();
-            let private_key = enc_pk.decrypt(password).unwrap();
-            private_key
-        }
-    };
-
-    Ok(private_key)
-}*/
 

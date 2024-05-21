@@ -210,7 +210,7 @@ async fn get_ram_info() -> (u64, u64, u64) {
                 .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
             let swap = parts.get(2).and_then(|row| row.get(1)).map(|value| value.to_string())
                 .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
-            (total, free, swap)
+            (total/1024, free/1024, swap/1024)
         },
         "macos" => {
             let ram_total = run_command("sysctl", &["-n", "hw.memsize"]).parse::<u64>().unwrap_or(0);
@@ -253,7 +253,7 @@ async fn get_disk_info() -> (u64, u64, String) {
                     uuid = uuid_str[6..uuid_str.len()-1].to_string();
                 }
             }
-            (total, free, uuid)
+            (total/1024, free/1024, uuid)
         }
         "macos" => {
             let disk_info = run_command("df", &[]);
