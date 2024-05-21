@@ -9,7 +9,7 @@ def is_running():
         return True
     return False
 
-def start(args_patch):
+def start(args_patch=[[]]):
     global comfyd_process
     if comfyd_process is None:
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
