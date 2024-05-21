@@ -3,11 +3,17 @@ import os
 import sys
 
 comfyd_process = None
+
+def is_running():
+    if comfyd_process is not None and comfyd_process.poll() is None:
+        return True
+    return False
+
 def start(args_patch):
     global comfyd_process
     if comfyd_process is None:
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
-        args_comfyd = [["--preview-method", "auto"], ["--port", "8188"], ["--disable-auto-launch"]] \
+        args_comfyd = [["--preview-method", "auto"], ["--port", "8188"], ["--disable-auto-launch"]]
         for patch in args_patch:
             found = False
             for i, sublist in enumerate(args_comfyd):
