@@ -94,6 +94,7 @@ fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
 
 
 pub(crate) async fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4Addr, TokenError> {
+    println!("get_ipaddr_from_stream, in, dns_ip: {:?}", dns_ip);
     let default_ip = Ipv4Addr::new(114,114,114,114);
     let socket_addr = match dns_ip {
         Some(dns_ip) => SocketAddr::new(IpAddr::V4(Ipv4Addr::from_str(dns_ip).unwrap_or(default_ip)), 53),
@@ -103,6 +104,7 @@ pub(crate) async fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4A
     let local_addr = stream.local_addr()?;
     let local_ip = local_addr.ip();
     tracing::info!("TcpStream({}) local_ip={}", socket_addr.to_string(), local_ip);
+    println!("get_ipaddr_from_stream, out, TcpStream({}) local_ip={}", socket_addr.to_string(), local_ip);
     match local_ip {
         IpAddr::V4(ipv4) => Ok(ipv4),
         _ => Err(TokenError::IoError(Error::new(ErrorKind::Other, "No IPv4 address found"))),
@@ -114,6 +116,7 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
         true => "https://ipinfo.io/ip",
         false => "https://ipinfo.io/ip",
     };
+    println!("get_ipaddr_from_public, in, default_url: {default_url}");
     let client = reqwest::Client::new();
     let response = client.get(default_url)
         .send()
@@ -122,10 +125,12 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
         .await?;
     let ip_addr = response.parse::<Ipv4Addr>()?;
     tracing::info!("CURL({}) public_ip={}", default_url, ip_addr);
+    println!("get_ipaddr_from_public, out, CURL({}) public_ip={}", default_url, ip_addr);
     Ok(ip_addr)
 }
 
 pub(crate) async fn get_location() -> Result<String, TokenError> {
+    println!("get_location, in");
     let client = reqwest::Client::new();
     let response = client.get("http://ip-api.com/json")
         .send()
@@ -134,20 +139,28 @@ pub(crate) async fn get_location() -> Result<String, TokenError> {
         .await?;
     let json: Value = serde_json::from_str(&response)?;
     let country_code = json["countryCode"].as_str().map(|s| s.to_string()).unwrap_or("CN".to_string());
+    println!("get_location, out, country_code: {country_code}");
     Ok(country_code)
 }
 
 pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     let addr = format!("{}:{}", ip, port);
+    println!("get_port_availability, in, addr: {addr}");
     match TcpListener::bind(addr) {
-        Ok(_) => port,
+        Ok(_) => {
+            println!("get_port_availability, out, port: {port}");
+            port
+        },
         Err(_) => {
             let mut rng = SmallRng::from_entropy();
             loop {
                 let random_port = rng.gen_range((port-100)..=(port+100));
                 let addr = format!("{}:{}", ip, random_port);
                 match TcpListener::bind(addr) {
-                    Ok(_) => return random_port, 
+                    Ok(_) => {
+                        println!("get_port_availability, out, port: {random_port}");
+                        return random_port
+                    },
                     Err(_) => {
                         time::sleep(Duration::from_millis(10)).await;
                         continue
@@ -208,7 +221,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let ui_hash_base64 = URL_SAFE_NO_PAD.encode(&combined_ui_hash);
     let ui_hash_output = &ui_hash_base64[..7];
 
-
+    println!("get_program_hash, out, py_hash_output: {py_hash_output}, ui_hash_output: {ui_hash_output}");
     Ok((py_hash_output.to_string(), ui_hash_output.to_string()))
 }
 
