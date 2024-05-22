@@ -32,3 +32,4 @@ def stop():
         comfyd_process.terminate()
         comfyd_process.wait()
         comfyd_process = None
+        print("[Comfyd] Comfyd stopped!")
