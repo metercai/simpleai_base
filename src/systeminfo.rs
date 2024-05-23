@@ -54,6 +54,13 @@ impl SystemInfo {
         system_info
     }
     async fn _generate() -> Self {
+        let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
+        let public_ip = env_utils::get_ipaddr_from_public(false).await.unwrap().to_string();
+        let local_port = env_utils::get_port_availability(local_ip.clone(), 8186).await;
+        let loopback_port = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188).await;
+        let location = env_utils::get_location().await.unwrap().to_string();
+        let (pyhash, uihash) = env_utils::get_program_hash().await.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
+
         let os_type = env::consts::OS.to_string();
         let (os_name, host_name) = get_os_info().await;
         let cpu_arch = env::consts::ARCH.to_string();
@@ -78,12 +85,6 @@ impl SystemInfo {
         if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {
             exe_name = exe.to_string()
         }
-        let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
-        let public_ip = env_utils::get_ipaddr_from_public(false).await.unwrap().to_string();
-        let local_port = env_utils::get_port_availability(local_ip.clone(), 8186).await;
-        let loopback_port = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188).await;
-        let location = env_utils::get_location().await.unwrap().to_string();
-        let (pyhash, uihash) = env_utils::get_program_hash().await.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
 
         Self {
             os_type,
@@ -161,7 +162,7 @@ async fn get_os_info() -> (String, String) {
             let os_version_str = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).Name"]);
             let os_version = os_version_str.split('|').nth(0).unwrap().trim().to_string();
             let host_name = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).Name"]).trim().to_string();
-            println!("get_os_info is ok: {}, {}", os_version, host_name);
+            //println!("get_os_info is ok: {}, {}", os_version, host_name);
             (os_version, host_name)
         }
         "linux" => {
@@ -195,7 +196,7 @@ async fn get_cpu_info() -> (String, u32) {
         "windows" => {
             let cpu_brand = run_command("powershell", &["(Get-CimInstance Win32_Processor).Name"]).trim().to_string();
             let cpu_cores = run_command("powershell", &["(Get-CimInstance Win32_Processor).NumberOfLogicalProcessors"]).trim().parse::<u32>().unwrap();
-            println!("get_cpu_info is ok: {}, {}", cpu_brand, cpu_cores);
+            //println!("get_cpu_info is ok: {}, {}", cpu_brand, cpu_cores);
             (cpu_brand, cpu_cores)
         },
         "linux" => {
@@ -227,8 +228,8 @@ async fn get_ram_info() -> (u64, u64, u64) {
             let total_ram = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"]).trim().parse::<u64>().unwrap();
             let swap_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).TotalVirtualMemorySize"]).trim().parse::<u64>().unwrap();
             let free_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"]).trim().parse::<u64>().unwrap();
-            println!("get_ram_info is ok: {}, {}, {}", total_ram, swap_ram, free_ram);
-            (total_ram, free_ram * 1024, swap_ram * 1024)
+            //println!("get_ram_info is ok: {}, {}, {}", total_ram, swap_ram, free_ram);
+            (total_ram/(1024*1024), free_ram/1024, swap_ram/1024)
         },
         "linux" => {
             let ram_info = run_command("free", &[]);
@@ -264,8 +265,8 @@ async fn get_disk_info() -> (u64, u64, String) {
             let total = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size"]).trim().parse::<u64>().unwrap_or(0);
             let free = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace"]).trim().parse::<u64>().unwrap_or(0);
             let uuid = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").VolumeSerialNumber"]).trim().to_string();
-            println!("get_disk_info is ok: {}, {}, {}", total, free, uuid);
-            (total, free, uuid)
+            //println!("get_disk_info is ok: {}, {}, {}", total, free, uuid);
+            (total/(1024*1024), free/(1024*1024), uuid)
         }
         "linux" => {
             let disk_info = run_command("df", &[]);
@@ -361,7 +362,7 @@ async fn get_gpu_info() -> (String, String, u64){
                     .unwrap_or_else(|| "".to_string());
                 gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
             }
-            println!("get_gpu_info is ok: {}, {}, {}", gpu_brand, gpu_name, gpu_memory);
+            //println!("get_gpu_info is ok: {}, {}, {}", gpu_brand, gpu_name, gpu_memory);
             (gpu_brand, gpu_name, gpu_memory)
         }
 

@@ -24,7 +24,9 @@ def start(args_patch=[[]]):
             if not found:
                 args_comfyd.append(patch)
         arguments = [arg for sublist in args_comfyd for arg in sublist]
-        comfyd_process  = subprocess.Popen([sys.executable, backend_script] + arguments)
+        process_env  = os.environ.copy()
+        process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        comfyd_process  = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
 
 def stop():
     global comfyd_process
