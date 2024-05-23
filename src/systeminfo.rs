@@ -157,12 +157,11 @@ impl Default for SystemInfo {
     }
 }
 async fn get_os_info() -> (String, String) {
-    match env::consts::OS {
+    let (os_version, host_name) = match env::consts::OS {
         "windows" => {
             let os_version_str = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).Name"]);
             let os_version = os_version_str.split('|').nth(0).unwrap().trim().to_string();
             let host_name = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).Name"]).trim().to_string();
-            //println!("get_os_info is ok: {}, {}", os_version, host_name);
             (os_version, host_name)
         }
         "linux" => {
@@ -187,16 +186,15 @@ async fn get_os_info() -> (String, String) {
             (os_version.to_string(), host_name)
         }
         _ => ("".to_string(), "".to_string()),
-    }
-
-
+    };
+    print!(".");
+    (os_version, host_name)
 }
 async fn get_cpu_info() -> (String, u32) {
-    match env::consts::OS {
+    let (cpu_brand, cpu_cores) = match env::consts::OS {
         "windows" => {
             let cpu_brand = run_command("powershell", &["(Get-CimInstance Win32_Processor).Name"]).trim().to_string();
             let cpu_cores = run_command("powershell", &["(Get-CimInstance Win32_Processor).NumberOfLogicalProcessors"]).trim().parse::<u32>().unwrap();
-            //println!("get_cpu_info is ok: {}, {}", cpu_brand, cpu_cores);
             (cpu_brand, cpu_cores)
         },
         "linux" => {
@@ -219,16 +217,17 @@ async fn get_cpu_info() -> (String, u32) {
             (cpu_brand, cpu_cores)
         },
         _ => ("".to_string(), 0)
-    }
+    };
+    print!(".");
+    (cpu_brand, cpu_cores)
 }
 
 async fn get_ram_info() -> (u64, u64, u64) {
-    match env::consts::OS {
+    let (ram_total, ram_free, ram_swap_pages) = match env::consts::OS {
         "windows" => {
             let total_ram = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"]).trim().parse::<u64>().unwrap();
             let swap_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).TotalVirtualMemorySize"]).trim().parse::<u64>().unwrap();
             let free_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"]).trim().parse::<u64>().unwrap();
-            //println!("get_ram_info is ok: {}, {}, {}", total_ram, swap_ram, free_ram);
             (total_ram/(1024*1024), free_ram/1024, swap_ram/1024)
         },
         "linux" => {
@@ -256,11 +255,13 @@ async fn get_ram_info() -> (u64, u64, u64) {
             (ram_total, ram_free, ram_swap_pages * ram_swap_pagesize)
         },
         _ => (0, 0, 0)
-    }
+    };
+    print!(".");
+    (ram_total, ram_free, ram_swap_pages)
 }
 
 async fn get_disk_info() -> (u64, u64, String) {
-    match env::consts::OS {
+    let (total, free, uuid) = match env::consts::OS {
         "windows" => {
             let total = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size"]).trim().parse::<u64>().unwrap_or(0);
             let free = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace"]).trim().parse::<u64>().unwrap_or(0);
@@ -329,11 +330,13 @@ async fn get_disk_info() -> (u64, u64, String) {
             (total/2, free/2, uuid)
         }
         _ => (0, 0, "".to_string())
-    }
+    };
+    print!(".");
+    (total, free, uuid)
 }
 
 async fn get_gpu_info() -> (String, String, u64){
-    match env::consts::OS {
+    let (gpu_brand, gpu_name, gpu_memory) = match env::consts::OS {
         "windows" => {
             let mut gpu_name = "reserve".to_string();
             let mut gpu_memory = 0;
@@ -362,7 +365,6 @@ async fn get_gpu_info() -> (String, String, u64){
                     .unwrap_or_else(|| "".to_string());
                 gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
             }
-            //println!("get_gpu_info is ok: {}, {}, {}", gpu_brand, gpu_name, gpu_memory);
             (gpu_brand, gpu_name, gpu_memory)
         }
 
@@ -399,7 +401,9 @@ async fn get_gpu_info() -> (String, String, u64){
             ("Apple".to_string(), "reserve".to_string(), 0)
         }
         _ => {("Unknown".to_string(), "reserve".to_string(), 0)}
-    }
+    };
+    print!(".");
+    (gpu_brand, gpu_name, gpu_memory)
 }
 
 

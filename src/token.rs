@@ -81,7 +81,7 @@ impl SimpleAI {
                 let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key));
                 //println!("loginfo: {}\nctext: {}", loginfo, ctext);
                 match tokio::time::timeout(Duration::from_secs(5), env_utils::logging_launch_info(&ctext)).await {
-                    Ok(_) => {},
+                    Ok(_) => {print!("_");},
                     Err(e) => {
                         tracing::info!("start_base_services is err{:}", e);
                     }
