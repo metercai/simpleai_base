@@ -223,9 +223,10 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     Ok((py_hash_output.to_string(), ui_hash_output.to_string()))
 }
 
-pub(crate) async fn logging_launch_info(info: &str) -> Result<(), TokenError>{
-    let info = format!("{}", info);
-    let url = reqwest::Url::parse_with_params("https://edge.tokentm.net/log.gif", &[("p", info)])?;
+pub(crate) async fn logging_launch_info(did: &str, info: &str) -> Result<(), TokenError>{
+    let did = did.to_string();
+    let info = info.to_string();
+    let url = reqwest::Url::parse_with_params("https://edge.tokentm.net/log.gif", &[("d", did), ("p", info)])?;
     let client = reqwest::Client::new();
     let _ = client.get(url.as_str())
         .send()

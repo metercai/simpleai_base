@@ -72,15 +72,15 @@ impl SimpleAI {
             runtime.block_on(async {
                 //let _ = Rathole::new(&config).start_service().await;
                 let loginfo = format!(
-                    "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-                    did, sysinfo.os_type, sysinfo.os_name, sysinfo.cpu_arch,
+                    "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+                    sysinfo.os_type, sysinfo.os_name, sysinfo.cpu_arch,
                     sysinfo.ram_total/1024, sysinfo.gpu_brand, sysinfo.gpu_name,
                     sysinfo.gpu_memory/1024, sysinfo.location, sysinfo.disk_total/1024,
                     sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
                 let shared_key = b"Simple_114.124";
                 let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key));
                 //println!("loginfo: {}\nctext: {}", loginfo, ctext);
-                match tokio::time::timeout(Duration::from_secs(5), env_utils::logging_launch_info(&ctext)).await {
+                match tokio::time::timeout(Duration::from_secs(4), env_utils::logging_launch_info(&did, &ctext)).await {
                     Ok(_) => {print!("_");},
                     Err(e) => {
                         tracing::info!("start_base_services is err{:}", e);

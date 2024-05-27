@@ -44,7 +44,7 @@ impl SystemInfo {
     pub fn generate() -> Self {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let system_info = rt.block_on(async {
-            match tokio::time::timeout(Duration::from_secs(10), SystemInfo::_generate()).await {
+            match tokio::time::timeout(Duration::from_secs(8), SystemInfo::_generate()).await {
                 Ok(system_info) => system_info,
                 Err(_) => {
                     SystemInfo::default()

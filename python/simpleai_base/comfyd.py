@@ -11,7 +11,7 @@ def is_running():
 
 def start(args_patch=[[]]):
     global comfyd_process
-    if comfyd_process is None:
+    if not is_running():
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
         args_comfyd = [["--preview-method", "auto"], ["--port", "8188"], ["--disable-auto-launch"]]
         for patch in args_patch:
@@ -30,7 +30,7 @@ def start(args_patch=[[]]):
 
 def stop():
     global comfyd_process
-    if comfyd_process is not None:
+    if is_running():
         comfyd_process.terminate()
         comfyd_process.wait()
         comfyd_process = None
