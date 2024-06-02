@@ -20,9 +20,13 @@ def upload_mask(mask):
 def queue_prompt(prompt):
     p = {"prompt": prompt, "client_id": client_id}
     data = json.dumps(p).encode('utf-8')
-    with httpx.Client() as client:
-        response = client.post("http://{}/prompt".format(server_address), data=data)
-        return json.loads(response.read())
+    try:
+        with httpx.Client() as client:
+            response = client.post("http://{}/prompt".format(server_address), data=data)
+            return json.loads(response.read())
+    except httpx.RequestError as e:
+        print(f"httpx.RequestError: {e}")
+        return None
 
 def get_image(filename, subfolder, folder_type):
     params = httpx.QueryParams({
@@ -122,7 +126,8 @@ def process_flow(flow_name, params, images, callback=None):
     return imgs
 
 WORKFLOW_DIR = 'workflows'
-COMFYUI_ENDPOINT = '127.0.0.1:8188'
-server_address = COMFYUI_ENDPOINT
+COMFYUI_ENDPOINT_IP = '127.0.0.1'
+COMFYUI_ENDPOINT_PORT = '8188'
+server_address = f'{COMFYUI_ENDPOINT_IP}:{COMFYUI_ENDPOINT_PORT}'
 client_id = str(uuid.uuid4())  
 ws = None

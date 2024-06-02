@@ -30,7 +30,7 @@ use lazy_static::lazy_static;
 use zeroize::Zeroizing;
 
 use crate::error::TokenError;
-use crate::systeminfo::SystemInfo;
+use crate::systeminfo::SystemBaseInfo;
 
 pub const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 
@@ -41,13 +41,13 @@ pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::Algorith
 };
 
 lazy_static! {
-    pub static ref SYSTEM_INFO: SystemInfo = SystemInfo::generate();
+    pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
 }
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
 }
 fn read_key_or_generate_key() -> Result<[u8; 32], Box<dyn std::error::Error>> {
-    let sysinfo =  &SYSTEM_INFO;
+    let sysinfo =  &SYSTEM_BASE_INFO;
 
     let password = format!("{}:{}@{}/{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.exe_name, sysinfo.host_name,
                            sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
@@ -170,7 +170,7 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
 }
 
 pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
-    let path_py = vec!["", "modules", "ldm_patched/modules", "enhanced", "comfy", "comfy/comfy"];
+    let path_py = vec!["", "modules", "ldm_patched/modules", "enhanced", "javascript", "css", "comfy", "comfy/comfy"];
     let path_ui = vec!["language/cn.json", "simplesdxl_log.md", "webui.py", "enhanced/attached/welcome.jpg"];
 
     let path_root = env::current_dir()?;

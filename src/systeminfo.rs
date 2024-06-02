@@ -4,8 +4,97 @@ use std::process::Command;
 use std::env;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::time::Duration;
+
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use tokio::join;
+use lazy_static::lazy_static;
+use tokio::runtime::Runtime;
+use sysinfo::System;
 use crate::env_utils;
+
+lazy_static! {
+    static ref RUNTIME: Runtime = tokio::runtime::Runtime::new().unwrap();
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SystemBaseInfo {
+    pub os_type: String,
+    pub os_name: String,
+    pub host_name: String,
+    pub cpu_arch: String,
+    pub cpu_brand: String,
+    pub cpu_cores: u32,
+    pub ram_total: u64,
+    pub ram_free: u64,
+    pub ram_swap: u64,
+    pub gpu_brand: String,
+    pub gpu_name: String,
+    pub gpu_memory: u64,
+    pub disk_total: u64,
+    pub disk_free: u64,
+    pub disk_uuid: String,
+    pub root_dir: String,
+    pub exe_dir: String,
+    pub exe_name: String,
+}
+
+impl SystemBaseInfo {
+    pub fn generate() -> Self {
+        let (disk_total, disk_free, disk_uuid) = get_disk_info();
+        let (gpu_brand, gpu_name, gpu_memory) = get_gpu_info();
+
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let os_type = env::consts::OS.to_string();
+        let (os_name, host_name) = (System::os_version(), System::host_name());//get_os_info().await;
+        let cpu_arch = env::consts::ARCH.to_string();
+        let (cpu_brand, cpu_cores) = (sys.global_cpu_info().cpu_usage(), sys.physical_core_count());//get_cpu_info().await;
+        let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());//get_ram_info().await;
+
+        let root_dir = match env::current_dir() {
+            Ok(dir) => dir,
+            Err(e) => {
+                tracing::error!("env::current_dir, error:{:?}", e);
+                PathBuf::from("/")
+            }
+        };
+        let exe_dir = match env::current_exe() {
+            Ok(dir) => dir,
+            Err(e) => {
+                tracing::error!("env::current_exe, error:{:?}", e);
+                PathBuf::from("/")
+            }
+        };
+        let mut exe_name = "simpleai_base".to_string();
+        if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {
+            exe_name = exe.to_string()
+        }
+
+        Self {
+            os_type,
+            os_name: os_name.expect("UNKNOW"),
+            host_name: host_name.expect("UNKNOW"),
+            cpu_arch,
+            cpu_brand: cpu_brand.to_string(),
+            cpu_cores: cpu_cores.unwrap_or(0) as u32,
+            ram_total,
+            ram_free,
+            ram_swap,
+            gpu_brand,
+            gpu_name,
+            gpu_memory,
+            disk_total,
+            disk_free,
+            disk_uuid,
+            root_dir: root_dir.to_string_lossy().into_owned(),
+            exe_dir: exe_dir.to_string_lossy().into_owned(),
+            exe_name,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[pyclass]
@@ -41,79 +130,74 @@ pub struct SystemInfo {
 
 impl SystemInfo {
 
-    pub fn generate() -> Self {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let system_info = rt.block_on(async {
-            match tokio::time::timeout(Duration::from_secs(8), SystemInfo::_generate()).await {
-                Ok(system_info) => system_info,
-                Err(_) => {
-                    SystemInfo::default()
-                }
-            }
+    pub fn generate(base: SystemBaseInfo, info: Arc<Mutex<SystemInfo>>, did: String) {
+        RUNTIME.block_on(async {
+            let info_clone = info.clone();
+            tokio::spawn(async move {
+                SystemInfo::_generate(base, info_clone, did).await;
+            });
         });
-        system_info
     }
-    async fn _generate() -> Self {
+
+    pub fn get_sysinfo(info: Arc<Mutex<SystemInfo>>) -> SystemInfo {
+        RUNTIME.block_on(async {
+            let mutex_guard = info.lock().await;
+            (*mutex_guard).clone()
+        })
+    }
+
+    async fn _generate(base: SystemBaseInfo, info: Arc<Mutex<SystemInfo>>, did: String) {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
-        let public_ip = env_utils::get_ipaddr_from_public(false).await.unwrap().to_string();
-        let local_port = env_utils::get_port_availability(local_ip.clone(), 8186).await;
-        let loopback_port = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188).await;
-        let location = env_utils::get_location().await.unwrap().to_string();
-        let (pyhash, uihash) = env_utils::get_program_hash().await.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
+        let public_ip_task = env_utils::get_ipaddr_from_public(false);//.await.unwrap().to_string();
+        let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);//.await;
+        let loopback_port_task = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188);//.await;
+        let location_task = env_utils::get_location();//.await.unwrap().to_string();
+        let program_hash_task = env_utils::get_program_hash();//.await.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
+        let mac_address_task = env_utils::get_mac_address(local_ip.into());//.await;
+        let (public_ip, local_port, loopback_port, location, program_hash, mac_address) =
+            join!(public_ip_task, local_port_task, loopback_port_task, location_task, program_hash_task, mac_address_task);
+        let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
 
-        let os_type = env::consts::OS.to_string();
-        let (os_name, host_name) = get_os_info().await;
-        let cpu_arch = env::consts::ARCH.to_string();
-        let (cpu_brand, cpu_cores) = get_cpu_info().await;
-        let (ram_total, ram_free, ram_swap) = get_ram_info().await;
-        let (disk_total, disk_free, disk_uuid) = get_disk_info().await;
-        let (gpu_brand, gpu_name, gpu_memory) = get_gpu_info().await;
-
-        let root_dir = match env::current_dir() {
-            Ok(dir) => dir,
-            Err(e) => {
-                tracing::error!("env::current_dir, error:{:?}", e);
-                PathBuf::from("/") }
-        };
-        let exe_dir = match env::current_exe() {
-            Ok(dir) => dir,
-            Err(e) => {
-                tracing::error!("env::current_exe, error:{:?}", e);
-                PathBuf::from("/") }
-        };
-        let mut exe_name = "simpleai_base".to_string();
-        if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {
-            exe_name = exe.to_string()
-        }
-
-        Self {
-            os_type,
-            os_name,
-            host_name,
-            cpu_arch,
-            cpu_brand,
-            cpu_cores,
-            ram_total,
-            ram_free,
-            ram_swap,
-            gpu_brand,
-            gpu_name,
-            gpu_memory,
+        let mut sysinfo = info.lock().await;
+        *sysinfo = Self {
+            os_type: base.os_type,
+            os_name: base.os_name,
+            host_name: base.host_name,
+            cpu_arch: base.cpu_arch,
+            cpu_brand: base.cpu_brand,
+            cpu_cores: base.cpu_cores,
+            ram_total: base.ram_total,
+            ram_free: base.ram_free,
+            ram_swap: base.ram_swap,
+            gpu_brand: base.gpu_brand,
+            gpu_name: base.gpu_name,
+            gpu_memory: base.gpu_memory,
             local_ip: local_ip.to_string(),
             local_port,
             loopback_port,
-            mac_address: env_utils::get_mac_address(local_ip.into()).await,
-            public_ip,
-            location,
-            disk_total,
-            disk_free,
-            disk_uuid,
-            root_dir: root_dir.to_string_lossy().into_owned(),
-            exe_dir: exe_dir.to_string_lossy().into_owned(),
-            exe_name,
+            mac_address,
+            public_ip: public_ip.unwrap().to_string(),
+            location: location.unwrap().to_string(),
+            disk_total: base.disk_total,
+            disk_free: base.disk_free,
+            disk_uuid: base.disk_uuid,
+            root_dir: base.root_dir,
+            exe_dir: base.exe_dir,
+            exe_name: base.exe_name,
             pyhash,
             uihash,
-        }
+        };
+
+        let loginfo = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            sysinfo.os_type, sysinfo.os_name, sysinfo.cpu_arch,
+            sysinfo.ram_total/1024, sysinfo.gpu_brand, sysinfo.gpu_name,
+            sysinfo.gpu_memory/1024, sysinfo.location, sysinfo.disk_total/1024,
+            sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
+        let shared_key = b"Simple_114.124";
+        let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key));
+        //println!("loginfo: {}\nctext: {}", loginfo, ctext);
+        let _ = env_utils::logging_launch_info(&did, &ctext).await;
     }
 }
 
@@ -156,111 +240,8 @@ impl Default for SystemInfo {
         }
     }
 }
-async fn get_os_info() -> (String, String) {
-    let (os_version, host_name) = match env::consts::OS {
-        "windows" => {
-            let os_version_str = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).Name"]);
-            let os_version = os_version_str.split('|').nth(0).unwrap().trim().to_string();
-            let host_name = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).Name"]).trim().to_string();
-            (os_version, host_name)
-        }
-        "linux" => {
-            let os_version_str = run_command("cat", &["/etc/os-release"]);
-            let mut os_version = "".to_string();
-            for line in os_version_str.lines() {
-                if line.starts_with("NAME=") {
-                    os_version = line.split('=').nth(1).unwrap().trim_matches(|c: char| c == '"' || c.is_whitespace()).to_string() + " ";
-                }
-                if line.starts_with("VERSION=") {
-                    os_version += line.split('=').nth(1).unwrap().trim_matches(|c: char| c == '"' || c.is_whitespace());
-                }
-            }
-            let host_name = run_command("hostname", &[]).trim().to_string();
-            (os_version, host_name)
-        }
-        "macos" => {
-            let os_version_str = run_command("sw_vers", &["-productVersion"]);
-            let (os_version, _) = os_version_str.rsplit_once('.').unwrap();
-            //let host_name = run_command("scutil", &["-n", "ComputerName"]);
-            let host_name = run_command("hostname", &[]).trim().to_string();
-            (os_version.to_string(), host_name)
-        }
-        _ => ("".to_string(), "".to_string()),
-    };
-    print!(".");
-    (os_version, host_name)
-}
-async fn get_cpu_info() -> (String, u32) {
-    let (cpu_brand, cpu_cores) = match env::consts::OS {
-        "windows" => {
-            let cpu_brand = run_command("powershell", &["(Get-CimInstance Win32_Processor).Name"]).trim().to_string();
-            let cpu_cores = run_command("powershell", &["(Get-CimInstance Win32_Processor).NumberOfLogicalProcessors"]).trim().parse::<u32>().unwrap();
-            (cpu_brand, cpu_cores)
-        },
-        "linux" => {
-            let cpu_info = run_command("lscpu", &[]);
-            let mut cpu_brand = "".to_string();
-            let mut cpu_cores = 0;
-            for line in cpu_info.lines() {
-                if line.starts_with("CPU(s):") {
-                    cpu_cores = line.split(':').nth(1).unwrap().trim().parse::<u32>().unwrap();
-                }
-                if line.starts_with("Model name:") {
-                    cpu_brand = line.split(':').nth(1).unwrap().trim().to_string();
-                }
-            }
-            (cpu_brand, cpu_cores)
-        },
-        "macos" => {
-            let cpu_brand = run_command("sysctl", &["-n", "machdep.cpu.brand_string"]).trim().to_string();
-            let cpu_cores = run_command("sysctl", &["-n", "hw.ncpu"]).trim().parse::<u32>().unwrap();
-            (cpu_brand, cpu_cores)
-        },
-        _ => ("".to_string(), 0)
-    };
-    print!(".");
-    (cpu_brand, cpu_cores)
-}
 
-async fn get_ram_info() -> (u64, u64, u64) {
-    let (ram_total, ram_free, ram_swap_pages) = match env::consts::OS {
-        "windows" => {
-            let total_ram = run_command("powershell", &["(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"]).trim().parse::<u64>().unwrap();
-            let swap_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).TotalVirtualMemorySize"]).trim().parse::<u64>().unwrap();
-            let free_ram = run_command("powershell", &["(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"]).trim().parse::<u64>().unwrap();
-            (total_ram/(1024*1024), free_ram/1024, swap_ram/1024)
-        },
-        "linux" => {
-            let ram_info = run_command("free", &[]);
-            let parts: Vec<Vec<&str>> = ram_info
-                .lines()
-                .map(|line| {
-                    line.split_whitespace()
-                        .map(|part| { part.trim() })
-                        .collect::<Vec<&str>>()
-                }).collect();
-            let total = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
-                .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
-            let free = parts.get(1).and_then(|row| row.get(3)).map(|value| value.to_string())
-                .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
-            let swap = parts.get(2).and_then(|row| row.get(1)).map(|value| value.to_string())
-                .unwrap_or_else(|| "raminfo".to_string()).parse::<u64>().unwrap_or(0);
-            (total/1024, free/1024, swap/1024)
-        },
-        "macos" => {
-            let ram_total = run_command("sysctl", &["-n", "hw.memsize"]).parse::<u64>().unwrap_or(0);
-            let ram_free = run_command("sysctl", &["-n", "hw.usermem"]).parse::<u64>().unwrap_or(0);
-            let ram_swap_pages = run_command("sysctl", &["-n", "vm.pages"]).parse::<u64>().unwrap_or(0);
-            let ram_swap_pagesize = run_command("sysctl", &["-n", "vm.pagesize"]).parse::<u64>().unwrap_or(0);
-            (ram_total, ram_free, ram_swap_pages * ram_swap_pagesize)
-        },
-        _ => (0, 0, 0)
-    };
-    print!(".");
-    (ram_total, ram_free, ram_swap_pages)
-}
-
-async fn get_disk_info() -> (u64, u64, String) {
+fn get_disk_info() -> (u64, u64, String) {
     let (total, free, uuid) = match env::consts::OS {
         "windows" => {
             let total = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size"]).trim().parse::<u64>().unwrap_or(0);
@@ -335,7 +316,7 @@ async fn get_disk_info() -> (u64, u64, String) {
     (total, free, uuid)
 }
 
-async fn get_gpu_info() -> (String, String, u64){
+fn get_gpu_info() -> (String, String, u64){
     let (gpu_brand, gpu_name, gpu_memory) = match env::consts::OS {
         "windows" => {
             let mut gpu_name = "reserve".to_string();

@@ -5,7 +5,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use std::thread;
 use std::fs;
-use std::time::Duration;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::claim::IdClaim;
 use crate::rathole::Rathole;
@@ -19,7 +20,7 @@ use crate::error::TokenError;
 pub struct SimpleAI {
     pub nickname: String,
     pub did: String,
-    pub sysinfo: SystemInfo,
+    pub sysinfo: Arc<Mutex<SystemInfo>>,
     claims: HashMap<String, IdClaim>,
     crypt_secret: [u8; 32],
 }
@@ -30,17 +31,21 @@ impl SimpleAI {
     pub fn new(
         nickname: String,
     ) -> Self {
-        let sysinfo = env_utils::SYSTEM_INFO.clone();
-        let mac_address_hash = env_utils::calc_sha256(format!("{}-{}", nickname, sysinfo.mac_address).as_bytes());
+        let sys_base_info = env_utils::SYSTEM_BASE_INFO.clone();
+        let sysinfo = Arc::new(Mutex::new(SystemInfo::default()));
+        let sysinfo_clone = Arc::clone(&sysinfo);
+
+        let disk_uuid_hash = env_utils::calc_sha256(format!("{}-{}", nickname, sys_base_info.disk_uuid).as_bytes());
         let telephone_hash = env_utils::calc_sha256(format!("{}-telephone:-", nickname).as_bytes());
         let face_image_hash = env_utils::calc_sha256(format!("{}-face_image:-", nickname).as_bytes());
         let file_hash_hash = env_utils::calc_sha256(format!("{}-file_hash:-", nickname).as_bytes());
 
         let zeroed_key: [u8; 32] = [0; 32];
         let verify_key = env_utils::get_verify_key().unwrap_or_else(|_| zeroed_key);
-        let mut local_claim = IdClaim::new(nickname.clone(), verify_key, telephone_hash, mac_address_hash, face_image_hash, file_hash_hash);
+        let mut local_claim = IdClaim::new(nickname.clone(), verify_key, telephone_hash, disk_uuid_hash, face_image_hash, file_hash_hash);
 
         let did = local_claim.gen_did();
+        SystemInfo::generate(sys_base_info, sysinfo_clone, did.clone());
         let crypt_secret = env_utils::get_secret_key(&did).unwrap_or_else(|_| zeroed_key);
         let crypt_key = env_utils::get_crypt_key(crypt_secret).unwrap_or_else(|_| zeroed_key);
         local_claim.set_crypt_key(crypt_key);
@@ -62,7 +67,6 @@ impl SimpleAI {
     pub fn start_base_services(&self) -> Result<(), TokenError> {
         let config = "client.toml";
         let did = self.did.clone();
-        let sysinfo = self.sysinfo.clone();
         let _rt_handle = thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -71,22 +75,7 @@ impl SimpleAI {
 
             runtime.block_on(async {
                 //let _ = Rathole::new(&config).start_service().await;
-                let loginfo = format!(
-                    "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-                    sysinfo.os_type, sysinfo.os_name, sysinfo.cpu_arch,
-                    sysinfo.ram_total/1024, sysinfo.gpu_brand, sysinfo.gpu_name,
-                    sysinfo.gpu_memory/1024, sysinfo.location, sysinfo.disk_total/1024,
-                    sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
-                let shared_key = b"Simple_114.124";
-                let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key));
-                //println!("loginfo: {}\nctext: {}", loginfo, ctext);
-                match tokio::time::timeout(Duration::from_secs(4), env_utils::logging_launch_info(&did, &ctext)).await {
-                    Ok(_) => {print!("_");},
-                    Err(e) => {
-                        tracing::info!("start_base_services is err{:}", e);
-                    }
-                }
-
+                todo!()
                 //println!("Rathole service started");
             });
         });
@@ -95,7 +84,8 @@ impl SimpleAI {
     pub fn get_name(&self) -> String { self.nickname.clone() }
     pub fn get_did(&self) -> String { self.did.clone() }
     pub fn get_sysinfo(&self) -> SystemInfo {
-        self.sysinfo.clone()
+        let sysinfo_clone = self.sysinfo.clone();
+        SystemInfo::get_sysinfo(sysinfo_clone)
     }
     pub fn push_claim(&mut self, claim: &IdClaim) {
         let did = claim.gen_did();
