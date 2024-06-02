@@ -84,9 +84,9 @@ impl SimpleAI {
     pub fn get_name(&self) -> String { self.nickname.clone() }
     pub fn get_did(&self) -> String { self.did.clone() }
     pub fn get_sysinfo(&self) -> SystemInfo {
-        let sysinfo_clone = self.sysinfo.clone();
-        SystemInfo::get_sysinfo(sysinfo_clone)
+        SystemInfo::get_sysinfo(self.sysinfo.clone())
     }
+
     pub fn push_claim(&mut self, claim: &IdClaim) {
         let did = claim.gen_did();
         self.claims.insert(did, claim.clone());
