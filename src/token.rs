@@ -75,7 +75,7 @@ impl SimpleAI {
 
             runtime.block_on(async {
                 //let _ = Rathole::new(&config).start_service().await;
-                todo!()
+                //todo!()
                 //println!("Rathole service started");
             });
         });
