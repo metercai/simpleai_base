@@ -53,9 +53,9 @@ impl SystemBaseInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
         let os_type = env::consts::OS.to_string();
-        let (os_name, host_name) = (format!("os_version={:?}|name={:?}|kernel_version={:?}", System::os_version(),System::name(),System::kernel_version()), System::host_name());
+        let (os_name, host_name) = (format!("{} {}", System::name().expect("Unknown"), System::os_version().expect("Unknown")), System::host_name());
         let cpu_arch = env::consts::ARCH.to_string();
-        let (cpu_brand, cpu_cores) = (format!("brand={}|vendor_id={}|name={}", sys.cpus()[0].brand(), sys.cpus()[0].vendor_id(), sys.cpus()[0].name()), sys.physical_core_count());
+        let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
 
         let root_dir = match env::current_dir() {
@@ -313,7 +313,7 @@ fn get_disk_info() -> (u64, u64, String) {
         }
         _ => (0, 0, "".to_string())
     };
-    print!(".");
+    print!("get_disk_info.");
     (total, free, uuid)
 }
 
@@ -384,7 +384,7 @@ fn get_gpu_info() -> (String, String, u64){
         }
         _ => {("Unknown".to_string(), "reserve".to_string(), 0)}
     };
-    print!(".");
+    print!("get_gpu_info.");
     (gpu_brand, gpu_name, gpu_memory)
 }
 
