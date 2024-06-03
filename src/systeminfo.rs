@@ -53,10 +53,10 @@ impl SystemBaseInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
         let os_type = env::consts::OS.to_string();
-        let (os_name, host_name) = (System::os_version(), System::host_name());//get_os_info().await;
+        let (os_name, host_name) = (format!("os_version={:?}|name={:?}|kernel_version={:?}", System::os_version(),System::name(),System::kernel_version()), System::host_name());
         let cpu_arch = env::consts::ARCH.to_string();
-        let (cpu_brand, cpu_cores) = (sys.global_cpu_info().cpu_usage(), sys.physical_core_count());//get_cpu_info().await;
-        let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());//get_ram_info().await;
+        let (cpu_brand, cpu_cores) = (format!("brand={}|vendor_id={}|name={}", sys.cpus()[0].brand(), sys.cpus()[0].vendor_id(), sys.cpus()[0].name()), sys.physical_core_count());
+        let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
 
         let root_dir = match env::current_dir() {
             Ok(dir) => dir,
@@ -79,14 +79,14 @@ impl SystemBaseInfo {
 
         Self {
             os_type,
-            os_name: os_name.expect("Unknown"),
+            os_name: os_name,
             host_name: host_name.expect("Unknown"),
             cpu_arch,
             cpu_brand: cpu_brand.to_string(),
             cpu_cores: cpu_cores.unwrap_or(0) as u32,
-            ram_total,
-            ram_free,
-            ram_swap,
+            ram_total: ram_total/(1024*1024),
+            ram_free: ram_free/(1024*1024),
+            ram_swap: ram_swap/(1024*1024),
             gpu_brand,
             gpu_name,
             gpu_memory,
@@ -239,39 +239,6 @@ impl SystemInfo {
 impl SystemInfo {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or("Unknown".to_string())
-    }
-}
-
-impl Default for SystemInfo {
-    fn default() -> Self {
-        Self {
-            os_type: env::consts::OS.to_string(),
-            os_name: "Unknown".to_string(),
-            host_name: "Unknown".to_string(),
-            cpu_arch: env::consts::ARCH.to_string(),
-            cpu_brand: "Unknown".to_string(),
-            cpu_cores: 0,
-            ram_total: 0,
-            ram_free: 0,
-            ram_swap: 0,
-            gpu_brand: "Unknown".to_string(),
-            gpu_name: "Unknown".to_string(),
-            gpu_memory: 0,
-            local_ip: "0.0.0.0".to_string(),
-            local_port: 8186,
-            loopback_port: 8188,
-            mac_address: "Unknown".to_string(),
-            public_ip: "Unknown".to_string(),
-            location: "CN".to_string(),
-            disk_total: 0,
-            disk_free: 0,
-            disk_uuid: "Unknown".to_string(),
-            root_dir: "Unknown".to_string(),
-            exe_dir: "Unknown".to_string(),
-            exe_name: "Unknown".to_string(),
-            pyhash: "Unknown".to_string(),
-            uihash: "Unknown".to_string(),
-        }
     }
 }
 
