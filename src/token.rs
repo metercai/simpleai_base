@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use crate::claim::IdClaim;
 use crate::rathole::Rathole;
 use crate::env_utils;
-use crate::systeminfo::SystemInfo;
+use crate::systeminfo::{SystemInfo, RUNTIME};
 use pyo3::prelude::*;
 use crate::error::TokenError;
 
@@ -32,8 +32,6 @@ impl SimpleAI {
         nickname: String,
     ) -> Self {
         let sys_base_info = env_utils::SYSTEM_BASE_INFO.clone();
-        let sysinfo = Arc::new(Mutex::new(SystemInfo::default()));
-        let sysinfo_clone = Arc::clone(&sysinfo);
 
         let disk_uuid_hash = env_utils::calc_sha256(format!("{}-{}", nickname, sys_base_info.disk_uuid).as_bytes());
         let telephone_hash = env_utils::calc_sha256(format!("{}-telephone:-", nickname).as_bytes());
@@ -45,7 +43,11 @@ impl SimpleAI {
         let mut local_claim = IdClaim::new(nickname.clone(), verify_key, telephone_hash, disk_uuid_hash, face_image_hash, file_hash_hash);
 
         let did = local_claim.gen_did();
+
+        let sysinfo = Arc::new(Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
+        let sysinfo_clone = Arc::clone(&sysinfo);
         SystemInfo::generate(sys_base_info, sysinfo_clone, did.clone());
+
         let crypt_secret = env_utils::get_secret_key(&did).unwrap_or_else(|_| zeroed_key);
         let crypt_key = env_utils::get_crypt_key(crypt_secret).unwrap_or_else(|_| zeroed_key);
         local_claim.set_crypt_key(crypt_key);
@@ -68,12 +70,7 @@ impl SimpleAI {
         let config = "client.toml";
         let did = self.did.clone();
         let _rt_handle = thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-
-            runtime.block_on(async {
+            RUNTIME.block_on(async {
                 //let _ = Rathole::new(&config).start_service().await;
                 //todo!()
                 //println!("Rathole service started");

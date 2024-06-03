@@ -16,7 +16,11 @@ use sysinfo::System;
 use crate::env_utils;
 
 lazy_static! {
-    static ref RUNTIME: Runtime = tokio::runtime::Runtime::new().unwrap();
+    pub static ref RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+    //tokio::runtime::Runtime::new().unwrap();
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -75,8 +79,8 @@ impl SystemBaseInfo {
 
         Self {
             os_type,
-            os_name: os_name.expect("UNKNOW"),
-            host_name: host_name.expect("UNKNOW"),
+            os_name: os_name.expect("Unknown"),
+            host_name: host_name.expect("Unknown"),
             cpu_arch,
             cpu_brand: cpu_brand.to_string(),
             cpu_cores: cpu_cores.unwrap_or(0) as u32,
@@ -146,6 +150,36 @@ impl SystemInfo {
         })
     }
 
+    pub fn from_base(base: SystemBaseInfo) -> Self {
+        Self {
+            os_type: base.os_type,
+            os_name: base.os_name,
+            host_name: base.host_name,
+            cpu_arch: base.cpu_arch,
+            cpu_brand: base.cpu_brand,
+            cpu_cores: base.cpu_cores,
+            ram_total: base.ram_total,
+            ram_free: base.ram_free,
+            ram_swap: base.ram_swap,
+            gpu_brand: base.gpu_brand,
+            gpu_name: base.gpu_name,
+            gpu_memory: base.gpu_memory,
+            local_ip: "0.0.0.0".to_string(),
+            local_port: 8186,
+            loopback_port: 8188,
+            mac_address: "Unknown".to_string(),
+            public_ip: "0.0.0.0".to_string(),
+            location: "CN".to_string(),
+            disk_total: base.disk_total,
+            disk_free: base.disk_free,
+            disk_uuid: base.disk_uuid,
+            root_dir: base.root_dir,
+            exe_dir: base.exe_dir,
+            exe_name: base.exe_name,
+            pyhash: "Unknown".to_string(),
+            uihash: "Unknown".to_string(),
+        }
+    }
     async fn _generate(base: SystemBaseInfo, info: Arc<Mutex<SystemInfo>>, did: String) {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
         let public_ip_task = env_utils::get_ipaddr_from_public(false);//.await.unwrap().to_string();
@@ -156,7 +190,7 @@ impl SystemInfo {
         let mac_address_task = env_utils::get_mac_address(local_ip.into());//.await;
         let (public_ip, local_port, loopback_port, location, program_hash, mac_address) =
             join!(public_ip_task, local_port_task, loopback_port_task, location_task, program_hash_task, mac_address_task);
-        let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
+        let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("Unknown".to_string(), "Unknown".to_string()));
 
         let mut sysinfo = info.lock().await;
         *sysinfo = Self {
@@ -196,7 +230,7 @@ impl SystemInfo {
             sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
         let shared_key = b"Simple_114.124";
         let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key));
-        //println!("loginfo: {}\nctext: {}", loginfo, ctext);
+        println!("loginfo: {}\nctext: {}", loginfo, ctext);
         let _ = env_utils::logging_launch_info(&did, &ctext).await;
     }
 }
