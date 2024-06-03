@@ -104,8 +104,8 @@ pub(crate) async fn get_ipaddr_from_stream(dns_ip: Option<&str>) -> Result<Ipv4A
     let local_addr = stream.local_addr()?;
     let local_ip = local_addr.ip();
     tracing::info!("TcpStream({}) local_ip={}", socket_addr.to_string(), local_ip);
-    println!("get_ipaddr_from_stream, out, local_ip: {:?}", local_ip);
-    print!(".");
+    //println!("get_ipaddr_from_stream, out, local_ip: {:?}", local_ip);
+    //print!(".");
     match local_ip {
         IpAddr::V4(ipv4) => Ok(ipv4),
         _ => Err(TokenError::IoError(Error::new(ErrorKind::Other, "No IPv4 address found"))),
@@ -126,8 +126,8 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
         .await?;
     let ip_addr = response.parse::<Ipv4Addr>()?;
     tracing::info!("CURL({}) public_ip={}", default_url, ip_addr);
-    println!("get_ipaddr_from_public, out, CURL({}) public_ip={}", default_url, ip_addr);
-    print!(".");
+    //println!("get_ipaddr_from_public, out, CURL({}) public_ip={}", default_url, ip_addr);
+    //print!(".");
     Ok(ip_addr)
 }
 
@@ -141,8 +141,8 @@ pub(crate) async fn get_location() -> Result<String, TokenError> {
         .await?;
     let json: Value = serde_json::from_str(&response)?;
     let country_code = json["countryCode"].as_str().map(|s| s.to_string()).unwrap_or("CN".to_string());
-    println!("get_location, out, country_code: {country_code}");
-    print!(".");
+    //println!("get_location, out, country_code: {country_code}");
+    //print!(".");
     Ok(country_code)
 }
 
@@ -166,8 +166,8 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
             };
         }
     };
-    println!("get_port_availability, out, port: {real_port}");
-    print!(".");
+    //println!("get_port_availability, out, port: {real_port}");
+    //print!(".");
     real_port
 }
 
@@ -221,8 +221,8 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let ui_hash_base64 = URL_SAFE_NO_PAD.encode(&combined_ui_hash);
     let ui_hash_output = &ui_hash_base64[..7];
 
-    println!("get_program_hash, out, hash: {py_hash_output}, {ui_hash_output}");
-    print!(".");
+    //println!("get_program_hash, out, hash: {py_hash_output}, {ui_hash_output}");
+    //print!(".");
     Ok((py_hash_output.to_string(), ui_hash_output.to_string()))
 }
 

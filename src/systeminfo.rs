@@ -182,12 +182,12 @@ impl SystemInfo {
     }
     async fn _generate(base: SystemBaseInfo, info: Arc<Mutex<SystemInfo>>, did: String) {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
-        let public_ip_task = env_utils::get_ipaddr_from_public(false);//.await.unwrap().to_string();
-        let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);//.await;
-        let loopback_port_task = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188);//.await;
-        let location_task = env_utils::get_location();//.await.unwrap().to_string();
-        let program_hash_task = env_utils::get_program_hash();//.await.unwrap_or_else(|_| ("0".to_string(), "0".to_string()));
-        let mac_address_task = env_utils::get_mac_address(local_ip.into());//.await;
+        let public_ip_task = env_utils::get_ipaddr_from_public(false);
+        let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);
+        let loopback_port_task = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188);
+        let location_task = env_utils::get_location();
+        let program_hash_task = env_utils::get_program_hash();
+        let mac_address_task = env_utils::get_mac_address(local_ip.into());
         let (public_ip, local_port, loopback_port, location, program_hash, mac_address) =
             join!(public_ip_task, local_port_task, loopback_port_task, location_task, program_hash_task, mac_address_task);
         let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("Unknown".to_string(), "Unknown".to_string()));
@@ -230,7 +230,7 @@ impl SystemInfo {
             sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
         let shared_key = b"Simple_114.124";
         let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key));
-        println!("loginfo: {}\nctext: {}", loginfo, ctext);
+        //println!("loginfo: {}\nctext: {}", loginfo, ctext);
         let _ = env_utils::logging_launch_info(&did, &ctext).await;
     }
 }
@@ -313,7 +313,7 @@ fn get_disk_info() -> (u64, u64, String) {
         }
         _ => (0, 0, "".to_string())
     };
-    print!("get_disk_info.");
+    //print!("get_disk_info.");
     (total, free, uuid)
 }
 
@@ -384,7 +384,7 @@ fn get_gpu_info() -> (String, String, u64){
         }
         _ => {("Unknown".to_string(), "reserve".to_string(), 0)}
     };
-    print!("get_gpu_info.");
+    //print!("get_gpu_info.");
     (gpu_brand, gpu_name, gpu_memory)
 }
 
