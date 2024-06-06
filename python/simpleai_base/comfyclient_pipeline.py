@@ -127,7 +127,7 @@ def process_flow(flow_name, params, images, callback=None):
 
 WORKFLOW_DIR = 'workflows'
 COMFYUI_ENDPOINT_IP = '127.0.0.1'
-COMFYUI_ENDPOINT_PORT = '8188'
+COMFYUI_ENDPOINT_PORT = '8187'
 server_address = f'{COMFYUI_ENDPOINT_IP}:{COMFYUI_ENDPOINT_PORT}'
 client_id = str(uuid.uuid4())  
 ws = None

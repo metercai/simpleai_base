@@ -13,7 +13,7 @@ def start(args_patch=[[]]):
     global comfyd_process
     if not is_running():
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
-        args_comfyd = [["--preview-method", "auto"], ["--port", "8188"], ["--disable-auto-launch"]]
+        args_comfyd = [["--preview-method", "auto"], ["--port", "8187"], ["--disable-auto-launch"]]
         for patch in args_patch:
             found = False
             for i, sublist in enumerate(args_comfyd):

@@ -171,7 +171,7 @@ impl SystemInfo {
             gpu_memory: base.gpu_memory,
             local_ip: "0.0.0.0".to_string(),
             local_port: 8186,
-            loopback_port: 8188,
+            loopback_port: 8187,
             mac_address: "Unknown".to_string(),
             public_ip: "0.0.0.0".to_string(),
             location: "CN".to_string(),
@@ -189,7 +189,7 @@ impl SystemInfo {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
         let public_ip_task = env_utils::get_ipaddr_from_public(false);
         let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);
-        let loopback_port_task = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8188);
+        let loopback_port_task = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8187);
         let location_task = env_utils::get_location();
         let program_hash_task = env_utils::get_program_hash();
         let mac_address_task = env_utils::get_mac_address(local_ip.into());
@@ -407,7 +407,7 @@ fn is_virtual_or_docker_or_physics() -> String {
                 }
                 Err(_) => {
                     let virt_name = run_command("sh", &["-c", "systemd-detect-virt"]);
-                    if virt_name == "none" {
+                    if virt_name.trim() == "none" {
                         "physical".to_string()
                     } else {
                         "virtual".to_string()
