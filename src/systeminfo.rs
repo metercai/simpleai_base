@@ -27,6 +27,7 @@ lazy_static! {
 pub struct SystemBaseInfo {
     pub os_type: String,
     pub os_name: String,
+    pub host_type: String,
     pub host_name: String,
     pub cpu_arch: String,
     pub cpu_brand: String,
@@ -42,13 +43,14 @@ pub struct SystemBaseInfo {
     pub disk_uuid: String,
     pub root_dir: String,
     pub exe_dir: String,
-    pub exe_name: String,
+    pub exe_name: String
 }
 
 impl SystemBaseInfo {
     pub fn generate() -> Self {
         let (disk_total, disk_free, disk_uuid) = get_disk_info();
         let (gpu_brand, gpu_name, gpu_memory) = get_gpu_info();
+        let host_type = is_virtual_or_docker_or_physics();
 
         let mut sys = System::new_all();
         sys.refresh_all();
@@ -80,6 +82,7 @@ impl SystemBaseInfo {
         Self {
             os_type,
             os_name: os_name,
+            host_type,
             host_name: host_name.expect("Unknown"),
             cpu_arch,
             cpu_brand: cpu_brand.to_string(),
@@ -105,6 +108,7 @@ impl SystemBaseInfo {
 pub struct SystemInfo {
     pub os_type: String,
     pub os_name: String,
+    pub host_type: String,
     pub host_name: String,
     pub cpu_arch: String,
     pub cpu_brand: String,
@@ -154,6 +158,7 @@ impl SystemInfo {
         Self {
             os_type: base.os_type,
             os_name: base.os_name,
+            host_type: base.host_type,
             host_name: base.host_name,
             cpu_arch: base.cpu_arch,
             cpu_brand: base.cpu_brand,
@@ -196,6 +201,7 @@ impl SystemInfo {
         *sysinfo = Self {
             os_type: base.os_type,
             os_name: base.os_name,
+            host_type: base.host_type,
             host_name: base.host_name,
             cpu_arch: base.cpu_arch,
             cpu_brand: base.cpu_brand,
@@ -223,8 +229,8 @@ impl SystemInfo {
         };
 
         let loginfo = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            sysinfo.os_type, sysinfo.os_name, sysinfo.cpu_arch,
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            sysinfo.os_type, sysinfo.os_name, sysinfo.host_type, sysinfo.cpu_arch,
             sysinfo.ram_total/1024, sysinfo.gpu_brand, sysinfo.gpu_name,
             sysinfo.gpu_memory/1024, sysinfo.location, sysinfo.disk_total/1024,
             sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
@@ -268,9 +274,12 @@ fn get_disk_info() -> (u64, u64, String) {
                     let sysdisk = line.get(0).unwrap().to_string();
                     total = line.get(1).unwrap().to_string().parse::<u64>().unwrap_or(0);
                     free = line.get(3).unwrap().to_string().parse::<u64>().unwrap_or(0);
-                    let uuid_resault = run_command("blkid", &[&sysdisk]);
-                    let uuid_str = uuid_resault.split_whitespace().nth(1).unwrap();
-                    uuid = uuid_str[6..uuid_str.len()-1].to_string();
+                    let uuid_resault = run_command("lsblk", &[&format!("-fP {}", sysdisk)]);
+                    let uuid_str = uuid_resault.split_whitespace().nth(3).unwrap_or(&sysdisk);
+                    if uuid_str.starts_with("UUID=") {
+                        uuid = uuid_str[6..uuid_str.len()-1].to_string();
+                    }
+                    else { uuid = uuid_str.to_string();  }
                 }
             }
             (total/1024, free/1024, uuid)
@@ -388,6 +397,30 @@ fn get_gpu_info() -> (String, String, u64){
     (gpu_brand, gpu_name, gpu_memory)
 }
 
+fn is_virtual_or_docker_or_physics() -> String {
+    let device_type = match env::consts::OS {
+        "linux" => {
+            let path = "/.dockerenv";
+            match std::fs::metadata(path) {
+                Ok(metadata) => {
+                    "docker".to_string()
+                }
+                Err(_) => {
+                    let virt_name = run_command("sh", &["-c", "systemd-detect-virt"]);
+                    if virt_name == "none" {
+                        "physical".to_string()
+                    } else {
+                        "virtual".to_string()
+                    }
+                }
+            }
+        }
+        _ => {
+            "Unknown".to_string()
+        }
+    };
+    device_type
+}
 
 fn run_command(command: &str, args: &[&str]) -> String {
     match Command::new(command).args(args).output() {

@@ -19,7 +19,17 @@ class ComfyTaskParams:
         'input_image': 'LoadImage:input_image:image',
         'layer_diffuse_injection': 'LayeredDiffusionApply:layer_diffuse_apply:config',
         'sd_version': 'LayeredDiffusionDecode:layer_diffuse_decode:sd_version;LayeredDiffusionDecodeRGBA:layer_diffuse_decode_rgba:sd_version',
-        'layer_diffuse_cond': 'LayeredDiffusionCondApply:layer_diffuse_cond_apply:config'
+        'layer_diffuse_cond': 'LayeredDiffusionCondApply:layer_diffuse_cond_apply:config',
+
+        'light_source_text_switch': 'easy imageSwitch:ic_light_source_text_switch:boolean',
+        'light_source_shape_switch': 'easy imageSwitch:ic_light_source_shape_switch:boolean',
+        'light_source_text': 'LightSource:ic_light_source_text:light_position',
+        'light_apply': 'LoadAndApplyICLightUnet:ic_light_apply:model_path',
+        'light_detail_transfer': 'DetailTransfer:ic_light_detail_transfer:mode',
+        'light_source_start_color': 'CreateGradientFromCoords:ic_light_source_color:start_color',
+        'light_source_end_color': 'CreateGradientFromCoords:ic_light_source_color:end_color',
+        'light_editor_path': 'SplineEditor:ic_light_editor:points_store'
+
         }
 
     def set_mapping_rule(self, maps):
