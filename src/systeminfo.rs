@@ -407,6 +407,7 @@ fn is_virtual_or_docker_or_physics() -> String {
                 }
                 Err(_) => {
                     let virt_name = run_command("sh", &["-c", "systemd-detect-virt"]);
+                    println!("virt_name: {}, {}", virt_name, virt_name.trim());
                     if virt_name.trim() == "none" {
                         "physical".to_string()
                     } else {
