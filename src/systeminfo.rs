@@ -429,6 +429,7 @@ fn run_command(command: &str, args: &[&str]) -> String {
             if output.status.success() && !output.stdout.is_empty() {
                 String::from_utf8_lossy(&output.stdout).into_owned()
             } else {
+                println!("Failed to run command: {}, error: {}", command, String::from_utf8_lossy(&output.stderr));
                 "".to_string()
             }
         }
