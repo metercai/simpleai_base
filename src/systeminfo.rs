@@ -407,12 +407,7 @@ fn is_virtual_or_docker_or_physics() -> String {
                 }
                 Err(_) => {
                     let virt_name = run_command("cat", &["/sys/class/dmi/id/product_name"]);
-                    println!("virt_name: {}, {}", virt_name, virt_name.trim());
-                    if virt_name.trim() == "none" {
-                        "physical".to_string()
-                    } else {
-                        "virtual".to_string()
-                    }
+                    virt_name.trim().to_string()
                 }
             }
         }
