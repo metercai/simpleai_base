@@ -274,7 +274,7 @@ fn get_disk_info() -> (u64, u64, String) {
                     let sysdisk = line.get(0).unwrap().to_string();
                     total = line.get(1).unwrap().to_string().parse::<u64>().unwrap_or(0);
                     free = line.get(3).unwrap().to_string().parse::<u64>().unwrap_or(0);
-                    let uuid_resault = run_command("lsblk", &[&format!("-fP {}", sysdisk)]);
+                    let uuid_resault = run_command("/usr/bin/lsblk", &[&format!("-fP {}", sysdisk)]);
                     let uuid_str = uuid_resault.split_whitespace().nth(3).unwrap_or(&sysdisk);
                     if uuid_str.starts_with("UUID=") {
                         uuid = uuid_str[6..uuid_str.len()-1].to_string();
@@ -297,7 +297,7 @@ fn get_disk_info() -> (u64, u64, String) {
             let mut free = 0;
             let mut uuid = "".to_string();
             for line in lines {
-                if line.get(8).unwrap().to_string() == "/" {
+                if line.len()>8 && line.get(8).unwrap().to_string() == "/" {
                     let sysdisk = line.get(0).unwrap().to_string();
                     total = line.get(1).unwrap().to_string().parse::<u64>().unwrap_or(0);
                     free = line.get(3).unwrap().to_string().parse::<u64>().unwrap_or(0);
@@ -406,7 +406,7 @@ fn is_virtual_or_docker_or_physics() -> String {
                     "docker".to_string()
                 }
                 Err(_) => {
-                    let virt_name = run_command("systemd-detect-virt", &[]);
+                    let virt_name = run_command("sh", &["-c","/usr/bin/systemd-detect-virt"]);
                     println!("virt_name: {}, {}", virt_name, virt_name.trim());
                     if virt_name.trim() == "none" {
                         "physical".to_string()
