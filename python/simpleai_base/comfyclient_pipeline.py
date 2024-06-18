@@ -116,7 +116,7 @@ def process_flow(flow_name, params, images, callback=None):
             ws = websocket.WebSocket()
             ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
         except websocket.ConnectionRefusedError as e:
-            print(f'[ComfyClient] The connect_to_server has failed, sleep and try again... {e}')
+            print(f'[ComfyClient] The connect_to_server has failed, sleep and try again: {e}')
             time.sleep(5)
             ws = websocket.WebSocket()
             ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
@@ -131,7 +131,7 @@ def process_flow(flow_name, params, images, callback=None):
     try:
         images = get_images(ws, params.convert2comfy(flowdata), callback=callback)
     except websocket.WebSocketConnectionClosedException as e:
-        print(f'[ComfyClient] The connect has been closed, reconnection and try again... {e}')
+        print(f'[ComfyClient] The connect has been closed, reconnection and try again: {e}')
         ws = websocket.WebSocket()
         ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
         images = get_images(ws, params.convert2comfy(flowdata), callback=callback)
