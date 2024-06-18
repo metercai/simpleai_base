@@ -36,7 +36,7 @@ def start(args_patch=[[]]):
         process_env = os.environ.copy()
         process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
         comfyd_process  = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
-        comfyclient_pipeline.ws = None
+    comfyclient_pipeline.ws = None
     print("[Comfyd] Comfyd is running!")
 
 def stop():
