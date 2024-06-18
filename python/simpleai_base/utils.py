@@ -59,7 +59,7 @@ def addnet_hash_safetensors(b):
         hash_sha256.update(chunk)
 
     return hash_sha256.hexdigest()
-a
+
 
 def calculate_sha256(filename) -> str:
     hash_sha256 = hashlib.sha256()
