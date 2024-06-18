@@ -117,7 +117,7 @@ def process_flow(flow_name, params, images, callback=None):
             ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
         except ConnectionRefusedError as e:
             print(f'[ComfyClient] The connect_to_server has failed, sleep and try again: {e}')
-            time.sleep(5)
+            time.sleep(6)
             ws = websocket.WebSocket()
             ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
 
