@@ -10,8 +10,10 @@ comfyd_process = None
 
 def is_running():
     global comfyd_process
+    if comfyd_process is None:
+        return False
     process_code = comfyd_process.poll()
-    if comfyd_process is not None and process_code is None:
+    if process_code is None:
         return True
     print("[Comfyd] comfyd process status code: {process_code}")
     return False
