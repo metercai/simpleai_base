@@ -4,6 +4,7 @@ import websocket
 import uuid
 import random
 import httpx
+import time
 import numpy as np
 from io import BytesIO
 from PIL import Image
@@ -111,8 +112,15 @@ def process_flow(flow_name, params, images, callback=None):
 
     flow_file = os.path.join(WORKFLOW_DIR, f'{flow_name}_api.json')
     if ws is None:
-        ws = websocket.WebSocket()
-        ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+        try:
+            ws = websocket.WebSocket()
+            ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+        except websocket.ConnectionRefusedError as e:
+            print(f'[ComfyClient] The connect_to_server has failed, sleep and try again... {e}')
+            time.sleep(5)
+            ws = websocket.WebSocket()
+            ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+
     images_map = images_upload(images)
     params.update_params(images_map)
     with open(flow_file, 'r', encoding="utf-8") as workflow_api_file:
@@ -120,7 +128,14 @@ def process_flow(flow_name, params, images, callback=None):
     print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
     for k,v in params.params.items():
         print(f'    {k} = {v}')
-    images = get_images(ws, params.convert2comfy(flowdata), callback=callback)
+    try:
+        images = get_images(ws, params.convert2comfy(flowdata), callback=callback)
+    except websocket.WebSocketConnectionClosedException as e:
+        print(f'[ComfyClient] The connect has been closed, reconnection and try again... {e}')
+        ws = websocket.WebSocket()
+        ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+        images = get_images(ws, params.convert2comfy(flowdata), callback=callback)
+
     images_keys = sorted(images.keys(), reverse=True)
     imgs = [images[key] for key in images_keys]
     return imgs
