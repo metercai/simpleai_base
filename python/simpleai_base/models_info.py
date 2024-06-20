@@ -145,6 +145,8 @@ def init_models_info():
     
 def refresh_models_info_from_path():
     global modelsinfo
+    if modelsinfo is None:
+        init_models_info()
     modelsinfo.refresh_from_path()
     return
 
