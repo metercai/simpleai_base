@@ -10,6 +10,8 @@ comfyd_process = None
 
 def is_running():
     global comfyd_process
+    if 'comfyd_process' not in globals():
+        return False
     if comfyd_process is None:
         return False
     process_code = comfyd_process.poll()
@@ -35,18 +37,42 @@ def start(args_patch=[[]]):
         arguments = [arg for sublist in args_comfyd for arg in sublist]
         process_env = os.environ.copy()
         process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        print(f'[Comfyd] Ready to start with arguments: {arguments}, env: {process_env}')
+        if 'comfyd_process' not in globals():
+            globals()['comfyd_process'] = None
         comfyd_process  = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
-    comfyclient_pipeline.ws = None
-    print("[Comfyd] Comfyd is running!")
+        comfyclient_pipeline.ws = None
+    else:
+        print("[Comfyd] Comfyd is running!")
 
 def stop():
     global comfyd_process
     if is_running():
         comfyd_process.terminate()
         comfyd_process.wait()
-    comfyd_process = None
+    del comfyd_process
     comfyclient_pipeline.ws = None
     model_management.unload_all_models()
     gc.collect()
     torch.cuda.empty_cache()
     print("[Comfyd] Comfyd stopped!")
+
+def args_mapping(args_fooocus):
+    args_comfy = [[]]
+    if "--gpu-device-id" in args_fooocus:
+        args_comfy += [["--cuda-device", args_fooocus.index("--gpu-device-id")+1]]
+    if "--async-cuda-allocation" in args_fooocus:
+        args_comfy += [["--cuda-malloc"]]
+    if "--vae-in-cpu" in args_fooocus:
+        args_comfy += [["--vae-in-cpu"]]
+    if "--directml" in args_fooocus:
+        args_comfy += [["--directml"]]
+    if "--disable-xformers" in args_fooocus:
+        args_comfy += [["--disable-xformers"]]
+    if "--always-cpu" in args_fooocus:
+        args_comfy += [["--cpu"]]
+    if "--always-low-vram" in args_fooocus:
+        args_comfy += [["--lowvram"]]
+    if "--always-gpu" in args_fooocus:
+        args_comfy += [["--gpu-only"]]
+    return args_comfy

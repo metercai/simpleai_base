@@ -8,8 +8,6 @@ from . import models_hub_host
 from . import config
 from . import utils
 
-models_info = {}
-models_info_muid = {}
 models_info_rsync = {}
 models_info_file = ['models_info', 0]
 models_info_path = os.path.abspath(f'./models/{models_info_file[0]}.json')
@@ -127,87 +125,23 @@ default_models_info = {
     }
 }
 
+models_path_map = {
+    'checkpoints': config.paths_checkpoints,
+    'loras': config.paths_loras,
+    'embeddings': [config.path_embeddings],
+}
+
 def get_models_info():
-    global models_info, models_info_muid
-    return models_info, models_info_muid
+    global modelsinfo
+    return modelsinfo.m_info, modelsinfo.m_muid, modelsinfo.m_file
 
 def init_models_info():
-    global models_info, models_info_file, models_info_path
-
-    if os.path.exists(models_info_path):
-        file_mtime = time.localtime(os.path.getmtime(models_info_path)) 
-        if (models_info is None or file_mtime != models_info_file[1]):
-            try:
-                with open(models_info_path, "r", encoding="utf-8") as json_file:
-                    models_info.update(json.load(json_file))
-                models_info_file[1] = file_mtime
-            except Exception as e:
-                print(f'[ModelInfo] Load model info file [{models_info_path}] failed!')
-                print(e)
-    refresh_models_info_from_path()
+    global modelsinfo
     return
     
 def refresh_models_info_from_path():
-    global models_info, models_info_file, models_info_path
-
-    model_filenames = config.get_model_filenames(config.paths_checkpoints)
-    lora_filenames = config.get_model_filenames(config.paths_loras)
-    embedding_filenames = config.get_model_filenames([config.path_embeddings])
-    models_info_muid = {}
-    new_filenames = []
-    new_models_info = {}
-    for k in model_filenames:
-        filename = 'checkpoints/'+k
-        if filename not in models_info.keys():
-            new_filenames.append(filename)
-        else:
-            new_models_info.update({filename: models_info[filename]})
-            if models_info[filename]['muid']:
-                models_info_muid.update({models_info[filename]['muid']: filename})
-    for k in lora_filenames:
-        filename = 'loras/'+k
-        if filename not in models_info.keys():
-            new_filenames.append(filename)
-        else:
-            new_models_info.update({filename: models_info[filename]})
-            if models_info[filename]['muid']:
-                models_info_muid.update({models_info[filename]['muid']: filename})
-    for k in embedding_filenames:
-        filename = 'embeddings/'+k
-        if filename not in models_info.keys():
-            new_filenames.append(filename)
-        else:
-            new_models_info.update({filename: models_info[filename]})
-            if models_info[filename]['muid']:
-                models_info_muid.update({models_info[filename]['muid']: filename})
-    models_info = new_models_info
-
-    if len(new_filenames)>0:
-        try:
-            for f in new_filenames:
-                if f.startswith("checkpoints/"):
-                    file_path = os.path.join(config.paths_checkpoints[0], f[12:])
-                elif f.startswith("loras/"):
-                    file_path = os.path.join(config.paths_loras[0], f[6:])
-                elif f.startswith("embeddings/"):
-                    file_path = os.path.join(config.path_embeddings, f[11:])
-                else:
-                    file_path = os.path.abspath(f'./models/{f}')
-                size = os.path.getsize(file_path)
-                if f in default_models_info.keys() and size == default_models_info[f]["size"]:
-                    hash = default_models_info[f]["hash"]
-                    muid = default_models_info[f]["muid"]
-                else:
-                    hash = ''
-                    muid = ''
-                models_info.update({f:{'size': size, 'hash': hash, 'url': None, 'muid': muid}})
-            with open(models_info_path, "w", encoding="utf-8") as json_file:
-                json.dump(models_info, json_file, indent=4)
-            models_info_file[1] = time.localtime(os.path.getmtime(models_info_path))
-        except Exception as e:
-            print(f'[ModelInfo] Update model info file [{models_info_path}] failed!')
-            print(e)
-    
+    global modelsinfo
+    modelsinfo.refresh_from_path()
     return
 
 
@@ -279,4 +213,65 @@ def sync_model_info(downurls):
     return keylist
 
 
+class ModelsInfo:
+    def __init__(self, models_info_path, path_map):
+        self.info_path = models_info_path
+        self.path_map = path_map
+        self.m_info = {}
+        self.m_muid = {}
+        self.m_file = {}
+        if os.path.exists(self.info_path):
+            try:
+                with open(self.info_path, "r", encoding="utf-8") as json_file:
+                    self.m_info.update(json.load(json_file))
+                    for k in self.m_info.keys():
+                        if self.m_info[k]['muid']:
+                            self.m_muid.update({self.m_info[k]['muid']: k})
+                        if self.m_info[k]['file']:
+                            self.m_file.update({self.m_info[k]['file']: k})
+            except Exception as e:
+                print(f'[ModelInfo] Load model info file [{self.info_path}] failed!')
+                print(e)
+        self.refresh_from_path()
+
+    def refresh_from_path(self):
+        new_info_key = []
+        new_file_key = []
+        del_file_key = []
+        for path in self.path_map.keys():
+            path_filenames = config.get_model_filenames(self.path_map[path])
+            for k in path_filenames:
+                file_key = f'{path}/{k}'
+                new_info_key.append(file_key)
+                if file_key not in self.m_info.keys():
+                    new_file_key.append(file_key)
+        for k in self.m_info.keys():
+            if k not in new_info_key:
+                del_file_key.append(k)
+        for f in new_file_key:
+            f_path = f.split('/')[0]
+            file_path = ''
+            for path in self.path_map[f_path]:
+                    file_path = os.path.join(path, f[len(f_path)+1:])
+                    if os.path.exists(file_path):
+                        break
+            size = os.path.getsize(file_path)
+            if f in default_models_info.keys() and size == default_models_info[f]["size"]:
+                hash = default_models_info[f]["hash"]
+                muid = default_models_info[f]["muid"]
+            else:
+                hash = '' # utils.sha256(file_path, length=None)
+                muid = '' # utils.sha256(file_path, use_addnet_hash=True)
+            self.m_info.update({f:{'size': size, 'hash': hash, 'file': file_path, 'muid': muid, 'url': None}})
+            self.m_muid.update({muid: f})
+            self.m_file.update({file_path: f})
+        for f in del_file_key:
+            del self.m_info[f]
+            del self.m_muid[self.m_info[f]['muid']]
+            del self.m_file[self.m_info[f]['file']]
+        with open(self.info_path, "w", encoding="utf-8") as json_file:
+            json.dump(self.m_info, json_file, indent=4)
+
+
+modelsinfo = ModelsInfo(models_info_path, models_path_map)
 
