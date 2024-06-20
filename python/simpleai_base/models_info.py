@@ -125,12 +125,14 @@ default_models_info = {
     }
 }
 
+modelsinfo = None
 
 def get_models_info():
     global modelsinfo
+    if modelsinfo is None:
+        return {}, {}, {}
     return modelsinfo.m_info, modelsinfo.m_muid, modelsinfo.m_file
 
-modelsinfo = None
 def init_models_info():
     global modelsinfo, models_info_path
     models_path_map = {
@@ -180,12 +182,13 @@ class ModelsInfo:
         new_file_key = []
         del_file_key = []
         for path in self.path_map.keys():
-            path_filenames = config.get_model_filenames(self.path_map[path])
-            for k in path_filenames:
-                file_key = f'{path}/{k}'
-                new_info_key.append(file_key)
-                if file_key not in self.m_info.keys():
-                    new_file_key.append(file_key)
+            if self.path_map[path]:
+                path_filenames = config.get_model_filenames(self.path_map[path])
+                for k in path_filenames:
+                    file_key = f'{path}/{k}'
+                    new_info_key.append(file_key)
+                    if file_key not in self.m_info.keys():
+                        new_file_key.append(file_key)
         for k in self.m_info.keys():
             if k not in new_info_key:
                 del_file_key.append(k)
