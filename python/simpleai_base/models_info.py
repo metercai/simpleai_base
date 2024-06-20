@@ -125,18 +125,20 @@ default_models_info = {
     }
 }
 
-models_path_map = {
-    'checkpoints': config.paths_checkpoints,
-    'loras': config.paths_loras,
-    'embeddings': [config.path_embeddings],
-}
 
 def get_models_info():
     global modelsinfo
     return modelsinfo.m_info, modelsinfo.m_muid, modelsinfo.m_file
 
+modelsinfo = None
 def init_models_info():
-    global modelsinfo
+    global modelsinfo, models_info_path
+    models_path_map = {
+        'checkpoints': config.paths_checkpoints,
+        'loras': config.paths_loras,
+        'embeddings': [config.path_embeddings],
+    }
+    modelsinfo = ModelsInfo(models_info_path, models_path_map)
     return
     
 def refresh_models_info_from_path():
@@ -147,69 +149,8 @@ def refresh_models_info_from_path():
 
 def sync_model_info(downurls):
     global models_info, models_info_rsync, models_info_file, models_info_path
-
-    keys = sorted(models_info.keys())
-    # file hash completion
-    for f in keys:
-        if not models_info[f]['hash']:
-            print(f'[ModelInfo] Computing file hash for {f}')
-            if f.startswith("checkpoints/"):
-                file_path = os.path.join(config.paths_checkpoints[0], f[12:])
-            elif f.startswith("loras/"):
-                file_path = os.path.join(config.paths_loras[0], f[6:])
-            elif f.startswith("embeddings/"):
-                file_path = os.path.join(config.path_embeddings, f[11:])
-            else:
-                file_path = os.path.abspath(f'./models/{f}')
-            models_info[f].update({'hash':utils.sha256(file_path, length=None)})
+    print(f'downurls:{downurls}')
     keylist = []
-    for i in range(len(keys)):
-        if keys[i].startswith('checkpoints'):
-            keylist.append(keys[i])
-        if keys[i].startswith('loras'):
-            keylist.append(keys[i])
-    for i in range(len(keys)):
-        if not keys[i].startswith('checkpoints') and not keys[i].startswith('loras'):
-            keylist.append(keys[i])
-
-    models_info_rsync = {}
-    models_info_update_flag = False
-    for i in range(len(keylist)):
-        #print(f'downurls: i={i}, k={keylist[i]}, {downurls[i]}')
-        durl = '' if i >= len(downurls) else downurls[i]
-        if durl and models_info[keylist[i]]['url'] != durl:
-            models_info_rsync.update({keylist[i]: {"hash": models_info[keylist[i]]['hash'], "url": durl}})
-            models_info[keylist[i]]['url'] = durl
-            models_info_update_flag = True
-
-    file_mtime = time.localtime(os.path.getmtime(models_info_path))
-    for k in models_info.keys():
-        if not models_info[k]['muid'] and k not in models_info_rsync.keys():
-            models_info_rsync.update({k: {"hash": models_info[k]['hash'], "url": ""}})
-    try:
-        #response = requests.post(f'{models_hub_host}/register_claim/', data = token_did.get_register_claim('SimpleSDXLHub'))
-        #rsync_muid_msg = { "files": token_did.encrypt_default(json.dumps(models_info_rsync)) }
-        #headers = { "DID": token_did.DID}
-        #response = requests.post(f'{models_hub_host}/rsync_muid/', data = json.dumps(rsync_muid_msg), headers = headers)
-        #results = json.loads(response.text)
-        #if (results["message"] == "it's ok!" and results["results"]):
-        #    for k in results["results"].keys():
-        #        models_info[k]['muid'] = results["results"][k]['muid']
-        #        models_info_muid[results["results"][k]['muid']] = k
-        #        models_info[k]['url'] = results["results"][k]['url']
-        #    print(f'[ModelInfo] Rsync {len(results["results"].keys())} MUIDs info from model hub.')
-        #    with open(models_info_path, "w", encoding="utf-8") as json_file:
-        #        json.dump(models_info, json_file, indent=4)
-            models_info_file[1] = time.localtime(os.path.getmtime(models_info_path))
-    except Exception as e:
-            print(f'[ModelInfo] Connect the models hub site failed!')
-            print(e)
-
-    file_mtime2 = time.localtime(os.path.getmtime(models_info_path))
-    if (models_info_update_flag and file_mtime == file_mtime2):
-        with open(models_info_path, "w", encoding="utf-8") as json_file:
-            json.dump(models_info, json_file, indent=4)
-        models_info_file[1] = time.localtime(os.path.getmtime(models_info_path))
     return keylist
 
 
@@ -273,5 +214,5 @@ class ModelsInfo:
             json.dump(self.m_info, json_file, indent=4)
 
 
-modelsinfo = ModelsInfo(models_info_path, models_path_map)
+
 
