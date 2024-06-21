@@ -62,7 +62,7 @@ def stop():
     print("[Comfyd] Comfyd stopped!")
 
 def args_mapping(args_fooocus):
-    args_comfy = [[]]
+    args_comfy = []
     if "--gpu-device-id" in args_fooocus:
         args_comfy += [["--cuda-device", args_fooocus.index("--gpu-device-id")+1]]
     if "--async-cuda-allocation" in args_fooocus:
