@@ -174,6 +174,11 @@ class ModelsInfo:
                             self.m_muid.update({self.m_info[k]['muid']: k})
                         if self.m_info[k]['file']:
                             self.m_file.update({self.m_info[k]['file']: k})
+                        if not 'file' in k:
+                            self.m_info = {}
+                            self.m_muid = {}
+                            self.m_file = {}
+                            break
             except Exception as e:
                 print(f'[ModelInfo] Load model info file [{self.info_path}] failed!')
                 print(e)
@@ -212,9 +217,9 @@ class ModelsInfo:
             self.m_muid.update({muid: f})
             self.m_file.update({file_path: f})
         for f in del_file_key:
-            del self.m_info[f]
             del self.m_muid[self.m_info[f]['muid']]
             del self.m_file[self.m_info[f]['file']]
+            del self.m_info[f]
         with open(self.info_path, "w", encoding="utf-8") as json_file:
             json.dump(self.m_info, json_file, indent=4)
 
