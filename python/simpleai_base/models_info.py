@@ -174,14 +174,12 @@ class ModelsInfo:
                             self.m_muid.update({self.m_info[k]['muid']: k})
                         if self.m_info[k]['file']:
                             self.m_file.update({self.m_info[k]['file']: k})
-                        if not 'file' in k:
-                            self.m_info = {}
-                            self.m_muid = {}
-                            self.m_file = {}
-                            break
             except Exception as e:
                 print(f'[ModelInfo] Load model info file [{self.info_path}] failed!')
                 print(e)
+                self.m_info = {}
+                self.m_muid = {}
+                self.m_file = {}
         self.refresh_from_path()
 
     def refresh_from_path(self):
