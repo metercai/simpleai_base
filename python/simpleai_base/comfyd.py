@@ -51,6 +51,10 @@ def start(args_patch=[[]]):
 
 def stop():
     global comfyd_process
+    if 'comfyd_process' not in globals():
+        return
+    if comfyd_process is None:
+        return
     if is_running():
         comfyd_process.terminate()
         comfyd_process.wait()
