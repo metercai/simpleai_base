@@ -55,7 +55,13 @@ def get_images(ws, prompt, callback=None):
     current_step = None
     current_total_steps = None
     while True:
-        out = ws.recv()
+        try:
+            out = ws.recv()
+        except websocket.WebSocketException as e:
+            print(f'[ComfyClient] The connect was exception, restart and try again: {e}')
+            ws = websocket.WebSocket()
+            ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+            out = ws.recv()
         if isinstance(out, str):
             message = json.loads(out)
             current_type = message['type']

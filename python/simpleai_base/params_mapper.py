@@ -38,6 +38,11 @@ class ComfyTaskParams:
     def update_params(self, new_parms):
         self.params.update(new_parms)
 
+    def delete_params(self, keys):
+        for k in keys:
+            if k in self.params:
+                del self.params[k]
+
     def convert2comfy(self, workflow):
         #print(f'params:{self.params}')
         self.workflow = workflow
