@@ -169,7 +169,7 @@ impl SystemInfo {
             gpu_brand: base.gpu_brand,
             gpu_name: base.gpu_name,
             gpu_memory: base.gpu_memory,
-            local_ip: "0.0.0.0".to_string(),
+            local_ip: "127.0.0.1".to_string(),
             local_port: 8186,
             loopback_port: 8187,
             mac_address: "Unknown".to_string(),
@@ -186,7 +186,7 @@ impl SystemInfo {
         }
     }
     async fn _generate(base: SystemBaseInfo, info: Arc<Mutex<SystemInfo>>, did: String) {
-        let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0));
+        let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(127, 0, 0, 1));
         let public_ip_task = env_utils::get_ipaddr_from_public(false);
         let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);
         let loopback_port_task = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8187);
@@ -364,11 +364,34 @@ fn get_gpu_info() -> (String, String, u64){
             let mut gpu_memory = 0;
             let mut gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep NVIDIA"]);
             if gpu_brand.is_empty() {
-                gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep -E AMD|ATI"]);
+                gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep AMD"]);
                 if gpu_brand.is_empty() {
                     gpu_brand = "Unknown".to_string();
                 } else {
                     gpu_brand = "AMD".to_string();
+                    let gpu_info = run_command("rocm-smi", &["--showproductname", "--csv"]);
+                    let parts: Vec<Vec<&str>> = gpu_info
+                        .lines()
+                        .map(|line| {
+                            line.split(',')
+                                .map(|part| { part.trim() })
+                                .collect::<Vec<&str>>()
+                        }).collect();
+                    gpu_name = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
+                        .unwrap_or_else(|| "".to_string());
+                    let gpu_version = parts.get(1).and_then(|row| row.get(9)).map(|value| value.to_string())
+                        .unwrap_or_else(|| "".to_string());
+                    gpu_name = gpu_name + "," + &gpu_version;
+                    let gpu_info2 = run_command("rocm-smi", &["--showmeminfo vram", "--csv"]);
+                    let parts2: Vec<Vec<&str>> = gpu_info2
+                        .lines()
+                        .map(|line| {
+                            line.split(',')
+                                .map(|part| { part.trim() })
+                                .collect::<Vec<&str>>()
+                        }).collect();
+                    gpu_memory = parts2.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
+                        .unwrap_or_else(|| "".to_string()).parse::<u64>().unwrap_or(0)/(1024*1024);
                 }
             } else {
                 gpu_brand = "NVIDIA".to_string();
@@ -421,7 +444,7 @@ fn is_virtual_or_docker_or_physics() -> String {
 fn run_command(command: &str, args: &[&str]) -> String {
     match Command::new(command).args(args).output() {
         Ok(output) => {
-            if output.status.success() && !output.stdout.is_empty() {
+            if output.status.success() {
                 String::from_utf8_lossy(&output.stdout).into_owned()
             } else {
                 println!("Failed to run command: {} {:?}, error: {}", command, args, String::from_utf8_lossy(&output.stderr));

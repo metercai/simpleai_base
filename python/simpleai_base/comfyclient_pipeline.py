@@ -151,7 +151,28 @@ def process_flow(flow_name, params, images, callback=None):
 
     images_keys = sorted(images.keys(), reverse=True)
     imgs = [images[key] for key in images_keys]
+    free()
     return imgs
+
+def interrupt():
+    try:
+        with httpx.Client() as client:
+            response = client.post("http://{}/interrupt".format(server_address))
+            return json.loads(response.read())
+    except httpx.RequestError as e:
+        print(f"httpx.RequestError: {e}")
+        return None
+
+def free(unload_models=False):
+    p = {"unload_models": unload_models, "free_memory": True}
+    data = json.dumps(p).encode('utf-8')
+    try:
+        with httpx.Client() as client:
+            response = client.post("http://{}/free".format(server_address), data=data)
+            return json.loads(response.read())
+    except httpx.RequestError as e:
+        print(f"httpx.RequestError: {e}")
+        return None
 
 WORKFLOW_DIR = 'workflows'
 COMFYUI_ENDPOINT_IP = '127.0.0.1'
