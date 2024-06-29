@@ -151,7 +151,6 @@ def process_flow(flow_name, params, images, callback=None):
 
     images_keys = sorted(images.keys(), reverse=True)
     imgs = [images[key] for key in images_keys]
-    free()
     return imgs
 
 def interrupt():
@@ -163,8 +162,8 @@ def interrupt():
         print(f"httpx.RequestError: {e}")
         return None
 
-def free(unload_models=False):
-    p = {"unload_models": unload_models, "free_memory": True}
+def free():
+    p = {"unload_models": True, "free_memory": True}
     data = json.dumps(p).encode('utf-8')
     try:
         with httpx.Client() as client:

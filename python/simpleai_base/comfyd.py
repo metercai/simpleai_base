@@ -75,7 +75,18 @@ def free():
         return
     if is_running():
         return
-    comfyclient_pipeline.free(unload_models=True)
+    comfyclient_pipeline.free()
+    return
+
+def interrupt():
+    global comfyd_process
+    if 'comfyd_process' not in globals():
+        return
+    if comfyd_process is None:
+        return
+    if is_running():
+        return
+    comfyclient_pipeline.interrupt()
     return
 
 def args_mapping(args_fooocus):
