@@ -73,8 +73,6 @@ def free():
         return
     if comfyd_process is None:
         return
-    if is_running():
-        return
     comfyclient_pipeline.free()
     return
 
@@ -83,8 +81,6 @@ def interrupt():
     if 'comfyd_process' not in globals():
         return
     if comfyd_process is None:
-        return
-    if is_running():
         return
     comfyclient_pipeline.interrupt()
     return
