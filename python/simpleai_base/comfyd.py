@@ -40,6 +40,9 @@ def start(args_patch=[[]]):
         arguments = [arg for sublist in args_comfyd for arg in sublist]
         process_env = os.environ.copy()
         process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        model_management.unload_all_models()
+        gc.collect()
+        torch.cuda.empty_cache()
         if not echo_off:
             print(f'[Comfyd] Ready to start with arguments: {arguments}, env: {process_env}')
         if 'comfyd_process' not in globals():
@@ -60,11 +63,20 @@ def stop():
         comfyd_process.wait()
     del comfyd_process
     comfyclient_pipeline.ws = None
-    model_management.unload_all_models()
+    free()
     gc.collect()
-    torch.cuda.empty_cache()
     print("[Comfyd] Comfyd stopped!")
 
+def free():
+    global comfyd_process
+    if 'comfyd_process' not in globals():
+        return
+    if comfyd_process is None:
+        return
+    if is_running():
+        return
+    comfyclient_pipeline.free(unload_models=True)
+    return
 
 def args_mapping(args_fooocus):
     args_comfy = []
