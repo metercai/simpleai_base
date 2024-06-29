@@ -157,7 +157,6 @@ def interrupt():
     try:
         with httpx.Client() as client:
             response = client.post("http://{}/interrupt".format(server_address))
-            print(f'[ComfyClient] The interrupt has been sent and response:{response}.')
             return
     except httpx.RequestError as e:
         print(f"httpx.RequestError: {e}")
@@ -169,7 +168,6 @@ def free():
     try:
         with httpx.Client() as client:
             response = client.post("http://{}/free".format(server_address), data=data)
-            print(f'[ComfyClient] The free has been sent and response:{response}.')
             return
     except httpx.RequestError as e:
         print(f"httpx.RequestError: {e}")
