@@ -57,7 +57,7 @@ def get_images(ws, prompt, callback=None):
     while True:
         try:
             out = ws.recv()
-        except websocket.WebSocketException as e:
+        except ConnectionResetError as e:
             print(f'[ComfyClient] The connect was exception, restart and try again: {e}')
             ws = websocket.WebSocket()
             ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
