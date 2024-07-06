@@ -8,6 +8,9 @@ from . import comfyclient_pipeline
 
 comfyd_process = None
 echo_off = True
+comfyd_active = False
+comfyd_args = [[]]
+
 def is_running():
     global comfyd_process
     if 'comfyd_process' not in globals():
@@ -21,11 +24,13 @@ def is_running():
     return False
 
 def start(args_patch=[[]]):
-    global comfyd_process, echo_off
+    global comfyd_process, echo_off, comfyd_args
     if not is_running():
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
         args_comfyd = [["--preview-method", "auto"], ["--port", "8187"], ["--disable-auto-launch"]]
-        for patch in args_patch:
+        if len(args_patch) > 0:
+            comfyd_args += args_patch
+        for patch in comfyd_args:
             found = False
             for i, sublist in enumerate(args_comfyd):
                 if sublist[0] == patch[0]:
@@ -51,12 +56,26 @@ def start(args_patch=[[]]):
         comfyclient_pipeline.ws = None
     else:
         print("[Comfyd] Comfyd is running!")
+    return
+
+def active(flag=False):
+    global comfyd_active, comfyd_args
+    comfyd_active = flag
+    if flag and not is_running():
+        start()
+    if not flag and is_running():
+        stop()
+    return
 
 def stop():
     global comfyd_process
     if 'comfyd_process' not in globals():
         return
     if comfyd_process is None:
+        return
+    if comfyd_active:
+        free()
+        gc.collect()
         return
     if is_running():
         comfyd_process.terminate()
