@@ -28,7 +28,7 @@ def start(args_patch=[[]]):
     if not is_running():
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
         args_comfyd = [["--preview-method", "auto"], ["--port", "8187"], ["--disable-auto-launch"]]
-        if len(args_patch) > 0:
+        if len(args_patch) > 0 and len(args_patch[0]) > 0:
             comfyd_args += args_patch
         for patch in comfyd_args:
             found = False
@@ -59,7 +59,7 @@ def start(args_patch=[[]]):
     return
 
 def active(flag=False):
-    global comfyd_active, comfyd_args
+    global comfyd_active
     comfyd_active = flag
     if flag and not is_running():
         start()
