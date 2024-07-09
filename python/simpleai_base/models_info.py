@@ -190,7 +190,9 @@ class ModelsInfo:
         for path in self.path_map.keys():
             if self.path_map[path]:
                 if path.isupper():
-                    path_filenames = [entry for entry in os.listdir(self.path_map[path]) if os.path.isdir(os.path.join(self.path_map[path], entry))]
+                    path_filenames = []
+                    for f_path in self.path_map[path]:
+                        path_filenames += [entry for entry in os.listdir(f_path) if os.path.isdir(os.path.join(f_path, entry))]
                 else:
                     path_filenames = get_model_filenames(self.path_map[path])
                 for k in path_filenames:
