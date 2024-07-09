@@ -41,7 +41,7 @@ def start(args_patch=[[]]):
             if not found:
                 args_comfyd.append(patch)
         if not echo_off:
-            print(f'[Comfyd] args_comfyd was patched: {args_comfyd}, patch:{args_patch}')
+            print(f'[Comfyd] args_comfyd was patched: {args_comfyd}, patch:{comfyd_args}')
         arguments = [arg for sublist in args_comfyd for arg in sublist]
         process_env = os.environ.copy()
         process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
@@ -76,6 +76,7 @@ def stop():
     if comfyd_active:
         free()
         gc.collect()
+        print("[Comfyd] Comfyd free the memory!")
         return
     if is_running():
         comfyd_process.terminate()
