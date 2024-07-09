@@ -1,9 +1,6 @@
 import os
 import json
-import base64
-import hashlib
-import requests
-import time
+from pathlib import Path
 from . import models_hub_host
 from . import config
 from . import utils
@@ -125,6 +122,7 @@ default_models_info = {
     }
 }
 
+history_models_info = {}
 modelsinfo = None
 
 def get_models_info():
@@ -139,6 +137,9 @@ def init_models_info():
         'checkpoints': config.paths_checkpoints,
         'loras': config.paths_loras,
         'embeddings': [config.path_embeddings],
+        'DIFFUSERS' : config.paths_loras,
+        'controlnet' : config.paths_controlnet,
+        'inpaint' : config.paths_inpaint
     }
     modelsinfo = ModelsInfo(models_info_path, models_path_map)
     return
@@ -188,7 +189,10 @@ class ModelsInfo:
         del_file_key = []
         for path in self.path_map.keys():
             if self.path_map[path]:
-                path_filenames = config.get_model_filenames(self.path_map[path])
+                if path.isupper():
+                    path_filenames = [entry for entry in os.listdir(self.path_map[path]) if os.path.isdir(os.path.join(self.path_map[path], entry))]
+                else:
+                    path_filenames = get_model_filenames(self.path_map[path])
                 for k in path_filenames:
                     file_key = f'{path}/{k}'
                     new_info_key.append(file_key)
@@ -201,10 +205,13 @@ class ModelsInfo:
             f_path = f.split('/')[0]
             file_path = ''
             for path in self.path_map[f_path]:
-                    file_path = os.path.join(path, f[len(f_path)+1:])
-                    if os.path.exists(file_path):
-                        break
-            size = os.path.getsize(file_path)
+                file_path = os.path.join(path, f[len(f_path)+1:])
+                if os.path.exists(file_path):
+                    break
+            if f_path.isupper():
+                size = utils.get_size_subfolders(file_path)
+            else:
+                size = os.path.getsize(file_path)
             if f in default_models_info.keys() and size == default_models_info[f]["size"]:
                 hash = default_models_info[f]["hash"]
                 muid = default_models_info[f]["muid"]
@@ -223,6 +230,23 @@ class ModelsInfo:
         with open(self.info_path, "w", encoding="utf-8") as json_file:
             json.dump(self.m_info, json_file, indent=4)
 
+    def get_model_filename(self, catalog, model_name):
+        for f in self.m_info.keys():
+            path_or_file = Path(f)
+            cata = f.split('/')[0]
+            if cata == catalog and path_or_file == model_name:
+                return f[len(cata)+1:]
+        return ''
 
 
+    def get_model_info(self, catalog, model_name):
+        return self.m_info[f'{catalog}/{model_name}']
 
+
+def get_model_filenames(folder_paths, extensions=None, name_filter=None):
+    if extensions is None:
+        extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch']
+    files = []
+    for folder in folder_paths:
+        files += utils.get_files_from_folder(folder, extensions, name_filter)
+    return files

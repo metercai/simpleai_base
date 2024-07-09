@@ -3,19 +3,21 @@ from . import utils
 paths_checkpoints = ''
 paths_loras = ''
 path_embeddings = ''
+paths_diffusers = ''
+paths_controlnet = ''
+paths_inpaint = ''
 
-def set_paths(checkpoints, loras, embeddings):
-    global paths_checkpoints, paths_loras, path_embeddings
+def set_paths(checkpoints, loras, embeddings, diffusers, controlnet, inpaint):
+    global paths_checkpoints, paths_loras, path_embeddings, paths_diffusers, paths_controlnet, paths_inpaint
 
     paths_checkpoints = checkpoints
     paths_loras = loras
     path_embeddings = embeddings
+    paths_diffusers = diffusers
+    paths_controlnet = controlnet
+    paths_inpaint = inpaint
+
+    return
 
 
-def get_model_filenames(folder_paths, extensions=None, name_filter=None):
-    if extensions is None:
-        extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch']
-    files = []
-    for folder in folder_paths:
-        files += utils.get_files_from_folder(folder, extensions, name_filter)
-    return files
+
