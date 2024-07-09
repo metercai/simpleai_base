@@ -1,5 +1,6 @@
 import os
 import hashlib
+from typing import Optional
 
 folder_variation = {}
 def get_files_from_folder(folder_path, extensions=None, name_filter=None, variation=False):
