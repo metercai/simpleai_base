@@ -140,9 +140,9 @@ def init_models_info():
         'DIFFUSERS' : config.paths_diffusers,
         'controlnet' : config.paths_controlnet,
         'inpaint' : config.paths_inpaint,
-        'unet' : [config.paths_unet],
-        'llms' : [config.paths_llms],
-        'vae' : [config.paths_vae]
+        'unet' : [config.path_unet],
+        'llms' : config.paths_llms,
+        'vae' : [config.path_vae]
     }
     modelsinfo = ModelsInfo(models_info_path, models_path_map)
     return

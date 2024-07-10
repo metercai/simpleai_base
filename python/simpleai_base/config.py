@@ -6,6 +6,9 @@ path_embeddings = ''
 paths_diffusers = ''
 paths_controlnet = ''
 paths_inpaint = ''
+path_unet = ''
+paths_llms = ''
+path_vae = ''
 
 def set_paths(checkpoints, loras, embeddings, diffusers, controlnet, inpaint):
     global paths_checkpoints, paths_loras, path_embeddings, paths_diffusers, paths_controlnet, paths_inpaint
