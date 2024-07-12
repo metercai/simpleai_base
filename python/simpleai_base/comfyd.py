@@ -4,7 +4,7 @@ import sys
 import torch
 import gc
 import ldm_patched.modules.model_management as model_management
-from . import comfyclient_pipeline, echo_off
+from . import comfyclient_pipeline
 
 comfyd_process = None
 #echo_off = True
@@ -25,6 +25,7 @@ def is_running():
 
 def start(args_patch=[[]]):
     global comfyd_process, echo_off, comfyd_args
+    comfyclient_pipeline.echo_off = echo_off
     if not is_running():
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
         args_comfyd = [["--preview-method", "auto"], ["--port", "8187"], ["--disable-auto-launch"]]
