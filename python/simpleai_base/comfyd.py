@@ -7,7 +7,7 @@ import ldm_patched.modules.model_management as model_management
 from . import comfyclient_pipeline
 
 comfyd_process = None
-#echo_off = True
+echo_off = True
 comfyd_active = False
 comfyd_args = [[]]
 
