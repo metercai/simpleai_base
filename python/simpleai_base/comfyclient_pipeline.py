@@ -8,7 +8,8 @@ import time
 import numpy as np
 from io import BytesIO
 from PIL import Image
-from .comfyd import echo_off
+
+echo_off = True
 
 def upload_mask(mask):
     with BytesIO() as output:
