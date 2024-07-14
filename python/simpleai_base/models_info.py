@@ -137,7 +137,7 @@ def init_models_info():
         'checkpoints': config.paths_checkpoints,
         'loras': config.paths_loras,
         'embeddings': [config.path_embeddings],
-        'DIFFUSERS' : config.paths_diffusers,
+        'diffusers' : config.paths_diffusers,
         'controlnet' : config.paths_controlnet,
         'inpaint' : config.paths_inpaint,
         'unet' : [config.path_unet],
