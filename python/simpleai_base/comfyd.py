@@ -68,7 +68,7 @@ def active(flag=False):
         stop()
     return
 
-def stop():
+def finished():
     global comfyd_process
     if 'comfyd_process' not in globals():
         return
@@ -79,6 +79,22 @@ def stop():
         gc.collect()
         print("[Comfyd] Comfyd free the memory!")
         return
+    comfyclient_pipeline.ws = None
+    free()
+    gc.collect()
+    print("[Comfyd] Comfyd stopped!")
+
+def stop():
+    global comfyd_process
+    if 'comfyd_process' not in globals():
+        return
+    if comfyd_process is None:
+        return
+    if comfyd_active:
+        free(all=True)
+        gc.collect()
+        print("[Comfyd] Comfyd free the memory and unload model!")
+        return
     if is_running():
         comfyd_process.terminate()
         comfyd_process.wait()
@@ -88,13 +104,13 @@ def stop():
     gc.collect()
     print("[Comfyd] Comfyd stopped!")
 
-def free():
+def free(all=False):
     global comfyd_process
     if 'comfyd_process' not in globals():
         return
     if comfyd_process is None:
         return
-    comfyclient_pipeline.free()
+    comfyclient_pipeline.free(all)
     return
 
 def interrupt():
