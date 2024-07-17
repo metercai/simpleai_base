@@ -75,7 +75,7 @@ def finished():
     if comfyd_process is None:
         return
     if comfyd_active:
-        free()
+        #free()
         gc.collect()
         print("[Comfyd] Comfyd free the memory!")
         return
