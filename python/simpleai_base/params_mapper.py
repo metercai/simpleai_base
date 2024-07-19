@@ -51,8 +51,9 @@ class ComfyTaskParams:
         #print(f'params:{self.params}')
         self.workflow = workflow
         for (pk1,v) in self.params.items():
-            nk = self.fooo2node[pk1]
-            self.replace_key(nk,v)
+            if pk1 in self.fooo2node:
+                nk = self.fooo2node[pk1]
+                self.replace_key(nk,v)
         return self.workflow
 
 

@@ -354,7 +354,7 @@ fn get_gpu_info() -> (String, String, u64){
                     }).collect();
                 let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
                     .unwrap_or_else(|| "".to_string());
-                gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
+                gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap_or("0").parse::<u64>().unwrap_or(0);
             }
             (gpu_brand, gpu_name, gpu_memory)
         }
@@ -407,7 +407,7 @@ fn get_gpu_info() -> (String, String, u64){
                         .unwrap_or_else(|| "".to_string());
                 let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
                         .unwrap_or_else(|| "".to_string());
-                gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap().parse::<u64>().unwrap_or(0);
+                gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap_or("0").parse::<u64>().unwrap_or(0);
             }
             (gpu_brand, gpu_name, gpu_memory)
         }

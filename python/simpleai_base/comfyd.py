@@ -77,7 +77,7 @@ def finished():
     if comfyd_active:
         #free()
         gc.collect()
-        print("[Comfyd] Comfyd free the memory!")
+        print("[Comfyd] Comfyd keeps active!")
         return
     comfyclient_pipeline.ws = None
     free()
