@@ -343,5 +343,34 @@ def get_model_filenames(folder_paths, extensions=None, name_filter=None):
         extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch']
     files = []
     for folder in folder_paths:
-        files += (folder, utils.get_files_from_folder(folder, extensions, name_filter))
+        files += get_files_from_folder(folder, extensions, name_filter)
     return files
+
+
+folder_variation = {}
+def get_files_from_folder(folder_path, extensions=None, name_filter=None, variation=False):
+    global folder_variation
+
+    if not os.path.isdir(folder_path):
+        raise ValueError("Folder path is not a valid directory.")
+
+    filenames = []
+    for root, dirs, files in os.walk(folder_path, topdown=False):
+        relative_path = os.path.relpath(root, folder_path)
+        if relative_path == ".":
+            relative_path = ""
+        for filename in sorted(files, key=lambda s: s.casefold()):
+            _, file_extension = os.path.splitext(filename)
+            if (extensions is None or file_extension.lower() in extensions) and (name_filter is None or name_filter in _):
+                path = os.path.join(relative_path, filename)
+                if variation:
+                    mtime = int(os.path.getmtime(os.path.join(root, filename)))
+                    if folder_path not in folder_variation or path not in folder_variation[folder_path] or mtime > folder_variation[folder_path][path]:
+                        if folder_path not in folder_variation:
+                            folder_variation.update({folder_path: {path: mtime}})
+                        else:
+                            folder_variation[folder_path].update({path: mtime})
+                        filenames.append((folder_path,path))
+                else:
+                    filenames.append((folder_path, path))
+    return filenames
