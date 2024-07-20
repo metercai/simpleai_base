@@ -131,6 +131,20 @@ def get_models_info():
         return {}, {}, {}
     return modelsinfo.m_info, modelsinfo.m_muid, modelsinfo.m_file
 
+def get_modelsinfo():
+    global modelsinfo
+    if modelsinfo is None:
+        init_models_info()
+    modelsinfo.refresh_from_path()
+    return modelsinfo
+
+def refresh_models_info_from_path():
+    global modelsinfo
+    if modelsinfo is None:
+        init_models_info()
+    modelsinfo.refresh_from_path()
+    return
+
 def init_models_info():
     global modelsinfo, models_info_path
     models_path_map = {
@@ -148,12 +162,6 @@ def init_models_info():
     modelsinfo = ModelsInfo(models_info_path, models_path_map)
     return
     
-def refresh_models_info_from_path():
-    global modelsinfo
-    if modelsinfo is None:
-        init_models_info()
-    modelsinfo.refresh_from_path()
-    return
 
 
 def sync_model_info(downurls):
@@ -214,7 +222,7 @@ class ModelsInfo:
                         path_filenames += [(f_path, entry) for entry in os.listdir(f_path) if os.path.isdir(os.path.join(f_path, entry))]
                 else:
                     path_filenames = get_model_filenames(self.path_map[path])
-                print(f'path_filenames_{path}:{path_filenames}')
+                #print(f'path_filenames_{path}:{path_filenames}')
                 for (p,k) in path_filenames:
                     model_key = f'{path}/{k}'
                     file_path = os.path.join(p, k)
