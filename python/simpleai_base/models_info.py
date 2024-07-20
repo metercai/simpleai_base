@@ -213,6 +213,7 @@ class ModelsInfo:
                         path_filenames += [(f_path, entry) for entry in os.listdir(f_path) if os.path.isdir(os.path.join(f_path, entry))]
                 else:
                     path_filenames = get_model_filenames(self.path_map[path])
+                print(f'path_filenames:{path_filenames}')
                 for (p,k) in path_filenames:
                     model_key = f'{path}/{k}'
                     file_path = os.path.join(p, k)
