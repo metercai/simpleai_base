@@ -184,8 +184,8 @@ class ModelsInfo:
                     self.m_info.update(json.load(json_file))
                     for k in self.m_info.keys():
                         if self.m_info[k]['muid']:
-                            if self.m_muid[self.m_info[k]['muid']]:
-                                muid_files = self.m_info[k]['muid']
+                            if self.m_info[k]['muid'] in self.m_muid and self.m_muid[self.m_info[k]['muid']]:
+                                muid_files = self.m_muid[self.m_info[k]['muid']]
                                 if isinstance(muid_files, list):
                                     muid_files.append(k)
                                 else:
@@ -200,8 +200,7 @@ class ModelsInfo:
                             else:
                                 self.m_file.update({self.m_info[k]['file']: k})
             except Exception as e:
-                print(f'[ModelInfo] Load model info file [{self.info_path}] failed!')
-                print(e)
+                print(f'[ModelInfo] Load model info file [{self.info_path}] failed!, error:{e}')
                 self.m_info = {}
                 self.m_muid = {}
                 self.m_file = {}
