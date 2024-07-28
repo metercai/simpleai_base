@@ -182,8 +182,27 @@ class ModelsInfo:
             try:
                 with open(self.info_path, "r", encoding="utf-8") as json_file:
                     self.m_info.update(json.load(json_file))
+                    file_no_exists_list = []
                     for k in self.m_info.keys():
-                        if self.m_info[k]['muid']:
+                        if self.m_info[k]['file']:
+                            if isinstance(self.m_info[k]['file'], list):
+                                file_list = []
+                                for file in self.m_info[k]['file']:
+                                    if os.path.exists(file):
+                                        self.m_file.update({file: k})
+                                        file_list.append(file)
+                                if len(file_list) > 1:
+                                    self.m_info[k]['file'] = file_list
+                                elif len(file_list) == 1:
+                                    self.m_info[k]['file'] = file_list[0]
+                                else:
+                                    file_no_exists_list.append(k)
+                            else:
+                                if os.path.exists(self.m_info[k]['file']):
+                                    self.m_file.update({self.m_info[k]['file']: k})
+                                else:
+                                    file_no_exists_list.append(k)
+                        if k not in file_no_exists_list and self.m_info[k]['muid']:
                             if self.m_info[k]['muid'] in self.m_muid and self.m_muid[self.m_info[k]['muid']]:
                                 muid_files = self.m_muid[self.m_info[k]['muid']]
                                 if isinstance(muid_files, list):
@@ -193,12 +212,8 @@ class ModelsInfo:
                                 self.m_muid.update({self.m_info[k]['muid']: muid_files})
                             else:
                                 self.m_muid.update({self.m_info[k]['muid']: k})
-                        if self.m_info[k]['file']:
-                            if isinstance(self.m_info[k]['file'], list):
-                                for file in self.m_info[k]['file']:
-                                    self.m_file.update({file: k})
-                            else:
-                                self.m_file.update({self.m_info[k]['file']: k})
+                    for k in file_no_exists_list:
+                        del self.m_info[k]
             except Exception as e:
                 print(f'[ModelInfo] Load model info file [{self.info_path}] failed!, error:{e}')
                 self.m_info = {}
