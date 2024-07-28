@@ -1,5 +1,6 @@
 from . import utils
 
+path_models_root = 'models'
 paths_checkpoints = ''
 paths_loras = ''
 path_embeddings = ''

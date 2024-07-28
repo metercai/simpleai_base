@@ -7,7 +7,7 @@ from . import utils
 
 models_info_rsync = {}
 models_info_file = ['models_info', 0]
-models_info_path = os.path.abspath(f'./models/{models_info_file[0]}.json')
+models_info_path = os.path.abspath(os.path.join(config.path_models_root, f'{models_info_file[0]}.json'))
 
 default_models_info = {
     "checkpoints/albedobaseXL_v21.safetensors": {
