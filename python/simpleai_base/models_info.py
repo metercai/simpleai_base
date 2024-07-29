@@ -277,8 +277,11 @@ class ModelsInfo:
                 hash = default_models_info[f]["hash"]
                 muid = default_models_info[f]["muid"]
             else:
-                hash = '' # utils.sha256(file_path, length=None)
-                muid = '' # utils.sha256(file_path, use_addnet_hash=True)
+                hash = utils.sha256(file_path, length=None)
+                if os.path.splitext(f.split('/')[1])[1] == 'safetensors':
+                    muid = utils.sha256(file_path, use_addnet_hash=True)
+                else:
+                    muid = hash[:10]
             self.m_info.update({f:{'size': size, 'hash': hash, 'file': new_model_file[f], 'muid': muid, 'url': None}})
             if muid in self.m_muid:
                 if isinstance(self.m_muid[muid], list):
