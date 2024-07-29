@@ -219,7 +219,7 @@ class ModelsInfo:
                     for k in file_no_exists_list:
                         del self.m_info[k]
             except Exception as e:
-                print(f'[ModelInfo] Load model info file [{self.info_path}] failed!, error:{e}')
+                print(f'[ModelInfo] Load model info file {self.info_path} failed!, error:{e}')
                 self.m_info = {}
                 self.m_muid = {}
                 self.m_file = {}
@@ -322,9 +322,16 @@ class ModelsInfo:
             else:
                 if f in self.m_file.keys():
                     del self.m_file[f]
-        with open(self.info_path, "w", encoding="utf-8") as json_file:
-            json.dump(self.m_info, json_file, indent=4)
-        print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
+        try:
+            with open(self.info_path, "w", encoding="utf-8") as json_file:
+                json.dump(self.m_info, json_file, indent=4)
+                #print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
+        except PermissionError:
+            print(f'[SimpleAI] Models info update and save failed: Permission denied, {self.info_path}.')
+        except json.JSONDecodeError:
+            print(f'[SimpleAI] Models info update and save failed: JSON decode error, {self.info_path}.')
+        except Exception as e:
+            print(f'[SimpleAI] Models info update and save failed: {e}, {self.info_path}.')
 
     def exists_model(self, catalog='', model_path='', muid=None):
         if muid and self.m_muid[muid]:
