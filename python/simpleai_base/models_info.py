@@ -324,6 +324,7 @@ class ModelsInfo:
                     del self.m_file[f]
         with open(self.info_path, "w", encoding="utf-8") as json_file:
             json.dump(self.m_info, json_file, indent=4)
+        print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
 
     def exists_model(self, catalog='', model_path='', muid=None):
         if muid and self.m_muid[muid]:
