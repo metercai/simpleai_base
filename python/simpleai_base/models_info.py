@@ -4,6 +4,7 @@ from pathlib import Path
 from . import models_hub_host
 from . import config
 from . import utils
+from simpleai_base import simpleai_base
 
 models_info_rsync = {}
 models_info_file = ['models_info', 0]
@@ -147,6 +148,9 @@ def refresh_models_info_from_path():
 
 def init_models_info():
     global modelsinfo, models_info_path
+    models_info_path = os.path.abspath(os.path.join(config.path_models_root, 'models_info.json'))
+    print(f'[SimpleAI] The path of models_info.json: {models_info_path}')
+
     models_path_map = {
         'checkpoints': config.paths_checkpoints,
         'loras': config.paths_loras,
