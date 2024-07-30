@@ -4,7 +4,6 @@ from typing import Optional
 
 HASH_SHA256_LENGTH = 10
 def sha256(filename, use_addnet_hash=False, length=HASH_SHA256_LENGTH):
-    print(f"Calculating sha256 for {filename}: ", end='')
     if use_addnet_hash:
         with open(filename, "rb") as file:
             sha256_value = addnet_hash_safetensors(file)

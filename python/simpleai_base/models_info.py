@@ -232,7 +232,7 @@ class ModelsInfo:
         new_model_file = {}
         new_file_key = []
         del_file_key = []
-        print(f'[ModelInfo] refresh from path:{self.path_map}, model_key:{self.m_info.keys()}')
+        #print(f'[ModelInfo] refresh from path:{self.path_map}, model_key:{self.m_info.keys()}')
         for path in self.path_map.keys():
             if self.path_map[path]:
                 if path.isupper():
@@ -258,7 +258,7 @@ class ModelsInfo:
                         new_info_key.append(model_key)
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
-        print(f'[ModelInfo] new_model_key:{new_model_key}, new_file_key:{new_file_key}')
+        #print(f'[ModelInfo] new_model_key:{new_model_key}, new_file_key:{new_file_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
                 del_model_key.append(k)
@@ -271,7 +271,7 @@ class ModelsInfo:
             print(f'[ModelInfo] Found new model {f} at {file_path}')
             if isinstance(file_path, list):
                 file_path = file_path[0]
-            if f_path.isupper():
+            if os.path.isdir(file_path):
                 size = utils.get_size_subfolders(file_path)
             else:
                 size = os.path.getsize(file_path)
@@ -280,13 +280,17 @@ class ModelsInfo:
                 muid = default_models_info[f]["muid"]
             else:
                 print(f'[ModelInfo] Calculate hash for {file_path}')
-                hash = utils.sha256(file_path, length=None)
-                _, file_extension = os.path.splitext(file_path)
-                if file_extension == 'safetensors':
-                    print(f'[ModelInfo] Calculate addnet hash for {file_path}')
-                    muid = utils.sha256(file_path, use_addnet_hash=True)
-                else:
+                if os.path.isdir(file_path):
+                    hash = utils.calculate_sha256_subfolder(file_path)
                     muid = hash[:10]
+                else:
+                    hash = utils.sha256(file_path, length=None)
+                    _, file_extension = os.path.splitext(file_path)
+                    if file_extension == 'safetensors':
+                        print(f'[ModelInfo] Calculate addnet hash for {file_path}')
+                        muid = utils.sha256(file_path, use_addnet_hash=True)
+                    else:
+                        muid = hash[:10]
             self.m_info.update({f:{'size': size, 'hash': hash, 'file': new_model_file[f], 'muid': muid, 'url': None}})
             if muid in self.m_muid:
                 if isinstance(self.m_muid[muid], list):
