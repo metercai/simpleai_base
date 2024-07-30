@@ -9,7 +9,7 @@ def sha256(filename, use_addnet_hash=False, length=HASH_SHA256_LENGTH):
             sha256_value = addnet_hash_safetensors(file)
     else:
         sha256_value = calculate_sha256(filename)
-    print(f"{sha256_value}")
+    #print(f"{sha256_value}")
 
     return sha256_value[:length] if length is not None else sha256_value
 
