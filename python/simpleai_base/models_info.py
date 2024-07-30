@@ -286,8 +286,7 @@ class ModelsInfo:
                 else:
                     hash = utils.sha256(file_path, length=None)
                     _, file_extension = os.path.splitext(file_path)
-                    print(f'[ModelInfo] file_extension:{file_extension}, file_path:{file_path}')
-                    if file_extension == 'safetensors':
+                    if file_extension == '.safetensors':
                         print(f'[ModelInfo] Calculate addnet hash for {file_path}')
                         muid = utils.sha256(file_path, use_addnet_hash=True)
                     else:
