@@ -268,7 +268,7 @@ class ModelsInfo:
         for f in new_model_key:
             f_path = f.split('/')[0]
             file_path = new_model_file[f]
-            print(f'[ModelInfo] Found new model {f_path} at {file_path}')
+            print(f'[ModelInfo] Found new model {f} at {file_path}')
             if isinstance(file_path, list):
                 file_path = file_path[0]
             if f_path.isupper():
@@ -281,7 +281,8 @@ class ModelsInfo:
             else:
                 print(f'[ModelInfo] Calculate hash for {file_path}')
                 hash = utils.sha256(file_path, length=None)
-                if os.path.splitext(f.split('/')[1])[1] == 'safetensors':
+                _, file_extension = os.path.splitext(file_path)
+                if file_extension == 'safetensors':
                     print(f'[ModelInfo] Calculate addnet hash for {file_path}')
                     muid = utils.sha256(file_path, use_addnet_hash=True)
                 else:
