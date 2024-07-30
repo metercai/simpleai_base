@@ -277,8 +277,10 @@ class ModelsInfo:
                 hash = default_models_info[f]["hash"]
                 muid = default_models_info[f]["muid"]
             else:
+                print(f'[ModelInfo] Calculate hash for {file_path}')
                 hash = utils.sha256(file_path, length=None)
                 if os.path.splitext(f.split('/')[1])[1] == 'safetensors':
+                    print(f'[ModelInfo] Calculate addnet hash for {file_path}')
                     muid = utils.sha256(file_path, use_addnet_hash=True)
                 else:
                     muid = hash[:10]
