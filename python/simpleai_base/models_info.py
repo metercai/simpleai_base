@@ -267,6 +267,7 @@ class ModelsInfo:
         for f in new_model_key:
             f_path = f.split('/')[0]
             file_path = new_model_file[f]
+            print(f'[ModelInfo] Found new model {f_path} at {file_path}')
             if isinstance(file_path, list):
                 file_path = file_path[0]
             if f_path.isupper():
