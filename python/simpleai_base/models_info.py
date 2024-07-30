@@ -149,7 +149,7 @@ def refresh_models_info_from_path():
 def init_models_info():
     global modelsinfo, models_info_path
     models_info_path = os.path.abspath(os.path.join(config.path_models_root, 'models_info.json'))
-    print(f'[SimpleAI] The path of models_info.json: {models_info_path}')
+    print(f'[SimpleAI] The path of models_info file: {models_info_path}')
 
     models_path_map = {
         'checkpoints': config.paths_checkpoints,
@@ -232,6 +232,7 @@ class ModelsInfo:
         new_model_file = {}
         new_file_key = []
         del_file_key = []
+        print(f'[ModelInfo] refresh from path:{self.path_map}, model_key:{self.m_info.keys()}')
         for path in self.path_map.keys():
             if self.path_map[path]:
                 if path.isupper():
@@ -257,7 +258,7 @@ class ModelsInfo:
                         new_info_key.append(model_key)
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
-
+        print(f'[ModelInfo] new_model_key:{new_model_key}, new_file_key:{new_file_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
                 del_model_key.append(k)
