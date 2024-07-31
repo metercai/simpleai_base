@@ -471,7 +471,7 @@ class ModelsInfo:
             else:
                 hash = ''
                 muid = ''
-            self.m_info.update({f:{'size': size, 'hash': hash, 'file': new_model_file[f], 'muid': muid}})
+            self.m_info.update({f:{'size': size, 'hash': hash, 'file': new_model_file[f], 'muid': muid, 'url': ''}})
             if muid in self.m_muid:
                 if isinstance(self.m_muid[muid], list):
                     self.m_muid[muid].append(f)
