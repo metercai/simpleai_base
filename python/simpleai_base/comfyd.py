@@ -56,7 +56,7 @@ def start(args_patch=[[]]):
         comfyd_process  = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
         comfyclient_pipeline.ws = None
     else:
-        print("[Comfyd] Comfyd is running!")
+        print("[Comfyd] Comfyd is active!")
     return
 
 def active(flag=False):
@@ -77,7 +77,7 @@ def finished():
     if comfyd_active:
         #free()
         gc.collect()
-        print("[Comfyd] Comfyd keeps active!")
+        print("[Comfyd] Finished and is active!")
         return
     comfyclient_pipeline.ws = None
     free()
@@ -93,7 +93,7 @@ def stop():
     if comfyd_active:
         free(all=True)
         gc.collect()
-        print("[Comfyd] Comfyd free the memory and unload model!")
+        print("[Comfyd] Comfyd freeing!")
         return
     if is_running():
         comfyd_process.terminate()
