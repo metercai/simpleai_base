@@ -5,13 +5,15 @@ class ComfyTaskParams:
         self.workflow = ''
 
     fooo2node = {
-        'seed': 'KSampler:main_sampler:seed;KolorsSampler:main_sampler:seed',
-        'steps': 'KSampler:main_sampler:steps;KolorsSampler:main_sampler:steps',
+        'seed': 'KSampler:main_sampler:seed;KolorsSampler:main_sampler:seed;RandomNoise:noise_seed:noise_seed',
+        'steps': 'KSampler:main_sampler:steps;KolorsSampler:main_sampler:steps;BasicScheduler:scheduler_select:steps',
         'cfg_scale': 'KSampler:main_sampler:cfg;KolorsSampler:main_sampler:cfg',
-        'sampler': 'KSampler:main_sampler:sampler_name',
-        'scheduler': 'KSampler:main_sampler:scheduler;KolorsSampler:main_sampler:scheduler',
-        'denoise': 'KSampler:main_sampler:denoise;KolorsSampler:main_sampler:denoise_strength',
+        'sampler': 'KSampler:main_sampler:sampler_name;KSamplerSelect:sampler_select:sampler_name',
+        'scheduler': 'KSampler:main_sampler:scheduler;KolorsSampler:main_sampler:scheduler;BasicScheduler:scheduler_select:scheduler',
+        'denoise': 'KSampler:main_sampler:denoise;KolorsSampler:main_sampler:denoise_strength;BasicScheduler:scheduler_select:denoise',
         'base_model': 'CheckpointLoaderSimple:base_model:ckpt_name',
+        'ase_model_weight': 'UNETLoader:base_model:weight_dtype',
+        'clip_model': 'UNETLoader:base_model:unet_name',
         'merge_model': 'UNETLoader:merge_model:unet_name',
         'model_merge_ratio': 'ModelMergeSimple:model_merge_ratio:ratio',
         'lora_speedup': 'LoraLoaderModelOnly:lora_speedup:lora_name',
@@ -19,6 +21,7 @@ class ComfyTaskParams:
         'height': 'EmptyLatentImage:aspect_ratios_size:height;EmptySD3LatentImage:aspect_ratios_size:height;ImageResize+:resize_input_image:height;KolorsSampler:main_sampler:height',
         'prompt': 'CLIPTextEncode:prompt:text;MZ_ChatGLM3_V2:prompt:text;KolorsTextEncode:prompt_negative_prompt:prompt',
         'negative_prompt': 'CLIPTextEncode:negative_prompt:text;MZ_ChatGLM3_V2:negative_prompt:text;KolorsTextEncode:prompt_negative_prompt:negative_prompt',
+        'clip_model': 'DualCLIPLoader:clip_model:clip_name1',
         'llms_model': 'MZ_ChatGLM3Loader:llms_model:chatglm3_checkpoint;DownloadAndLoadChatGLM3:llms_model:precision',
         'input_image': 'LoadImage:input_image:image',
         'layer_diffuse_injection': 'LayeredDiffusionApply:layer_diffuse_apply:config',
