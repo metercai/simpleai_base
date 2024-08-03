@@ -79,7 +79,7 @@ def get_images(ws, prompt, callback=None):
                 current_total_steps = message["data"]["max"]
         else:
             if current_type == 'progress':
-                if 'KSampler' in prompt[current_node]['class_type'] and callback is not None:
+                if prompt[current_node]['class_type'] in ['KSampler', 'SamplerCustomAdvanced'] and callback is not None:
                     if current_step == last_step:
                         preview_image.append(out[8:])
                     else:
