@@ -12,7 +12,7 @@ class ComfyTaskParams:
         'scheduler': 'KSampler:main_sampler:scheduler;KolorsSampler:main_sampler:scheduler;BasicScheduler:scheduler_select:scheduler',
         'denoise': 'KSampler:main_sampler:denoise;KolorsSampler:main_sampler:denoise_strength;BasicScheduler:scheduler_select:denoise',
         'base_model': 'CheckpointLoaderSimple:base_model:ckpt_name;UNETLoader:base_model:unet_name',
-        'base_model_weight': 'UNETLoader:base_model:weight_dtype',
+        'base_model_dtype': 'UNETLoader:base_model:weight_dtype',
         'merge_model': 'UNETLoader:merge_model:unet_name',
         'model_merge_ratio': 'ModelMergeSimple:model_merge_ratio:ratio',
         'lora_speedup': 'LoraLoaderModelOnly:lora_speedup:lora_name',
