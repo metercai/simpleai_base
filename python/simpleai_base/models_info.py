@@ -9,7 +9,7 @@ from simpleai_base import simpleai_base
 models_info_rsync = {}
 models_info_file = ['models_info', 0]
 models_info_path = os.path.abspath(os.path.join(config.path_models_root, f'{models_info_file[0]}.json'))
-scan_models_hash = False
+
 
 default_models_info = {
         "checkpoints/albedobaseXL_v21.safetensors": {
@@ -351,8 +351,15 @@ def sync_model_info(downurls):
     keylist = []
     return keylist
 
+def set_scan_models_hash(scan=False):
+    ModelsInfo.scan_models_hash = scan
+    return
+
 
 class ModelsInfo:
+
+    scan_models_hash = False
+
     def __init__(self, models_info_path, path_map):
         self.info_path = models_info_path
         self.path_map = path_map
@@ -455,7 +462,7 @@ class ModelsInfo:
             if f in default_models_info.keys() and size == default_models_info[f]["size"]:
                 hash = default_models_info[f]["hash"]
                 muid = default_models_info[f]["muid"]
-            elif scan_models_hash:
+            elif ModelsInfo.scan_models_hash:
                 print(f'[ModelInfo] Calculate hash for {file_path}')
                 if os.path.isdir(file_path):
                     hash = utils.calculate_sha256_subfolder(file_path)
@@ -559,7 +566,6 @@ class ModelsInfo:
                     else:
                         return file_paths
         return ''
-
 
     def get_model_info(self, catalog, model_name):
         return self.m_info[f'{catalog}/{model_name}']
