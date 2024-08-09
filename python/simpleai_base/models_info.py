@@ -30,14 +30,27 @@ default_models_info = {
         "checkpoints/flux1-dev.safetensors": {
             "size": 23802932552,
             "hash": "4610115bb0c89560703c892c59ac2742fa821e60ef5871b33493ba544683abd7",
-            "file": "/home/ubuntu/llmlab/drawing/SimpleModels/checkpoints/flux1-dev.safetensors",
             "muid": "2f3c5caac0"
         },
         "checkpoints/flux1-schnell.safetensors": {
             "size": 23782506688,
             "hash": "9403429e0052277ac2a87ad800adece5481eecefd9ed334e1f348723621d2a0a",
-            "file": "/home/ubuntu/llmlab/drawing/SimpleModels/checkpoints/flux1-schnell.safetensors",
             "muid": "d314672fc6"
+        },
+        "checkpoints/flux1-dev-fp8.safetensors": {
+            "size": 17246524772,
+            "hash": "8e91b68084b53a7fc44ed2a3756d821e355ac1a7b6fe29be760c1db532f3d88a",
+            "muid": "7f89b4dd65"
+        },
+        "checkpoints/flux1-schnell-fp8.safetensors": {
+            "size": 17236328572,
+            "hash": "ead426278b49030e9da5df862994f25ce94ab2ee4df38b556ddddb3db093bf72",
+            "muid": "8f031d049d"
+        },
+        "checkpoints/FLUX.1-schnell-dev-merged.safetensors": {
+            "size": 23802903480,
+            "hash": "0dc649761fba58625f57f596738e76422df9424c4c8801ca70c53ad6998c905b",
+            "muid": "6661979a94"
         },
         "checkpoints/hunyuan_dit_1.2.safetensors": {
             "size": 8240228270,
@@ -297,7 +310,6 @@ default_models_info = {
         "vae/ae.safetensors": {
             "size": 335304388,
             "hash": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
-            "file": "/home/ubuntu/llmlab/drawing/SimpleModels/vae/ae.safetensors",
             "muid": "ddec9c299f"
         },
         "vae/ponyDiffusionV6XL_vae.safetensors": {
