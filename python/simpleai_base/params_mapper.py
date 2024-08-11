@@ -16,6 +16,7 @@ class ComfyTaskParams:
         'merge_model': 'UNETLoader:merge_model:unet_name',
         'model_merge_ratio': 'ModelMergeSimple:model_merge_ratio:ratio',
         'lora_speedup': 'LoraLoaderModelOnly:lora_speedup:lora_name',
+        'lora_speedup_strength': 'LoraLoaderModelOnly:lora_speedup:strength_model',
         'width': 'EmptyLatentImage:aspect_ratios_size:width;EmptySD3LatentImage:aspect_ratios_size:width;ImageResize+:resize_input_image:width;KolorsSampler:main_sampler:width',
         'height': 'EmptyLatentImage:aspect_ratios_size:height;EmptySD3LatentImage:aspect_ratios_size:height;ImageResize+:resize_input_image:height;KolorsSampler:main_sampler:height',
         'prompt': 'CLIPTextEncode:prompt:text;MZ_ChatGLM3_V2:prompt:text;KolorsTextEncode:prompt_negative_prompt:prompt;CLIPTextEncodeFlux:prompt:t5xxl',
