@@ -52,6 +52,16 @@ default_models_info = {
             "hash": "0dc649761fba58625f57f596738e76422df9424c4c8801ca70c53ad6998c905b",
             "muid": "6661979a94"
         },
+        "checkpoints/flux1-schnell-bnb-nf4.safetensors": {
+            "size": 11484555394,
+            "hash": "e6cba6afca8b2f5599879111e1a5f3dabebe69bcc3ee4a6af46807447adc6d09",
+            "muid": "0eaea6dc0d"
+        },
+        "checkpoints/flux1-dev-bnb-nf4.safetensors": {
+            "size": 11489884113,
+            "hash": "c5e25d12d720e30a277598ce9ded9db406ee54f63419fe0c801b283d4ea146e2",
+            "muid": "6487417fee"
+        },
         "checkpoints/hunyuan_dit_1.2.safetensors": {
             "size": 8240228270,
             "hash": "4fb84f84079cda457d171b3c6b15d1be95b5a3e5d9825703951a99ddf92d1787",
@@ -321,6 +331,26 @@ default_models_info = {
             "size": 167335342,
             "hash": "bcb60880a46b63dea58e9bc591abe15f8350bde47b405f9c38f4be70c6161e68",
             "muid": "345f7343ee"
+        },
+        "checkpoints/Kolors-Inpainting.safetensors": {
+            "size": 5159169040,
+            "hash": "235db024626d7291e5d8af6776e8f49fa719c90221da9a54b553bb746101a787",
+            "muid": "781857d59e"
+        },
+        "controlnet/Kolors-ControlNet-Canny.safetensors": {
+            "size": 2526129624,
+            "hash": "ab34969b4ee57a182deb6e52e15d06c81c5285739caf4db2d8774135fd2b99e7",
+            "muid": "0dec730f7e"
+        },
+        "controlnet/Kolors-ControlNet-Depth.safetensors": {
+            "size": 2526129624,
+            "hash": "b2e9f9ff67c6c8e3b3fbe833f9596d9d16d456b1911633af9aeb4b80949ee60b",
+            "muid": "0ad6e5c573"
+        },
+        "controlnet/Kolors-ControlNet-Pose.safetensors": {
+            "size": 2526129624,
+            "hash": "2d21bbb821c903166c7c79f8a3435b51a39fd449cd227f74ac1d345bbc4eb153",
+            "muid": "3fdfc617f9"
         },
         "checkpoints/juggernautXL_v8Rundiffusion.safetensors": {
             "size": 7105348592,
