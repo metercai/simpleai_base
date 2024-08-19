@@ -356,7 +356,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
             } else {
                 gpu_name = gpu_brand;
                 gpu_brand = "NVIDIA".to_string();
-                let gpu_info = run_command("nvidia-smi", &["-q", "-d MEMORY"]);
+                let gpu_info = run_command("nvidia-smi", &["-q", "--display=MEMORY"]);
                 let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
                     .filter_map(|line| {
@@ -418,7 +418,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
                 }
             } else {
                 gpu_brand = "NVIDIA".to_string();
-                let gpu_info = run_command("nvidia-smi", &["-q", "-d MEMORY"]);
+                let gpu_info = run_command("nvidia-smi", &["-q", "--display=MEMORY"]);
                 let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
                     .filter_map(|line| {
