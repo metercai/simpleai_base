@@ -340,7 +340,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
     let (gpu_brand, gpu_name, gpu_memory, driver, cuda) = match env::consts::OS {
         "windows" => {
             let mut driver = "reserve".to_string();
-            let mut cuda = "reserve".to_string();
+            let mut cuda = "-".to_string();
             let mut gpu_name = "reserve".to_string();
             let mut gpu_memory = 0;
             let mut gpu_brand = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%NVIDIA%'\").Name"]).trim().to_string();
@@ -382,7 +382,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
 
         "linux" => {
             let mut driver = "reserve".to_string();
-            let mut cuda = "reserve".to_string();
+            let mut cuda = "-".to_string();
             let mut gpu_name = "reserve".to_string();
             let mut gpu_memory = 0;
             let mut gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep NVIDIA"]);
@@ -442,9 +442,9 @@ fn get_gpu_info() -> (String, String, u64, String, String){
             (gpu_brand, gpu_name, gpu_memory, driver, cuda)
         }
         "macos" => {
-            ("Apple".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "null".to_string())
+            ("Apple".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "-".to_string())
         }
-        _ => {("Unknown".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "null".to_string())}
+        _ => {("Unknown".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "-".to_string())}
     };
     //print!("get_gpu_info.");
     (gpu_brand, gpu_name, gpu_memory, driver, cuda)
