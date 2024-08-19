@@ -356,7 +356,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
             } else {
                 gpu_name = gpu_brand;
                 gpu_brand = "NVIDIA".to_string();
-                let gpu_info = run_command("nvidia-smi", &["-q -d MEMORY"]);
+                let gpu_info = run_command("nvidia-smi", &["-q", "-d MEMORY"]);
                 let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
                     .filter_map(|line| {
@@ -418,7 +418,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
                 }
             } else {
                 gpu_brand = "NVIDIA".to_string();
-                let gpu_info = run_command("nvidia-smi", &["-q -d MEMORY"]);
+                let gpu_info = run_command("nvidia-smi", &["-q", "-d MEMORY"]);
                 let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
                     .filter_map(|line| {
@@ -477,7 +477,7 @@ fn run_command(command: &str, args: &[&str]) -> String {
             if output.status.success() {
                 String::from_utf8_lossy(&output.stdout).into_owned()
             } else {
-                println!("Failed to run command: {} {:?}, error: {}", command, args, String::from_utf8_lossy(&output.stderr));
+                println!("Failed to run command: {} {:?}, error: {:?}", command, args, output); //String::from_utf8_lossy(&output.stderr));
                 "".to_string()
             }
         }
