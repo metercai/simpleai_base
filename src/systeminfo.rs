@@ -38,6 +38,8 @@ pub struct SystemBaseInfo {
     pub gpu_brand: String,
     pub gpu_name: String,
     pub gpu_memory: u64,
+    pub driver: String,
+    pub cuda: String,
     pub disk_total: u64,
     pub disk_free: u64,
     pub disk_uuid: String,
@@ -49,7 +51,7 @@ pub struct SystemBaseInfo {
 impl SystemBaseInfo {
     pub fn generate() -> Self {
         let (disk_total, disk_free, disk_uuid) = get_disk_info();
-        let (gpu_brand, gpu_name, gpu_memory) = get_gpu_info();
+        let (gpu_brand, gpu_name, gpu_memory, driver, cuda) = get_gpu_info();
         let host_type = is_virtual_or_docker_or_physics();
 
         let mut sys = System::new_all();
@@ -93,6 +95,8 @@ impl SystemBaseInfo {
             gpu_brand,
             gpu_name,
             gpu_memory,
+            driver,
+            cuda,
             disk_total,
             disk_free,
             disk_uuid,
@@ -119,6 +123,8 @@ pub struct SystemInfo {
     pub gpu_brand: String,
     pub gpu_name: String,
     pub gpu_memory: u64,
+    pub driver: String,
+    pub cuda: String,
     pub local_ip: String,
     pub local_port: u16,
     pub loopback_port: u16,
@@ -169,6 +175,8 @@ impl SystemInfo {
             gpu_brand: base.gpu_brand,
             gpu_name: base.gpu_name,
             gpu_memory: base.gpu_memory,
+            driver: base.driver,
+            cuda: base.cuda,
             local_ip: "127.0.0.1".to_string(),
             local_port: 8186,
             loopback_port: 8187,
@@ -326,9 +334,11 @@ fn get_disk_info() -> (u64, u64, String) {
     (total, free, uuid)
 }
 
-fn get_gpu_info() -> (String, String, u64){
+fn get_gpu_info() -> (String, String, u64, String, String){
     let (gpu_brand, gpu_name, gpu_memory) = match env::consts::OS {
         "windows" => {
+            let mut driver = "reserve".to_string();
+            let mut cuda = "reserve".to_string();
             let mut gpu_name = "reserve".to_string();
             let mut gpu_memory = 0;
             let mut gpu_brand = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%NVIDIA%'\").Name"]).trim().to_string();
@@ -344,22 +354,33 @@ fn get_gpu_info() -> (String, String, u64){
             } else {
                 gpu_name = gpu_brand;
                 gpu_brand = "NVIDIA".to_string();
-                let gpu_info = run_command("nvidia-smi", &["--query-gpu=name,memory.total,memory.free", "--format=csv"]);
-                let parts: Vec<Vec<&str>> = gpu_info
+                let gpu_info = run_command("nvidia-smi", &["-q -d MEMORY"]);
+                let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
-                    .map(|line| {
-                        line.split(',')
-                            .map(|part| { part.trim() })
-                            .collect::<Vec<&str>>()
-                    }).collect();
-                let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
-                    .unwrap_or_else(|| "".to_string());
-                gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap_or("0").parse::<u64>().unwrap_or(0);
+                    .filter_map(|line| {
+                        line.split_once(':').map(|(key, value)| (key.trim(), value.trim()))
+                    })
+                    .collect();
+
+                for (key, value) in &parts {
+                    if *key == "Driver Version" {
+                        driver = value.parse().unwrap()
+                    }
+                    if *key == "CUDA Version" {
+                        cuda = value.parse().unwrap()
+                    }
+                    if *key == "Total" {
+                        gpu_memory = value.split_whitespace().nth(0).unwrap_or("0").parse::<u64>().unwrap_or(0);
+                        break;
+                    }
+                }
             }
-            (gpu_brand, gpu_name, gpu_memory)
+            (gpu_brand, gpu_name, gpu_memory, driver, cuda)
         }
 
         "linux" => {
+            let mut driver = "reserve".to_string();
+            let mut cuda = "reserve".to_string();
             let mut gpu_name = "reserve".to_string();
             let mut gpu_memory = 0;
             let mut gpu_brand = run_command("sh", &["-c", "lspci | grep VGA | grep NVIDIA"]);
@@ -395,26 +416,33 @@ fn get_gpu_info() -> (String, String, u64){
                 }
             } else {
                 gpu_brand = "NVIDIA".to_string();
-                let gpu_info = run_command("nvidia-smi", &["--query-gpu=name,memory.total,memory.free", "--format=csv"]);
-                let parts: Vec<Vec<&str>> = gpu_info
+                let gpu_info = run_command("nvidia-smi", &["-q -d MEMORY"]);
+                let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
-                    .map(|line| {
-                        line.split(',')
-                            .map(|part| { part.trim() })
-                            .collect::<Vec<&str>>()
-                    }).collect();
-                gpu_name = parts.get(1).and_then(|row| row.get(0)).map(|value| value.to_string())
-                        .unwrap_or_else(|| "".to_string());
-                let gpu_memory_str = parts.get(1).and_then(|row| row.get(1)).map(|value| value.to_string())
-                        .unwrap_or_else(|| "".to_string());
-                gpu_memory = gpu_memory_str.split_whitespace().nth(0).unwrap_or("0").parse::<u64>().unwrap_or(0);
+                    .filter_map(|line| {
+                        line.split_once(':').map(|(key, value)| (key.trim(), value.trim()))
+                    })
+                    .collect();
+
+                for (key, value) in &parts {
+                    if *key == "Driver Version" {
+                        driver = value.parse().unwrap()
+                    }
+                    if *key == "CUDA Version" {
+                        cuda = value.parse().unwrap()
+                    }
+                    if *key == "Total" {
+                        gpu_memory = value.split_whitespace().nth(0).unwrap_or("0").parse::<u64>().unwrap_or(0);
+                        break;
+                    }
+                }
             }
-            (gpu_brand, gpu_name, gpu_memory)
+            (gpu_brand, gpu_name, gpu_memory, driver, cuda)
         }
         "macos" => {
-            ("Apple".to_string(), "reserve".to_string(), 0)
+            ("Apple".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "null".to_string())
         }
-        _ => {("Unknown".to_string(), "reserve".to_string(), 0)}
+        _ => {("Unknown".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "null".to_string())}
     };
     //print!("get_gpu_info.");
     (gpu_brand, gpu_name, gpu_memory)
