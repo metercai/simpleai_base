@@ -220,6 +220,8 @@ impl SystemInfo {
             gpu_brand: base.gpu_brand,
             gpu_name: base.gpu_name,
             gpu_memory: base.gpu_memory,
+            driver: base.driver,
+            cuda: base.cuda,
             local_ip: local_ip.to_string(),
             local_port,
             loopback_port,
@@ -335,7 +337,7 @@ fn get_disk_info() -> (u64, u64, String) {
 }
 
 fn get_gpu_info() -> (String, String, u64, String, String){
-    let (gpu_brand, gpu_name, gpu_memory) = match env::consts::OS {
+    let (gpu_brand, gpu_name, gpu_memory, driver, cuda) = match env::consts::OS {
         "windows" => {
             let mut driver = "reserve".to_string();
             let mut cuda = "reserve".to_string();
@@ -445,7 +447,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
         _ => {("Unknown".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "null".to_string())}
     };
     //print!("get_gpu_info.");
-    (gpu_brand, gpu_name, gpu_memory)
+    (gpu_brand, gpu_name, gpu_memory, driver, cuda)
 }
 
 fn is_virtual_or_docker_or_physics() -> String {
