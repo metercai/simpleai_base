@@ -62,6 +62,11 @@ default_models_info = {
             "hash": "c5e25d12d720e30a277598ce9ded9db406ee54f63419fe0c801b283d4ea146e2",
             "muid": "6487417fee"
         },
+        "checkpoints/flux1-dev-bnb-nf4-v2.safetensors": {
+            "size": 12044280207,
+            "hash": "fef37763b8f2c8cc3463139bbb6d91aa517c605b654d4e5c540de52813f30306",
+            "muid": "8c53267ff9"
+        },
         "checkpoints/hunyuan_dit_1.2.safetensors": {
             "size": 8240228270,
             "hash": "4fb84f84079cda457d171b3c6b15d1be95b5a3e5d9825703951a99ddf92d1787",
