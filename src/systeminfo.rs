@@ -418,6 +418,8 @@ fn get_gpu_info() -> (String, String, u64, String, String){
                 }
             } else {
                 gpu_brand = "NVIDIA".to_string();
+                let gpu_name_str = run_command("nvidia-smi", &["--query-gpu=name", "--format=csv,noheader"]);
+                gpu_name = gpu_name_str.lines().nth(0).map(|s| s.trim().to_string()).unwrap_or("Unknown".to_string());
                 let gpu_info = run_command("nvidia-smi", &["-q", "--display=MEMORY"]);
                 let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
