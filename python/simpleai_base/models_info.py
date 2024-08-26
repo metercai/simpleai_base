@@ -638,7 +638,7 @@ class ModelsInfo:
 
 def get_model_filenames(folder_paths, extensions=None, name_filter=None):
     if extensions is None:
-        extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch', '.sft']
+        extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch', '.gguf']
     files = []
     for folder in folder_paths:
         files += get_files_from_folder(folder, extensions, name_filter)
