@@ -5,12 +5,15 @@ class ComfyTaskParams:
         self.workflow = ''
 
     fooo2node = {
-        'seed': 'KSampler:main_sampler:seed;KolorsSampler:main_sampler:seed;RandomNoise:noise_seed:noise_seed',
-        'steps': 'KSampler:main_sampler:steps;KolorsSampler:main_sampler:steps;BasicScheduler:scheduler_select:steps',
-        'cfg_scale': 'KSampler:main_sampler:cfg;KolorsSampler:main_sampler:cfg;CLIPTextEncodeFlux:prompt:guidance',
-        'sampler': 'KSampler:main_sampler:sampler_name;KSamplerSelect:sampler_select:sampler_name',
-        'scheduler': 'KSampler:main_sampler:scheduler;KolorsSampler:main_sampler:scheduler;BasicScheduler:scheduler_select:scheduler',
-        'denoise': 'KSampler:main_sampler:denoise;KolorsSampler:main_sampler:denoise_strength;BasicScheduler:scheduler_select:denoise',
+        'seed': 'KSampler:main_sampler:seed;TiledKSampler:main_sampler:seed;KolorsSampler:main_sampler:seed;RandomNoise:noise_seed:noise_seed',
+        'steps': 'KSampler:main_sampler:steps;TiledKSampler:main_sampler:steps;KolorsSampler:main_sampler:steps;BasicScheduler:scheduler_select:steps',
+        'cfg_scale': 'KSampler:main_sampler:cfg;TiledKSampler:main_sampler:cfg;KolorsSampler:main_sampler:cfg;CLIPTextEncodeFlux:prompt:guidance',
+        'sampler': 'KSampler:main_sampler:sampler_name;TiledKSampler:main_sampler:sampler_name;KSamplerSelect:sampler_select:sampler_name',
+        'scheduler': 'KSampler:main_sampler:scheduler;TiledKSampler:main_sampler:scheduler;KolorsSampler:main_sampler:scheduler;BasicScheduler:scheduler_select:scheduler',
+        'denoise': 'KSampler:main_sampler:denoise;TiledKSampler:main_sampler:denoise;KolorsSampler:main_sampler:denoise_strength;BasicScheduler:scheduler_select:denoise',
+        'tiling': 'TiledKSampler:main_sampler:tiling;SeamlessTile:seamless_tile:tiling;CircularVAEDecode:vae_tiled:tiling',
+        'tiled_offset_x': 'OffsetImage:offset_image:x_percent',
+        'tiled_offset_y': 'OffsetImage:offset_image:y_percent',
         'base_model': 'CheckpointLoaderSimple:base_model:ckpt_name;UNETLoader:base_model:unet_name;CheckpointLoaderNF4:base_model:ckpt_name;UnetLoaderGGUF:base_model:unet_name',
         'base_model_dtype': 'UNETLoader:base_model:weight_dtype',
         'merge_model': 'UNETLoader:merge_model:unet_name',
