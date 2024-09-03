@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::thread;
+use std::fs;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
 use x25519_dalek::PublicKey;
 use ed25519_dalek::{VerifyingKey, Verifier, Signature};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use std::thread;
-use std::fs;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::claim::IdClaim;
@@ -14,6 +16,7 @@ use crate::env_utils;
 use crate::systeminfo::{SystemInfo, RUNTIME};
 use pyo3::prelude::*;
 use crate::error::TokenError;
+use crate::env_data::EnvData;
 
 #[derive(Clone, Debug)]
 #[pyclass]
@@ -133,5 +136,36 @@ impl SimpleAI {
         let aes_key = env_utils::hkdf_key(&shared_key);
         let text = env_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &aes_key);
         Ok(String::from_utf8(text).expect("undecryptable"))
+    }
+
+    pub fn check_ready(&self, v1: String, v2: String, v3: String, root: String) -> i32 {
+        let start = Instant::now();
+        let target_pyhash = EnvData::get_pyhash(&v1, &v2, &v3);
+        if EnvData::check_basepkg(&root) == false {
+            println!("模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
+        }
+        loop {
+            let sysinfo = self.get_sysinfo();
+            if sysinfo.pyhash != "Unknown" {
+                break;
+            }
+            if start.elapsed() > Duration::from_secs(10) {
+                println!("系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。");
+                return -1;
+            }
+            thread::sleep(Duration::from_secs(1));
+        }
+
+        let sysinfo = self.get_sysinfo();
+        if target_pyhash.as_ref().map(|s| *s != sysinfo.pyhash).unwrap_or(true) {
+            println!("运行程序为非官方版本，请正确使用开源软件。");
+            return 0;
+        }
+
+        return 1;
+    }
+
+    pub fn get_pyhash_key(&self, v1: String, v2: String, v3: String) -> String {
+        return EnvData::get_pyhash_key(&v1, &v2, &v3);
     }
 }

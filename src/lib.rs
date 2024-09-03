@@ -13,6 +13,7 @@ mod error;
 mod rathole;
 mod token;
 mod systeminfo;
+mod env_data;
 
 
 #[pyfunction]
