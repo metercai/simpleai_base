@@ -44,8 +44,8 @@ jobs:
             # If we're running on rhel centos, install needed packages.
             if command -v yum &> /dev/null; then
                 echo "rhel centos"
-                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic
-            
+                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-Scalar-List-Utils
+               
                 # If we're running on i686 we need to symlink libatomic
                 # in order to build openssl with -latomic flag.
                 if [[ ! -d "/usr/lib64" ]]; then
