@@ -40,8 +40,10 @@ jobs:
           sccache: 'true'
           manylinux: auto
           before-script-linux: |
+            echo "before-script..."
             # If we're running on rhel centos, install needed packages.
             if command -v yum &> /dev/null; then
+                echo "rhel centos"
                 yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic
             
                 # If we're running on i686 we need to symlink libatomic
@@ -50,8 +52,11 @@ jobs:
                     ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
                 fi
             else
+                echo "debian-based"
                 # If we're running on debian-based system.
                 apt update -y && apt-get install -y libssl-dev openssl pkg-config 
+                echo "fixes"
+                apt-get install -y libscalar-list-utils-perl
             fi
             echo "fixes..."
             apt install -y libscalar-list-utils-perl
