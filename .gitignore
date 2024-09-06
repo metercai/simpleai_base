@@ -72,5 +72,5 @@ docs/_build/
 .python-version
 
 .token_user.pem
-Cargo.lock
+!Cargo.lock
 *.did
