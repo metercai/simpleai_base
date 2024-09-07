@@ -172,26 +172,35 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
 }
 
 pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
-    let path_py = vec!["", "modules", "extras", "ldm_patched/modules", "enhanced", "comfy", "comfy/comfy"];
+    let path_py = vec!["", "modules", "extras", "ldm_patched/modules", "enhanced", "enhanced/libs", "comfy", "comfy/comfy"];
     let path_ui = vec!["language/cn.json", "simplesdxl_log.md", "webui.py", "enhanced/attached/welcome.png"];
 
     let path_root = env::current_dir()?;
 
+    let extensions = vec!["py", "whl"];
     let mut py_hashes: HashMap<String, String> = HashMap::new();
     for path in path_py {
         let full_path = path_root.join(path);
         if full_path.is_dir() {
             for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
-                if entry.file_type()?.is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("py") {
-                    let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
-                    py_hashes.insert(entry.file_name().into_string().unwrap(), hash);
+                if entry.file_type()?.is_file() {
+                    if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
+                        if extensions.contains(&ext) {
+                            let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
+                            py_hashes.insert(entry.file_name().into_string().unwrap(), hash);
+                        }
+                    }
                 }
             }
-        } else if full_path.is_file() && full_path.extension().and_then(|s| s.to_str()) == Some("py") {
-            let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
-            let file_name = full_path.file_name().and_then(|os_str| os_str.to_str()).unwrap().to_string();
-            py_hashes.insert(file_name, hash);
+        } else if full_path.is_file() {
+            if let Some(ext) = full_path.extension().and_then(|s| s.to_str()) {
+                if extensions.contains(&ext) {
+                    let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
+                    let file_name = full_path.file_name().and_then(|os_str| os_str.to_str()).unwrap().to_string();
+                    py_hashes.insert(file_name, hash);
+                }
+            }
         }
     }
     let mut keys: Vec<&String> = py_hashes.keys().collect();
@@ -203,7 +212,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     }
     let combined_py_hash = combined_py_hash.finalize();
     let py_hash_base64 = URL_SAFE_NO_PAD.encode(&combined_py_hash);
-    let py_hash_output = &py_hash_base64[..7];
+    let py_hash_output = &py_hash_base64[..10];
 
     let mut ui_hashes = Vec::new();
     for path in path_ui {
