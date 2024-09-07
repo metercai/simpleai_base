@@ -143,7 +143,7 @@ impl SimpleAI {
         let mut feedback_code = 0;
         let target_pyhash = EnvData::get_pyhash(&v1, &v2, &v3);
         if !EnvData::check_basepkg(&root) {
-            println!("程序所需模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
+            println!("[SimpleAI] 程序所需模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
             feedback_code += 2;
         }
         let mut sysinfo = self.get_sysinfo();
@@ -152,7 +152,7 @@ impl SimpleAI {
                 break;
             }
             if start.elapsed() > Duration::from_secs(15) {
-                println!("系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。");
+                println!("[SimpleAI] 系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。");
                 feedback_code += 1;
                 break;
             }
@@ -161,7 +161,7 @@ impl SimpleAI {
         }
 
         if target_pyhash != "Unknown" && target_pyhash != sysinfo.pyhash {
-            println!("所运行程序为非官方版本，请正确使用开源软件。");
+            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件。");
             feedback_code += 4;
         }
 
