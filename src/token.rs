@@ -151,9 +151,10 @@ impl SimpleAI {
             if sysinfo.pyhash != "Unknown" {
                 break;
             }
-            if start.elapsed() > Duration::from_secs(10) {
+            if start.elapsed() > Duration::from_secs(15) {
                 println!("系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。");
                 feedback_code += 1;
+                break;
             }
             thread::sleep(Duration::from_secs(1));
         }
