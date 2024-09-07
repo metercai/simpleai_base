@@ -142,7 +142,7 @@ impl SimpleAI {
         let start = Instant::now();
         let mut feedback_code = 0;
         let target_pyhash = EnvData::get_pyhash(&v1, &v2, &v3);
-        if EnvData::check_basepkg(&root) == false {
+        if !EnvData::check_basepkg(&root) {
             println!("程序所需模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
             feedback_code += 2;
         }
