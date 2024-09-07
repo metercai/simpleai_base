@@ -103,7 +103,6 @@ impl EnvData {
                     if let Ok(ln) = line {
                         if ln.starts_with("- ") {
                             let pyhash_line = ln[2..].trim();
-                            println!("pyhash_line: {}", pyhash_line);
                             if pyhash_line.contains('|') {
                                 let mut parts = pyhash_line.split('|');
                                 pyhash = parts.last().unwrap_or("").trim().to_string();
