@@ -6,6 +6,7 @@ import random
 import httpx
 import time
 import numpy as np
+import ldm_patched.modules.model_management as model_management
 from io import BytesIO
 from PIL import Image
 
@@ -57,6 +58,7 @@ def get_images(ws, prompt, callback=None):
     current_step = None
     current_total_steps = None
     while True:
+        model_management.throw_exception_if_processing_interrupted()
         try:
             out = ws.recv()
         except ConnectionResetError as e:
