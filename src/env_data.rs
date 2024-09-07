@@ -9,18 +9,6 @@ use base58::ToBase58;
 pub(crate) struct EnvData;
 
 impl EnvData {
-    const PYFILE: [( &str, &str); 10] = [
-        ("key1", "value1"),
-        ("key2", "value2"),
-        ("key3", "value3"),
-        ("key4", "value4"),
-        ("key5", "value5"),
-        ("key6", "value6"),
-        ("key7", "value7"),
-        ("key8", "value8"),
-        ("key9", "value9"),
-        ("key10", "value10"),
-    ];
 
     const BASEPKG: [(&str, u64); 79] = [
         ("upscale_models/fooocus_upscaler_s409985e5.bin", 33636613),
@@ -115,6 +103,7 @@ impl EnvData {
                     if let Ok(ln) = line {
                         if ln.starts_with("- ") {
                             let pyhash_line = ln[2..].trim();
+                            println!("pyhash_line: {}", pyhash_line);
                             if pyhash_line.contains('|') {
                                 let mut parts = pyhash_line.split('|');
                                 pyhash = parts.last().unwrap_or("").trim().to_string();
@@ -130,8 +119,6 @@ impl EnvData {
 
         pyhash
     }
-
-
 
     pub fn get_pyhash_key(v1: &str, v2: &str, v3: &str) -> String {
         let mut hasher = Sha256::new();
