@@ -140,9 +140,11 @@ impl SimpleAI {
 
     pub fn check_ready(&self, v1: String, v2: String, v3: String, root: String) -> i32 {
         let start = Instant::now();
+        let mut feedback_code = 0;
         let target_pyhash = EnvData::get_pyhash(&v1, &v2, &v3);
         if EnvData::check_basepkg(&root) == false {
-            println!("模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
+            println!("程序所需模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
+            feedback_code += 2;
         }
         loop {
             let sysinfo = self.get_sysinfo();
@@ -151,18 +153,18 @@ impl SimpleAI {
             }
             if start.elapsed() > Duration::from_secs(10) {
                 println!("系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。");
-                return -1;
+                feedback_code += 1;
             }
             thread::sleep(Duration::from_secs(1));
         }
 
         let sysinfo = self.get_sysinfo();
         if target_pyhash.as_ref().map(|s| *s != sysinfo.pyhash).unwrap_or(true) {
-            println!("运行程序为非官方版本，请正确使用开源软件。");
-            return 0;
+            println!("所运行的程序为非官方版本，请正确使用开源软件。");
+            feedback_code += 4;
         }
 
-        return 1;
+        feedback_code
     }
 
     pub fn get_pyhash_key(&self, v1: String, v2: String, v3: String) -> String {
