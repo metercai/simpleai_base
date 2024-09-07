@@ -161,7 +161,7 @@ impl SimpleAI {
 
         let sysinfo = self.get_sysinfo();
         if target_pyhash.as_ref().map(|s| *s != sysinfo.pyhash).unwrap_or(true) {
-            println!("所运行的程序为非官方版本，请正确使用开源软件。");
+            //println!("所运行的程序为非官方版本，请正确使用开源软件。");
             feedback_code += 4;
         }
 

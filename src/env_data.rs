@@ -134,10 +134,10 @@ impl EnvData {
             (PathBuf::from(filename), *size)
         }).collect::<Vec<_>>();
 
-        println!("basepkg: {}, root_path: {}", basepkg.len(), root_path);
+        //println!("basepkg: {}, root_path: {}", basepkg.len(), root_path);
         for (filename, size) in basepkg {
             let full_path = Path::new(root_path).join(filename);
-            println!("Checking file: {}", full_path.display());
+            //println!("Checking file: {}", full_path.display());
             if !full_path.exists() {
                 return false;
             }
