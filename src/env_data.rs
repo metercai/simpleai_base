@@ -1,4 +1,6 @@
 use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use ripemd::{Ripemd160, Digest};
 use sha2::{Sha256, Digest as ShaDigest};
@@ -102,16 +104,34 @@ impl EnvData {
         ("checkpoints/juggernautXL_juggXIByRundiffusion.safetensors", 7105350536),
     ];
 
-    pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> Option<String> {
-        let base58_key = Self::get_pyhash_key(v1, v2, v3);
+    pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> String {
+        let mut pyhash = "Unknown".to_string();
+        let log_file_path = Path::new("simplesdxl_log.md");
 
-        for (key, value) in EnvData::PYFILE.iter() {
-            if key == &base58_key {
-                return Some(value.to_string());
+        if log_file_path.exists() && !v3.ends_with("_dev") {
+            if let Ok(file) = File::open(log_file_path) {
+                let reader = BufReader::new(file);
+                for line in reader.lines() {
+                    if let Ok(ln) = line {
+                        if ln.starts_with("- ") {
+                            let pyhash_line = ln[2..].trim();
+                            if pyhash_line.contains('|') {
+                                let mut parts = pyhash_line.split('|');
+                                pyhash = parts.last().unwrap_or("").trim().to_string();
+                            } else {
+                                pyhash = pyhash_line.to_string();
+                            }
+                            break;
+                        }
+                    }
+                }
             }
         }
-        None
+
+        pyhash
     }
+
+
 
     pub fn get_pyhash_key(v1: &str, v2: &str, v3: &str) -> String {
         let mut hasher = Sha256::new();

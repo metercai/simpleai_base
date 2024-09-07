@@ -146,8 +146,8 @@ impl SimpleAI {
             println!("程序所需模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
             feedback_code += 2;
         }
+        let mut sysinfo = self.get_sysinfo();
         loop {
-            let sysinfo = self.get_sysinfo();
             if sysinfo.pyhash != "Unknown" {
                 break;
             }
@@ -157,11 +157,11 @@ impl SimpleAI {
                 break;
             }
             thread::sleep(Duration::from_secs(1));
+            sysinfo = self.get_sysinfo();
         }
 
-        let sysinfo = self.get_sysinfo();
-        if target_pyhash.as_ref().map(|s| *s != sysinfo.pyhash).unwrap_or(true) {
-            //println!("所运行的程序为非官方版本，请正确使用开源软件。");
+        if target_pyhash != "Unknown" && target_pyhash != sysinfo.pyhash {
+            println!("所运行的程序为非官方版本，请正确使用开源软件。");
             feedback_code += 4;
         }
 
