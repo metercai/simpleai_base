@@ -653,7 +653,7 @@ class ModelsInfo:
                         return file_paths
         return ''
 
-    def get_model_keys(self, catalog, filter=None):
+    def get_model_names(self, catalog, filter=None):
         result = []
         for f in self.m_info.keys():
             cata = f.split('/')[0]
@@ -661,11 +661,11 @@ class ModelsInfo:
             if catalog and cata == catalog:
                 if filter:
                     if filter in m_path_or_file:
-                        result.append(f)
+                        result.append(m_path_or_file)
                     else:
                         continue
                 else:
-                    result.append(f)
+                    result.append(m_path_or_file)
         return result
 
 
