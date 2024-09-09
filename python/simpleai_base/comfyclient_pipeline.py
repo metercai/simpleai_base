@@ -10,7 +10,7 @@ import ldm_patched.modules.model_management as model_management
 from io import BytesIO
 from PIL import Image
 
-echo_off = True
+from . import utils
 
 def upload_mask(mask):
     with BytesIO() as output:
@@ -149,7 +149,7 @@ def process_flow(flow_name, params, images, callback=None):
         print(f'    {k} = {v}')
     try:
         prompt_str = params.convert2comfy(flowdata)
-        if not echo_off:
+        if not utils.echo_off:
             print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
         images = get_images(ws, prompt_str, callback=callback)
     except websocket.WebSocketException as e:

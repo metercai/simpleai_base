@@ -2,6 +2,8 @@ import os
 import hashlib
 from typing import Optional
 
+echo_off = True
+
 HASH_SHA256_LENGTH = 10
 def sha256(filename, use_addnet_hash=False, length=HASH_SHA256_LENGTH):
     if use_addnet_hash:

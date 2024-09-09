@@ -1,7 +1,6 @@
 import os
 import json
 from . import utils
-from comfyd import echo_off
 
 default_models_info = {
         "checkpoints/albedobaseXL_v21.safetensors": {
@@ -454,7 +453,7 @@ class ModelsInfo:
                         new_info_key.append(model_key)
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
-        if not echo_off:
+        if not utils.echo_off:
             print(f'[ModelInfo] new_model_key:{new_model_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
@@ -462,7 +461,7 @@ class ModelsInfo:
         for f in self.m_file.keys():
             if f not in new_file_key:
                 del_file_key.append(f)
-        if not echo_off:
+        if not utils.echo_off:
             print(f'[ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
         for f in new_model_key:
             self.add_new_model(f, new_model_file)

@@ -4,10 +4,9 @@ import sys
 import torch
 import gc
 import ldm_patched.modules.model_management as model_management
-from . import comfyclient_pipeline
+from . import comfyclient_pipeline, utils
 
 comfyd_process = None
-echo_off = True
 comfyd_active = False
 comfyd_args = [[]]
 
@@ -24,8 +23,7 @@ def is_running():
     return False
 
 def start(args_patch=[[]]):
-    global comfyd_process, echo_off, comfyd_args
-    comfyclient_pipeline.echo_off = echo_off
+    global comfyd_process, comfyd_args
     if not is_running():
         backend_script = os.path.join(os.getcwd(),'comfy/main.py')
         args_comfyd = [["--preview-method", "auto"], ["--port", "8187"], ["--disable-auto-launch"]]
@@ -41,7 +39,7 @@ def start(args_patch=[[]]):
                     break
             if not found:
                 args_comfyd.append(patch)
-        if not echo_off:
+        if not utils.echo_off:
             print(f'[Comfyd] args_comfyd was patched: {args_comfyd}, patch:{comfyd_args}')
         arguments = [arg for sublist in args_comfyd for arg in sublist]
         process_env = os.environ.copy()
@@ -49,7 +47,7 @@ def start(args_patch=[[]]):
         model_management.unload_all_models()
         gc.collect()
         torch.cuda.empty_cache()
-        if not echo_off:
+        if not utils.echo_off:
             print(f'[Comfyd] Ready to start with arguments: {arguments}, env: {process_env}')
         if 'comfyd_process' not in globals():
             globals()['comfyd_process'] = None
@@ -142,6 +140,6 @@ def args_mapping(args_fooocus):
         args_comfy += [["--lowvram"]]
     if "--always-gpu" in args_fooocus:
         args_comfy += [["--gpu-only"]]
-    if not echo_off:
+    if not utils.echo_off:
         print(f'[Comfyd] args_fooocus: {args_fooocus}\nargs_comfy: {args_comfy}')
     return args_comfy
