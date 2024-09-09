@@ -653,24 +653,31 @@ class ModelsInfo:
                         return file_paths
         return ''
 
-    def get_model_names(self, catalog, filters=[], casesensitive=False):
+    def get_model_names(self, catalog, filters=[], casesensitive=False, reverse=False):
         result = []
+        result_reverse = []
         for f in self.m_info.keys():
             cata = f.split('/')[0]
             m_path_or_file = f[len(cata)+1:] #.replace('\\', '/')
+            result_reverse.append(m_path_or_file)
             if catalog and cata == catalog:
                 if len(filters) > 0:
                     for item in filters:
                         if casesensitive:
                             if item in m_path_or_file:
                                 result.append(m_path_or_file)
+                                result_reverse.pop()
                                 break
                         else:
                             if item.lower() in m_path_or_file.lower():
                                 result.append(m_path_or_file)
+                                result_reverse.pop()
                                 break
                 else:
                     result.append(m_path_or_file)
+                    result_reverse.pop()
+        if reverse:
+            return result_reverse
         return result
 
 
