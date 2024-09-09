@@ -660,8 +660,8 @@ class ModelsInfo:
         for f in self.m_info.keys():
             cata = f.split('/')[0]
             m_path_or_file = f[len(cata)+1:] #.replace('\\', '/')
-            result_reverse.append(m_path_or_file)
             if catalog and cata == catalog:
+                result_reverse.append(m_path_or_file)
                 if len(filters) > 0:
                     for item in filters:
                         if casesensitive:
