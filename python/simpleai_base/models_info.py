@@ -375,6 +375,9 @@ class ModelsInfo:
         self.refresh_from_path()
         self.scan_models_hash = scan_hash
 
+    def get_stat(self):
+        return len(self.m_info)
+
     def load_model_info(self):
         if os.path.exists(self.info_path):
             try:
