@@ -490,9 +490,31 @@ class ModelsInfo:
                 for (p, k) in path_filenames:
                     model_key = f'{path}/{k}'
                     file_path = os.path.join(p, k)
-                    self.update_new_model_info(model_key, file_path, new_info_key, new_model_key, new_model_file, new_file_key)
-
-        self.update_del_model_info(new_info_key, del_model_key, del_file_key)
+                    if file_path not in new_file_key:
+                        new_file_key.append(file_path)
+                    if model_key in new_model_file:
+                        if isinstance(new_model_file[model_key], list):
+                            new_model_file[model_key].append(file_path)
+                        else:
+                            new_model_file[model_key] = [new_model_file[model_key], file_path]
+                    else:
+                        new_model_file[model_key] = file_path
+                    if model_key not in new_info_key:
+                        new_info_key.append(model_key)
+                    if model_key not in self.m_info.keys():
+                        new_model_key.append(model_key)
+        for k in self.m_info.keys():
+            if k not in new_info_key:
+                del_model_key.append(k)
+        for f in self.m_file.keys():
+            if f not in new_file_key:
+                del_file_key.append(f)
+        for f in new_model_key:
+            self.add_new_model(f, new_model_file)
+        for f in del_model_key:
+            self.remove_model(f)
+        for f in del_file_key:
+            self.remove_file(f)
         self.save_model_info()
 
     def get_path_filenames(self, path):
@@ -504,37 +526,6 @@ class ModelsInfo:
             path_filenames = get_model_filenames(self.path_map[path])
         return path_filenames
 
-    def update_new_model_info(self, model_key, file_path, new_info_key, new_model_key, new_model_file, new_file_key):
-        if file_path not in new_file_key:
-            new_file_key.append(file_path)
-        if model_key in new_model_file:
-            if isinstance(new_model_file[model_key], list):
-                new_model_file[model_key].append(file_path)
-            else:
-                new_model_file[model_key] = [new_model_file[model_key], file_path]
-        else:
-            new_model_file[model_key] = file_path
-        if model_key not in new_info_key:
-            new_info_key.append(model_key)
-        if model_key not in self.m_info.keys():
-            new_model_key.append(model_key)
-
-    def update_del_model_info(self, new_info_key, del_model_key, del_file_key):
-        for k in self.m_info.keys():
-            if k not in new_info_key:
-                del_model_key.append(k)
-        for f in self.m_file.keys():
-            if f not in new_file_key:
-                del_file_key.append(f)
-
-        for f in new_model_key:
-            self.add_new_model(f, new_model_file)
-
-        for f in del_model_key:
-            self.remove_model(f)
-
-        for f in del_file_key:
-            self.remove_file(f)
 
     def add_new_model(self, model_key, new_model_file):
         file_path = new_model_file[model_key]
