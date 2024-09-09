@@ -1,14 +1,6 @@
 import os
 import json
-from pathlib import Path
-from . import models_hub_host
-from . import config
 from . import utils
-from simpleai_base import simpleai_base
-
-models_info_rsync = {}
-models_info_file = ['models_info', 0]
-models_info_path = os.path.abspath(os.path.join(config.path_models_root, f'{models_info_file[0]}.json'))
 
 
 default_models_info = {
@@ -365,67 +357,15 @@ default_models_info = {
     }
 
 
-history_models_info = {}
-modelsinfo = None
-
-def get_models_info():
-    global modelsinfo
-    if modelsinfo is None:
-        return {}, {}, {}
-    return modelsinfo.m_info, modelsinfo.m_muid, modelsinfo.m_file
-
-def get_modelsinfo():
-    global modelsinfo
-    if modelsinfo is None:
-        init_models_info()
-    modelsinfo.refresh_from_path()
-    return modelsinfo
-
-def refresh_models_info_from_path():
-    global modelsinfo
-    if modelsinfo is None:
-        init_models_info()
-    modelsinfo.refresh_from_path()
-    return
-
-def init_models_info():
-    global modelsinfo, models_info_path
-    models_info_path = os.path.abspath(os.path.join(config.path_models_root, 'models_info.json'))
-    print(f'[SimpleAI] The path of models_info file: {models_info_path}')
-
-    models_path_map = {
-        'checkpoints': config.paths_checkpoints,
-        'loras': config.paths_loras,
-        'embeddings': [config.path_embeddings],
-        'diffusers' : config.paths_diffusers,
-        'DIFFUSERS': config.paths_diffusers,
-        'controlnet' : config.paths_controlnet,
-        'inpaint' : config.paths_inpaint,
-        'unet' : [config.path_unet],
-        'llms' : config.paths_llms,
-        'vae' : [config.path_vae]
-    }
-    modelsinfo = ModelsInfo(models_info_path, models_path_map)
-    return
-    
-
-
 def sync_model_info(downurls):
-    global models_info, models_info_rsync, models_info_file, models_info_path
     print(f'downurls:{downurls}')
     keylist = []
     return keylist
 
-def set_scan_models_hash(scan=False):
-    ModelsInfo.scan_models_hash = scan
-    return
-
 
 class ModelsInfo:
 
-    scan_models_hash = False
-
-    def __init__(self, models_info_path, path_map):
+    def __init__(self, models_info_path, path_map, scan_hash=False):
         self.info_path = models_info_path
         self.path_map = path_map
         self.m_info = {}
@@ -433,6 +373,7 @@ class ModelsInfo:
         self.m_file = {}
         self.load_model_info()
         self.refresh_from_path()
+        self.scan_models_hash = scan_hash
 
     def load_model_info(self):
         if os.path.exists(self.info_path):
@@ -480,7 +421,7 @@ class ModelsInfo:
         else:
             self.m_muid[muid] = model_key
 
-    def refresh_from_path(self):
+    def refresh_from_path(self, scan_hash=False):
         new_info_key = []
         new_model_key = []
         del_model_key = []
@@ -488,6 +429,7 @@ class ModelsInfo:
         new_file_key = []
         del_file_key = []
 
+        self.scan_models_hash = scan_hash
         #print(f'm_info_key:{self.m_info.keys()}')
         for path in self.path_map.keys():
             if self.path_map[path]:
@@ -595,7 +537,7 @@ class ModelsInfo:
         if file_path in default_models_info.keys() and size == default_models_info[file_path]["size"]:
             hash = default_models_info[file_path]["hash"]
             muid = default_models_info[file_path]["muid"]
-        elif ModelsInfo.scan_models_hash:
+        elif self.scan_models_hash:
             print(f'[ModelInfo] Calculate hash for {file_path}')
             if os.path.isdir(file_path):
                 hash = utils.calculate_sha256_subfolder(file_path)
