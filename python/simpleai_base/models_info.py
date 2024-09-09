@@ -488,7 +488,7 @@ class ModelsInfo:
         new_file_key = []
         del_file_key = []
 
-        print(f'm_info:{self.m_info}')
+        print(f'm_info_key:{self.m_info.keys()}')
         for path in self.path_map.keys():
             if self.path_map[path]:
                 path_filenames = self.get_path_filenames(path)
