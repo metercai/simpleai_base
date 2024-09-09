@@ -439,36 +439,40 @@ class ModelsInfo:
             try:
                 with open(self.info_path, "r", encoding="utf-8") as json_file:
                     self.m_info.update(json.load(json_file))
-                    self.validate_model_files()
+                    file_no_exists_list = []
+                    for k in self.m_info.keys():
+                        if self.m_info[k]['file']:
+                            if isinstance(self.m_info[k]['file'], list):
+                                file_list = []
+                                for file in self.m_info[k]['file']:
+                                    if os.path.exists(file):
+                                        self.m_file.update({file: k})
+                                        file_list.append(file)
+                                if len(file_list) > 1:
+                                    self.m_info[k]['file'] = file_list
+                                elif len(file_list) == 1:
+                                    self.m_info[k]['file'] = file_list[0]
+                                else:
+                                    file_no_exists_list.append(k)
+                            else:
+                                if os.path.exists(self.m_info[k]['file']):
+                                    self.m_file.update({self.m_info[k]['file']: k})
+                                else:
+                                    file_no_exists_list.append(k)
+                        if k not in file_no_exists_list and self.m_info[k]['muid']:
+                            self.update_muid_map(self.m_info[k]['muid'], k)
+                    for k in file_no_exists_list:
+                        del self.m_info[k]
+
             except Exception as e:
                 print(f'[ModelInfo] Load model info file {self.info_path} failed!, error:{e}')
                 self.m_info = {}
                 self.m_muid = {}
                 self.m_file = {}
 
-    def validate_model_files(self):
-        file_no_exists_list = []
-        for k in self.m_info.keys():
-            if self.m_info[k]['file']:
-                if isinstance(self.m_info[k]['file'], list):
-                    file_list = [file for file in self.m_info[k]['file'] if os.path.exists(file)]
-                    if file_list:
-                        self.m_info[k]['file'] = file_list if len(file_list) > 1 else file_list[0]
-                        self.m_file.update({file: k for file in file_list})
-                    else:
-                        file_no_exists_list.append(k)
-                else:
-                    if os.path.exists(self.m_info[k]['file']):
-                        self.m_file.update({self.m_info[k]['file']: k})
-                    else:
-                        file_no_exists_list.append(k)
-            if k not in file_no_exists_list and self.m_info[k]['muid']:
-                self.update_muid_map(self.m_info[k]['muid'], k)
-        for k in file_no_exists_list:
-            del self.m_info[k]
 
     def update_muid_map(self, muid, model_key):
-        if muid in self.m_muid:
+        if muid in self.m_muid and self.m_muid[muid]:
             if isinstance(self.m_muid[muid], list):
                 self.m_muid[muid].append(model_key)
             else:
@@ -484,10 +488,12 @@ class ModelsInfo:
         new_file_key = []
         del_file_key = []
 
+        print(f'm_info:{self.m_info}')
         for path in self.path_map.keys():
             if self.path_map[path]:
                 path_filenames = self.get_path_filenames(path)
-                for (p, k) in path_filenames:
+                #print(f'path_filenames_{path}:{path_filenames}')
+                for (p,k) in path_filenames:
                     model_key = f'{path}/{k}'
                     file_path = os.path.join(p, k)
                     if file_path not in new_file_key:
@@ -503,6 +509,7 @@ class ModelsInfo:
                         new_info_key.append(model_key)
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
+        #print(f'[ModelInfo] new_model_key:{new_model_key}, new_file_key:{new_file_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
                 del_model_key.append(k)
@@ -540,15 +547,17 @@ class ModelsInfo:
         else:
             self.m_file.update({new_model_file[model_key]: model_key})
 
+
     def remove_model(self, model_key):
-        if self.m_info[model_key]['muid'] in self.m_muid:
+        if self.m_info[model_key]['muid'] and self.m_info[model_key]['muid'] in self.m_muid:
             self.remove_muid_map(self.m_info[model_key]['muid'], model_key)
         if self.m_info[model_key]['file']:
             self.remove_file_map(self.m_info[model_key]['file'], model_key)
         del self.m_info[model_key]
 
+
     def remove_file(self, file_path):
-        if file_path in self.m_file and self.m_file[file_path] in self.m_info:
+        if file_path in self.m_file and self.m_file[file_path] in self.m_info and self.m_info[self.m_file[file_path]]['file']:
             file_paths = self.m_info[self.m_file[file_path]]['file']
             if isinstance(file_paths, list):
                 if file_path in file_paths:
@@ -556,7 +565,9 @@ class ModelsInfo:
                 if len(file_paths) == 1:
                     self.m_info[self.m_file[file_path]]['file'] = file_paths[0]
             else:
-                del self.m_file[file_path]
+                if file_path in self.m_file.keys():
+                    del self.m_file[file_path]
+
 
     def remove_muid_map(self, muid, model_key):
         if isinstance(self.m_muid[muid], list):
@@ -601,11 +612,12 @@ class ModelsInfo:
             muid = ''
         return size, hash, muid
 
+
     def save_model_info(self):
         try:
             with open(self.info_path, "w", encoding="utf-8") as json_file:
                 json.dump(self.m_info, json_file, indent=4)
-                print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
+                #print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
         except PermissionError:
             print(f'[SimpleAI] Models info update and save failed: Permission denied, {self.info_path}.')
         except json.JSONDecodeError:
