@@ -501,7 +501,7 @@ class ModelsInfo:
             for f_path in self.path_map[path]:
                 path_filenames += [(f_path, entry) for entry in os.listdir(f_path) if os.path.isdir(os.path.join(f_path, entry))]
         else:
-            path_filenames = utils.get_model_filenames(self.path_map[path])
+            path_filenames = get_model_filenames(self.path_map[path])
         return path_filenames
 
     def update_new_model_info(self, model_key, file_path, new_info_key, new_model_key, new_model_file, new_file_key):
