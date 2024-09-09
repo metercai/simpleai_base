@@ -510,13 +510,13 @@ class ModelsInfo:
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
         print(f'[ModelInfo] new_model_key:{new_model_key}, new_file_key:{new_file_key}')
-        print(f'[ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
                 del_model_key.append(k)
         for f in self.m_file.keys():
             if f not in new_file_key:
                 del_file_key.append(f)
+        print(f'[ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
         for f in new_model_key:
             self.add_new_model(f, new_model_file)
         for f in del_model_key:
@@ -684,7 +684,6 @@ class ModelsInfo:
         return False
 
     def exists_model_key(self, model_key):
-        print(f'exists_model_key: {model_key}, {self.m_info.keys()}')
         if model_key in self.m_info:
             return True
         return False
@@ -709,11 +708,32 @@ class ModelsInfo:
                         return file_paths
         return ''
 
+    def get_model_keys(self, catalog, filter=None):
+        result = []
+        for f in self.m_info.keys():
+            cata = f.split('/')[0]
+            m_path_or_file = f[len(cata)+1:].replace('\\', '/')
+            if catalog and cata == catalog:
+                if filter:
+                    if filter in m_path_or_file:
+                        result.append(f)
+                    else:
+                        continue
+                else:
+                    result.append(f)
+        return result
+
+
     def get_model_info(self, catalog, model_name):
-        return self.m_info[f'{catalog}/{model_name}']
+        model_key = f'{catalog}/{model_name}'
+        return self.get_model_key_info(model_key)
+
 
     def get_model_key_info(self, model_key):
-        return self.m_info[model_key]
+        if model_key in self.m_info:
+            return self.m_info[model_key]
+        return None
+
 
     def get_file_muid(self, file_path):
         if file_path in self.m_file:
