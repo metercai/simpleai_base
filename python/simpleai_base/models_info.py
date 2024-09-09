@@ -679,6 +679,11 @@ class ModelsInfo:
                     return True
         return False
 
+    def exists_model_key(self, model_key):
+        if model_key in self.m_info:
+            return True
+        return False
+
     def get_model_filepath(self, catalog='', model_path='', muid=None):
         if muid and muid in self.m_muid:
             file_paths = self.m_info[self.m_muid[muid]]
@@ -701,6 +706,14 @@ class ModelsInfo:
 
     def get_model_info(self, catalog, model_name):
         return self.m_info[f'{catalog}/{model_name}']
+
+    def get_model_key_info(self, model_key):
+        return self.m_info[model_key]
+
+    def get_file_muid(self, file_path):
+        if file_path in self.m_file:
+            return self.m_info[self.m_file[file_path]]['muid']
+        return ''
 
 
 
