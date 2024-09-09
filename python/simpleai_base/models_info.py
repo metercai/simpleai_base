@@ -454,7 +454,7 @@ class ModelsInfo:
                         new_info_key.append(model_key)
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
-        print(f'[ModelInfo] new_model_key:{new_model_key}, new_file_key:{new_file_key}')
+        print(f'[ModelInfo] new_model_key:{new_model_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
                 del_model_key.append(k)
