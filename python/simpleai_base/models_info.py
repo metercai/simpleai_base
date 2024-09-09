@@ -631,8 +631,22 @@ class ModelsInfo:
             if not os.path.exists(file_path):
                 print(f'[ModelInfo] The added file does not exist: {file_path}')
                 return
-            catalog = os.path.basename(os.path.dirname(file_path))
+
+            # Determine the catalog and model_name
+            catalog = None
+            max_match_length = 0
             model_name = os.path.basename(file_path)
+            for key, paths in self.path_map.items():
+                for path in paths:
+                    if file_path.startswith(path) and len(path) > max_match_length:
+                        catalog = key
+                        max_match_length = len(path)
+                        model_name = file_path[len(path) + 1:]
+
+            if not catalog:
+                print(f'[ModelInfo] The added file path {file_path} does not match any path in path_map.')
+                return
+
             model_key = f'{catalog}/{model_name}'
             size, hash, muid = self.calculate_model_info(file_path)
             self.m_info.update({model_key: {'size': size, 'hash': hash, 'file': file_path, 'muid': muid, 'url': ''}})
