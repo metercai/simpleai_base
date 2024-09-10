@@ -161,7 +161,7 @@ impl SimpleAI {
         }
 
         if target_pyhash != "Unknown" && target_pyhash != sysinfo.pyhash {
-            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件。");
+            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件。{}", sysinfo.pyhash);
             feedback_code += 4;
         }
 

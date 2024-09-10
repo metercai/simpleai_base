@@ -438,6 +438,7 @@ class ModelsInfo:
                 path_filenames = self.get_path_filenames(path)
                 #print(f'path_filenames_{path}:{path_filenames}')
                 for (p,k) in path_filenames:
+                    k = k.replace(os.sep, '/')
                     model_key = f'{path}/{k}'
                     file_path = os.path.join(p, k)
                     if file_path not in new_file_key:
