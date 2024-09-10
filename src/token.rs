@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::thread;
 use std::fs;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use x25519_dalek::PublicKey;
 use ed25519_dalek::{VerifyingKey, Verifier, Signature};
@@ -161,7 +161,12 @@ impl SimpleAI {
         }
 
         if target_pyhash != "Unknown" && target_pyhash != sysinfo.pyhash {
-            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件。{}", sysinfo.pyhash);
+            let now_sec = SystemTime::now().duration_since(UNIX_EPOCH).expect("error time").as_secs();
+            let pyhash_display = URL_SAFE_NO_PAD.encode(env_utils::calc_sha256(
+                format!("{}{}", sysinfo.pyhash, (now_sec/100000).to_string())
+                    .as_bytes()));
+
+            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件。{}", &pyhash_display[..16]);
             feedback_code += 4;
         }
 
