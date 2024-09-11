@@ -10,7 +10,7 @@ pub(crate) struct EnvData;
 
 impl EnvData {
 
-    const BASEPKG: [(&str, u64); 79] = [
+    const BASEPKG: [(&str, u64); 78] = [
         ("upscale_models/fooocus_upscaler_s409985e5.bin", 33636613),
         ("layer_model/layer_xl_transparent_conv.safetensors", 3619745776),
         ("layer_model/vae_transparent_decoder.safetensors", 208266320),
@@ -89,7 +89,6 @@ impl EnvData {
         ("configs/v1-inference_clip_skip_2.yaml", 1933),
         ("configs/v2-inference-v_fp32.yaml", 1816),
         ("configs/v2-inference.yaml", 1789),
-        ("checkpoints/juggernautXL_juggXIByRundiffusion.safetensors", 7105350536),
     ];
 
     pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> String {

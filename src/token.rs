@@ -143,7 +143,7 @@ impl SimpleAI {
         let mut feedback_code = 0;
         let target_pyhash = EnvData::get_pyhash(&v1, &v2, &v3);
         if !EnvData::check_basepkg(&root) {
-            println!("[SimpleAI] 程序所需模型基础包检测异常，未正确安装。请检查并正确安装后，再启动程序。");
+            println!("[SimpleAI] 程序所需基础模型包有检测异常，未完全正确安装。请检查并正确安装后，再启动程序。");
             feedback_code += 2;
         }
         let mut sysinfo = self.get_sysinfo();
@@ -166,7 +166,7 @@ impl SimpleAI {
                 format!("{}{}", sysinfo.pyhash, (now_sec/100000).to_string())
                     .as_bytes()));
 
-            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件。{}", &pyhash_display[..16]);
+            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
             feedback_code += 4;
         }
 
