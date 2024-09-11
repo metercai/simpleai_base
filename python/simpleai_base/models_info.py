@@ -623,9 +623,9 @@ class ModelsInfo:
             return True
         for f in self.m_info.keys():
             cata = f.split('/')[0]
-            m_path_or_file = f[len(cata)+1:].replace('\\', '/')
+            m_path_or_file = f[len(cata)+1:]
             if model_path:
-                model_path = model_path.replace('\\', '/')
+                model_path = model_path.replace(os.sep, '/')
                 if catalog and cata == catalog and m_path_or_file == model_path:
                     return True
         return False
@@ -645,8 +645,8 @@ class ModelsInfo:
         if catalog and model_path:
             for f in self.m_info.keys():
                 cata = f.split('/')[0]
-                m_path_or_file = f[len(cata)+1:].replace('\\', '/')
-                model_path = model_path.replace('\\', '/')
+                m_path_or_file = f[len(cata)+1:]
+                model_path = model_path.replace(os.sep, '/')
                 if cata == catalog and m_path_or_file == model_path:
                     file_paths = self.m_info[f]['file']
                     if isinstance(file_paths, list):
@@ -660,7 +660,7 @@ class ModelsInfo:
         result_reverse = []
         for f in self.m_info.keys():
             cata = f.split('/')[0]
-            m_path_or_file = f[len(cata)+1:] #.replace('\\', '/')
+            m_path_or_file = f[len(cata)+1:].replace('/', os.sep)
             if catalog and cata == catalog:
                 result_reverse.append(m_path_or_file)
                 if len(filters) > 0:
