@@ -177,7 +177,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
 
     let path_root = env::current_dir()?;
 
-    let extensions = vec![".py", ".whl"];
+    let extensions = vec!["py", "whl"];
     let mut py_hashes: HashMap<String, String> = HashMap::new();
     for path in path_py {
         let full_path = path_root.join(path);
