@@ -371,8 +371,7 @@ class ModelsInfo:
         self.m_muid = {}
         self.m_file = {}
         self.load_model_info()
-        self.refresh_from_path()
-        self.scan_models_hash = scan_hash
+        self.refresh_from_path(scan_hash)
 
     def get_stat(self):
         return len(self.m_info)
@@ -385,23 +384,19 @@ class ModelsInfo:
                     file_no_exists_list = []
                     for k in self.m_info.keys():
                         if self.m_info[k]['file']:
-                            if isinstance(self.m_info[k]['file'], list):
-                                file_list = []
-                                for file in self.m_info[k]['file']:
-                                    if os.path.exists(file):
-                                        self.m_file.update({file: k})
-                                        file_list.append(file)
-                                if len(file_list) > 1:
-                                    self.m_info[k]['file'] = file_list
-                                elif len(file_list) == 1:
-                                    self.m_info[k]['file'] = file_list[0]
-                                else:
-                                    file_no_exists_list.append(k)
+                            model_files = self.m_info[k]['file']
+                            exists_file_list = []
+                            for file in model_files:
+                                if os.path.exists(file):
+                                    if file in self.m_file and self.m_file[file]:
+                                        self.m_file[file].append(k)
+                                    else:
+                                        self.m_file.update({file : [k]})
+                                    exists_file_list.append(file)
+                            if len(exists_file_list) > 0:
+                                self.m_info[k]['file'] = exists_file_list
                             else:
-                                if os.path.exists(self.m_info[k]['file']):
-                                    self.m_file.update({self.m_info[k]['file']: k})
-                                else:
-                                    file_no_exists_list.append(k)
+                                file_no_exists_list.append(k)
                         if k not in file_no_exists_list and self.m_info[k]['muid']:
                             self.update_muid_map(self.m_info[k]['muid'], k)
                     for k in file_no_exists_list:
@@ -414,16 +409,7 @@ class ModelsInfo:
                 self.m_file = {}
 
 
-    def update_muid_map(self, muid, model_key):
-        if muid in self.m_muid and self.m_muid[muid]:
-            if isinstance(self.m_muid[muid], list):
-                self.m_muid[muid].append(model_key)
-            else:
-                self.m_muid[muid] = [self.m_muid[muid], model_key]
-        else:
-            self.m_muid[muid] = model_key
-
-    def refresh_from_path(self, scan_hash=False):
+    def refresh_from_path(self, scan_hash=True):
         new_info_key = []
         new_model_key = []
         del_model_key = []
@@ -444,12 +430,9 @@ class ModelsInfo:
                     if file_path not in new_file_key:
                         new_file_key.append(file_path)
                     if model_key in new_model_file:
-                        if isinstance(new_model_file[model_key], list):
-                            new_model_file[model_key].append(file_path)
-                        else:
-                            new_model_file[model_key] = [new_model_file[model_key], file_path]
+                        new_model_file[model_key].append(file_path)
                     else:
-                        new_model_file[model_key] = file_path
+                        new_model_file[model_key] = [file_path]
                     if model_key not in new_info_key:
                         new_info_key.append(model_key)
                     if model_key not in self.m_info.keys():
@@ -465,7 +448,7 @@ class ModelsInfo:
         if not utils.echo_off:
             print(f'[ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
         for f in new_model_key:
-            self.add_new_model(f, new_model_file)
+            self.add_and_refresh_model(f, new_model_file[f])
         for f in del_model_key:
             self.remove_model(f)
         for f in del_file_key:
@@ -478,22 +461,20 @@ class ModelsInfo:
             for f_path in self.path_map[path]:
                 path_filenames += [(f_path, entry) for entry in os.listdir(f_path) if os.path.isdir(os.path.join(f_path, entry))]
         else:
-            path_filenames = get_model_filenames(self.path_map[path])
+            path_filenames = get_model_filenames(self.path_map[path], variation=True)
         return path_filenames
 
 
-    def add_new_model(self, model_key, new_model_file):
-        file_path = new_model_file[model_key]
-        if isinstance(file_path, list):
-            file_path = file_path[0]
-        size, hash, muid = self.calculate_model_info(file_path)
-        self.m_info.update({model_key: {'size': size, 'hash': hash, 'file': new_model_file[model_key], 'muid': muid, 'url': ''}})
+    def add_and_refresh_model(self, model_key, file_path_list, url=None):
+        file_path_list_old = [] if model_key not in self.m_info else self.m_info[model_key]['file']
+        file_path_list_new = file_path_list_old + file_path_list
+        url1 = '' if model_key not in self.m_info else self.m_info[model_key]['url']
+        url = url1 if url is None else url
+        size, hash, muid = self.calculate_model_info(file_path_list[0])
+        self.m_info.update({model_key: {'size': size, 'hash': hash, 'file': file_path_list_new, 'muid': muid, 'url': url}})
         self.update_muid_map(muid, model_key)
-        if isinstance(new_model_file[model_key], list):
-            for file_path in new_model_file[model_key]:
-                self.m_file.update({file_path: model_key})
-        else:
-            self.m_file.update({new_model_file[model_key]: model_key})
+        self.update_file_map(file_path_list_new, model_key)
+
 
 
     def remove_model(self, model_key):
@@ -505,34 +486,45 @@ class ModelsInfo:
 
 
     def remove_file(self, file_path):
-        if file_path in self.m_file and self.m_file[file_path] in self.m_info and self.m_info[self.m_file[file_path]]['file']:
-            file_paths = self.m_info[self.m_file[file_path]]['file']
-            if isinstance(file_paths, list):
-                if file_path in file_paths:
-                    file_paths.remove(file_path)
-                if len(file_paths) == 1:
-                    self.m_info[self.m_file[file_path]]['file'] = file_paths[0]
-            else:
-                if file_path in self.m_file.keys():
-                    del self.m_file[file_path]
-
-
-    def remove_muid_map(self, muid, model_key):
-        if isinstance(self.m_muid[muid], list):
-            if model_key in self.m_muid[muid]:
-                self.m_muid[muid].remove(model_key)
-            if len(self.m_muid[muid]) == 1:
-                self.m_muid[muid] = self.m_muid[muid][0]
-        else:
-            del self.m_muid[muid]
+        if file_path in self.m_file and self.m_file[file_path]:
+            for model_key in self.m_file[file_path]:
+                if self.m_info[model_key]['file']:
+                    if file_path in self.m_info[model_key]['file']:
+                        self.m_info[model_key]['file'].remove(file_path)
+                    if len(self.m_info[model_key]['file']) == 0:
+                        self.remove_model(model_key)
+            del self.m_file[file_path]
 
     def remove_file_map(self, file_paths, model_key):
-        if isinstance(file_paths, list):
-            for file_path in file_paths:
-                if file_path in self.m_file.keys():
+        for file_path in file_paths:
+            if file_path in self.m_file:
+                if model_key in self.m_file[file_path]:
+                    self.m_file[file_path].remove(model_key)
+                if len(self.m_file[file_path]) == 0:
                     del self.m_file[file_path]
+
+    def update_file_map(self, file_paths, model_key):
+        for file_path in file_paths:
+            if file_path in self.m_file:
+                if model_key not in self.m_file[file_path]:
+                    self.m_file[file_path].append(model_key)
+            else:
+                self.m_file.update({file_path: [model_key]})
+
+    def update_muid_map(self, muid, model_key):
+        if muid in self.m_muid and self.m_muid[muid]:
+            if model_key not in self.m_muid[muid]:
+                self.m_muid[muid].append(model_key)
         else:
-            del self.m_file[file_paths]
+            self.m_muid[muid] = [model_key]
+
+    def remove_muid_map(self, muid, model_key):
+        if muid in self.m_muid and self.m_muid[muid]:
+            if model_key in self.m_muid[muid]:
+                self.m_muid[muid].remove(model_key)
+            if len(self.m_muid[muid]) == 0:
+                del self.m_muid[muid]
+
 
     def calculate_model_info(self, file_path):
         if os.path.isdir(file_path):
@@ -573,7 +565,7 @@ class ModelsInfo:
         except Exception as e:
             print(f'[SimpleAI] Models info update and save failed: {e}, {self.info_path}.')
 
-    def refresh_file(self, action, file_path):
+    def refresh_file(self, action, file_path, url=None):
         if action not in ['add', 'delete']:
             print(f'[ModelInfo] Invalid action: {action}. Action must be either "add" or "delete".')
             return
@@ -598,22 +590,16 @@ class ModelsInfo:
                 print(f'[ModelInfo] The added file path {file_path} does not match any path in path_map.')
                 return
 
+            model_name = model_name.replace(os.sep, '/')
             model_key = f'{catalog}/{model_name}'
-            size, hash, muid = self.calculate_model_info(file_path)
-            self.m_info.update({model_key: {'size': size, 'hash': hash, 'file': file_path, 'muid': muid, 'url': ''}})
-            self.update_muid_map(muid, model_key)
-            self.m_file.update({file_path: model_key})
+            self.add_and_refresh_model(model_key, [file_path], url)
             print(f'[ModelInfo] Added model {model_key} with file {file_path}')
 
         elif action == 'delete':
             if file_path not in self.m_file:
                 print(f'[ModelInfo] File not found in model info: {file_path}')
                 return
-            model_key = self.m_file[file_path]
-            muid = self.m_info[model_key]['muid']
-            del self.m_info[model_key]
-            self.remove_muid_map(muid, model_key)
-            del self.m_file[file_path]
+            self.remove_file(file_path)
             print(f'[ModelInfo] Deleted model {model_key} with file {file_path}')
 
         self.save_model_info()
@@ -648,11 +634,7 @@ class ModelsInfo:
                 m_path_or_file = f[len(cata)+1:]
                 model_path = model_path.replace(os.sep, '/')
                 if cata == catalog and m_path_or_file == model_path:
-                    file_paths = self.m_info[f]['file']
-                    if isinstance(file_paths, list):
-                        return file_paths[0]
-                    else:
-                        return file_paths
+                    return self.m_info[f]['file'][0]
         return ''
 
     def get_model_names(self, catalog, filters=[], casesensitive=False, reverse=False):
@@ -695,18 +677,23 @@ class ModelsInfo:
 
 
     def get_file_muid(self, file_path):
-        if file_path in self.m_file:
-            return self.m_info[self.m_file[file_path]]['muid']
-        return ''
+        if file_path not in self.m_file:
+            self.refresh_file('add', file_path)
+        model_key = self.m_file[file_path][0]
+        muid = self.m_info[model_key]['muid']
+        if not muid:
+            self.add_and_refresh_model(model_key, [file_path])
+            muid = self.m_info[model_key]['muid']
+        return muid
 
 
 
-def get_model_filenames(folder_paths, extensions=None, name_filter=None):
+def get_model_filenames(folder_paths, extensions=None, name_filter=None, variation=False):
     if extensions is None:
         extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch', '.gguf']
     files = []
     for folder in folder_paths:
-        files += get_files_from_folder(folder, extensions, name_filter)
+        files += get_files_from_folder(folder, extensions, name_filter, variation)
     return files
 
 
