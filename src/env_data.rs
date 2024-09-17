@@ -143,12 +143,12 @@ impl EnvData {
         for (filename, size) in basepkg {
             let full_path = Path::new(root_path).join(filename);
             if !full_path.exists() {
-                println!("Checking file is not exists: {}", full_path.to_string_lossy());
+                println!("Checking file is not exists / 检测到文件有缺失: {}", full_path.to_string_lossy());
                 return false;
             }
             if let Ok(metadata) = fs::metadata(&full_path) {
                 if metadata.len() != size {
-                    println!("Checking file is imperfect: {}", full_path.to_string_lossy());
+                    println!("Checking file is imperfect / 检测到文件不完整: {}", full_path.to_string_lossy());
                     return false;
                 }
             } else {
