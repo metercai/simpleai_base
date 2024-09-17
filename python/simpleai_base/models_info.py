@@ -402,7 +402,7 @@ class ModelsInfo:
                             self.update_muid_map(self.m_info[k]['muid'], k)
                     for k in file_no_exists_list:
                         del self.m_info[k]
-                print(f'load m_info_key:{self.m_info.keys()}')
+                #print(f'load m_info_key:{self.m_info.keys()}')
             except Exception as e:
                 print(f'[ModelInfo] Load model info file {self.info_path} failed!, error:{e}')
                 self.m_info = {}
@@ -418,11 +418,11 @@ class ModelsInfo:
         del_file_key = []
 
         self.scan_models_hash = scan_hash
-        print(f'refresh m_info_key:{self.m_info.keys()}')
+        #print(f'refresh m_info_key:{self.m_info.keys()}')
         for path in self.path_map.keys():
             if self.path_map[path]:
                 path_filenames = self.get_path_filenames(path)
-                print(f'path_filenames_{path}:{path_filenames}')
+                #print(f'path_filenames_{path}:{path_filenames}')
                 for (p, k) in path_filenames:
                     k = k.replace(os.sep, '/')
                     model_key = f'{path}/{k}'
@@ -437,7 +437,7 @@ class ModelsInfo:
                         new_info_key.append(model_key)
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
-        if utils.echo_off:
+        if not utils.echo_off:
             print(f'[ModelInfo] new_model_key:{new_model_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
@@ -445,7 +445,7 @@ class ModelsInfo:
         for f in self.m_file.keys():
             if f not in new_file_key:
                 del_file_key.append(f)
-        if utils.echo_off:
+        if not utils.echo_off:
             print(f'[ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
         for f in new_model_key:
             self.add_and_refresh_model(f, new_model_file[f])
@@ -462,7 +462,7 @@ class ModelsInfo:
                 path_filenames += [(f_path, entry) for entry in os.listdir(f_path) if
                                    os.path.isdir(os.path.join(f_path, entry))]
         else:
-            path_filenames = get_model_filenames(self.path_map[path], variation=True)
+            path_filenames = get_model_filenames(self.path_map[path])
         return path_filenames
 
     def add_and_refresh_model(self, model_key, file_path_list, url=None):
@@ -553,7 +553,7 @@ class ModelsInfo:
         try:
             with open(self.info_path, "w", encoding="utf-8") as json_file:
                 json.dump(self.m_info, json_file, indent=4)
-                print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
+                #print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
         except PermissionError:
             print(f'[SimpleAI] Models info update and save failed: Permission denied, {self.info_path}.')
         except json.JSONDecodeError:
