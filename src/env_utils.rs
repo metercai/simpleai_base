@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Error, ErrorKind};
 use std::path::Path;
+use std::ffi::OsString;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
@@ -178,7 +179,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let path_root = env::current_dir()?;
 
     let extensions = vec!["py", "whl"];
-    let mut py_hashes: HashMap<String, String> = HashMap::new();
+    let mut py_hashes: HashMap<OsString, String> = HashMap::new();
     for path in path_py {
         let full_path = path_root.join(path);
         if full_path.is_dir() {
@@ -188,7 +189,9 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
                     if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
                         if extensions.contains(&ext) {
                             let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
-                            py_hashes.insert(entry.file_name().into_string().unwrap(), hash);
+                            if let Some(file_name) = entry.path().file_name() {
+                                py_hashes.insert(file_name.to_os_string(), hash);
+                            }
                         }
                     }
                 }
@@ -197,18 +200,23 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
             if let Some(ext) = full_path.extension().and_then(|s| s.to_str()) {
                 if extensions.contains(&ext) {
                     let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
-                    let file_name = full_path.file_name().and_then(|os_str| os_str.to_str()).unwrap().to_string();
-                    py_hashes.insert(file_name, hash);
+                    if let Some(file_name) = full_path.file_name() {
+                        py_hashes.insert(file_name.to_os_string(), hash);
+                    }
                 }
             }
         }
     }
-    let mut keys: Vec<&String> = py_hashes.keys().collect();
-    keys.sort();
+    let mut keys: Vec<OsString> = py_hashes.keys().cloned().collect();
+    keys.sort_by(|a, b| {
+        let a_str = a.to_string_lossy();
+        let b_str = b.to_string_lossy();
+        a_str.to_lowercase().cmp(&b_str.to_lowercase())
+    });
 
     let mut combined_py_hash = Sha256::new();
     for key in keys {
-        combined_py_hash.update(&py_hashes[key]);
+        combined_py_hash.update(&py_hashes[&key]);
     }
     let combined_py_hash = combined_py_hash.finalize();
     let py_hash_base64 = URL_SAFE_NO_PAD.encode(&combined_py_hash);
