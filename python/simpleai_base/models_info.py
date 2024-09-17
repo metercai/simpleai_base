@@ -418,7 +418,7 @@ class ModelsInfo:
         del_file_key = []
 
         self.scan_models_hash = scan_hash
-        #print(f'm_info_key:{self.m_info.keys()}')
+        print(f'm_info_key:{self.m_info.keys()}')
         for path in self.path_map.keys():
             if self.path_map[path]:
                 path_filenames = self.get_path_filenames(path)
@@ -623,11 +623,9 @@ class ModelsInfo:
 
     def get_model_filepath(self, catalog='', model_path='', muid=None):
         if muid and muid in self.m_muid:
-            file_paths = self.m_info[self.m_muid[muid]]
-            if isinstance(file_paths, list):
-                return file_paths[0]
-            else:
-                return file_paths
+            model_key = self.m_muid[muid][0]
+            file_paths = self.m_info[model_key]['file']
+            return file_paths[0]
         if catalog and model_path:
             for f in self.m_info.keys():
                 cata = f.split('/')[0]
@@ -666,6 +664,7 @@ class ModelsInfo:
 
 
     def get_model_info(self, catalog, model_name):
+        model_name = model_name.replace(os.sep, '/')
         model_key = f'{catalog}/{model_name}'
         return self.get_model_key_info(model_key)
 
