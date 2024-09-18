@@ -503,15 +503,17 @@ class ModelsInfo:
         return path_filenames
 
     def add_or_refresh_model(self, model_key, file_path_list, url=None):
-        file_path_list_old = [] if model_key not in self.m_info else self.m_info[model_key]['file']
-        file_path_list_new = file_path_list_old + file_path_list
+        file_path_list_all = [] if model_key not in self.m_info else self.m_info[model_key]['file']
+        for file_path in file_path_list:
+            if file_path not in file_path_list_all:
+                file_path_list_all.append(file_path)
         url1 = '' if model_key not in self.m_info else self.m_info[model_key]['url']
         url = url1 if url is None else url
         size, hash, muid = self.calculate_model_info(model_key, file_path_list[0])
         self.m_info.update(
-            {model_key: {'size': size, 'hash': hash, 'file': file_path_list_new, 'muid': muid, 'url': url}})
+            {model_key: {'size': size, 'hash': hash, 'file': file_path_list_all, 'muid': muid, 'url': url}})
         self.update_muid_map(muid, model_key)
-        self.update_file_map(file_path_list_new, model_key)
+        self.update_file_map(file_path_list_all, model_key)
 
     def remove_model(self, model_key):
         if self.m_info[model_key]['muid'] and self.m_info[model_key]['muid'] in self.m_muid:
@@ -692,12 +694,8 @@ class ModelsInfo:
                     result.append(m_path_or_file)
                     result_reverse.pop()
         if reverse:
-            result_reverse = result_reverse.sort()
-            print(f'[ModelInfo] get_model_names {catalog}, {filters}, {reverse}: {result_reverse}')
-            return result_reverse
-        result = result.sort()
-        print(f'[ModelInfo] get_model_names {catalog}, {filters}, {reverse}: {result}')
-        return result
+            return sorted(result_reverse)
+        return sorted(result)
 
     def get_model_info(self, catalog, model_name):
         model_name = model_name.replace(os.sep, '/')
