@@ -368,7 +368,7 @@ default_models_info = {
         "hash": "33e58e86686f6b386c526682b5da9228ead4f91d994abd4b053442dc5b42719e",
         "muid": "2f1dcc5762"
     },
-    "checkpoints/Kolors-Inpainting.safetensors": {
+    "unet/Kolors-Inpainting.safetensors": {
         "size": 5159169040,
         "hash": "235db024626d7291e5d8af6776e8f49fa719c90221da9a54b553bb746101a787",
         "muid": "781857d59e"
@@ -694,8 +694,8 @@ class ModelsInfo:
                     result.append(m_path_or_file)
                     result_reverse.pop()
         if reverse:
-            return sorted(result_reverse)
-        return sorted(result)
+            return sorted(result_reverse, key=str.casefold)
+        return sorted(result, key=str.casefold)
 
     def get_model_info(self, catalog, model_name):
         model_name = model_name.replace(os.sep, '/')
