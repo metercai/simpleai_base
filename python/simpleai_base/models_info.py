@@ -525,7 +525,10 @@ class ModelsInfo:
     def remove_file(self, file_path):
         if file_path in self.m_file and self.m_file[file_path]:
             for model_key in self.m_file[file_path]:
-                if self.m_info[model_key]['file']:
+                cata = model_key.split('/')[0]
+                if cata.isupper():
+                    continue
+                if model_key in self.m_info and self.m_info[model_key]['file']:
                     if file_path in self.m_info[model_key]['file']:
                         self.m_info[model_key]['file'].remove(file_path)
                     if len(self.m_info[model_key]['file']) == 0:
