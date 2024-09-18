@@ -352,7 +352,42 @@ default_models_info = {
         "size": 7105348592,
         "hash": "aeb7e9e6897a1e58b10494bd989d001e3d4bc9b634633cd7b559838f612c2867",
         "muid": "f84d1c1e05d4"
-    }
+    },
+    "checkpoints/flux-hyp8-Q5_K_M.gguf": {
+        "size": 8421981408,
+        "hash": "a0dac309ffb497fde0d1bbfa0291f5371d0d05c66173df830318bc475777c68a",
+        "muid": "a0dac309ff"
+    },
+    "checkpoints/fluxunchained-dev-Q5_K_M.gguf": {
+        "size": 8428152160,
+        "hash": "ee5df99febf1aebd63137672d3396407a6e89f771ca9e83bc13c475c5d57a521",
+        "muid": "ee5df99feb"
+    },
+    "checkpoints/juggernautXL_juggXIByRundiffusion.safetensors": {
+        "size": 7105350536,
+        "hash": "33e58e86686f6b386c526682b5da9228ead4f91d994abd4b053442dc5b42719e",
+        "muid": "2f1dcc5762"
+    },
+    "checkpoints/Kolors-Inpainting.safetensors": {
+        "size": 5159169040,
+        "hash": "235db024626d7291e5d8af6776e8f49fa719c90221da9a54b553bb746101a787",
+        "muid": "781857d59e"
+    },
+    "controlnet/Kolors-ControlNet-Canny.safetensors": {
+        "size": 2526129624,
+        "hash": "ab34969b4ee57a182deb6e52e15d06c81c5285739caf4db2d8774135fd2b99e7",
+        "muid": "0dec730f7e"
+    },
+    "controlnet/Kolors-ControlNet-Depth.safetensors": {
+        "size": 2526129624,
+        "hash": "b2e9f9ff67c6c8e3b3fbe833f9596d9d16d456b1911633af9aeb4b80949ee60b",
+        "muid": "0ad6e5c573"
+    },
+    "controlnet/Kolors-ControlNet-Pose.safetensors": {
+        "size": 2526129624,
+        "hash": "2d21bbb821c903166c7c79f8a3435b51a39fd449cd227f74ac1d345bbc4eb153",
+        "muid": "3fdfc617f9"
+    },
 }
 
 
@@ -393,7 +428,8 @@ class ModelsInfo:
                                         self.m_file[file].append(k)
                                     else:
                                         self.m_file.update({file: [k]})
-                                    exists_file_list.append(file)
+                                    if file not in exists_file_list:
+                                        exists_file_list.append(file)
                             if len(exists_file_list) > 0:
                                 self.m_info[k]['file'] = exists_file_list
                             else:
@@ -430,7 +466,8 @@ class ModelsInfo:
                     if file_path not in new_file_key:
                         new_file_key.append(file_path)
                     if model_key in new_model_file:
-                        new_model_file[model_key].append(file_path)
+                        if file_path not in new_model_file[model_key]:
+                            new_model_file[model_key].append(file_path)
                     else:
                         new_model_file[model_key] = [file_path]
                     if model_key not in new_info_key:
@@ -655,8 +692,12 @@ class ModelsInfo:
                     result.append(m_path_or_file)
                     result_reverse.pop()
         if reverse:
-            return result_reverse.sort()
-        return result.sort()
+            result_reverse = result_reverse.sort()
+            print(f'[ModelInfo] get_model_names {catalog}, {filters}, {reverse}: {result_reverse}')
+            return result_reverse
+        result = result.sort()
+        print(f'[ModelInfo] get_model_names {catalog}, {filters}, {reverse}: {result}')
+        return result
 
     def get_model_info(self, catalog, model_name):
         model_name = model_name.replace(os.sep, '/')
