@@ -448,7 +448,7 @@ class ModelsInfo:
         if not utils.echo_off:
             print(f'[ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
         for f in new_model_key:
-            self.add_and_refresh_model(f, new_model_file[f])
+            self.add_or_refresh_model(f, new_model_file[f])
         for f in del_model_key:
             self.remove_model(f)
         for f in del_file_key:
@@ -465,12 +465,12 @@ class ModelsInfo:
             path_filenames = get_model_filenames(self.path_map[path])
         return path_filenames
 
-    def add_and_refresh_model(self, model_key, file_path_list, url=None):
+    def add_or_refresh_model(self, model_key, file_path_list, url=None):
         file_path_list_old = [] if model_key not in self.m_info else self.m_info[model_key]['file']
         file_path_list_new = file_path_list_old + file_path_list
         url1 = '' if model_key not in self.m_info else self.m_info[model_key]['url']
         url = url1 if url is None else url
-        size, hash, muid = self.calculate_model_info(file_path_list[0])
+        size, hash, muid = self.calculate_model_info(model_key, file_path_list[0])
         self.m_info.update(
             {model_key: {'size': size, 'hash': hash, 'file': file_path_list_new, 'muid': muid, 'url': url}})
         self.update_muid_map(muid, model_key)
@@ -523,14 +523,14 @@ class ModelsInfo:
             if len(self.m_muid[muid]) == 0:
                 del self.m_muid[muid]
 
-    def calculate_model_info(self, file_path):
+    def calculate_model_info(self, model_key, file_path):
         if os.path.isdir(file_path):
             size = utils.get_size_subfolders(file_path)
         else:
             size = os.path.getsize(file_path)
-        if file_path in default_models_info.keys() and size == default_models_info[file_path]["size"]:
-            hash = default_models_info[file_path]["hash"]
-            muid = default_models_info[file_path]["muid"]
+        if model_key in default_models_info.keys() and size == default_models_info[model_key]["size"]:
+            hash = default_models_info[model_key]["hash"]
+            muid = default_models_info[model_key]["muid"]
         elif self.scan_models_hash:
             print(f'[ModelInfo] Calculate hash for {file_path}')
             if os.path.isdir(file_path):
@@ -588,7 +588,7 @@ class ModelsInfo:
 
             model_name = model_name.replace(os.sep, '/')
             model_key = f'{catalog}/{model_name}'
-            self.add_and_refresh_model(model_key, [file_path], url)
+            self.add_or_refresh_model(model_key, [file_path], url)
             print(f'[ModelInfo] Added model {model_key} with file {file_path}')
 
         elif action == 'delete':
@@ -655,8 +655,8 @@ class ModelsInfo:
                     result.append(m_path_or_file)
                     result_reverse.pop()
         if reverse:
-            return result_reverse
-        return result
+            return result_reverse.sort()
+        return result.sort()
 
     def get_model_info(self, catalog, model_name):
         model_name = model_name.replace(os.sep, '/')
@@ -674,7 +674,8 @@ class ModelsInfo:
         model_key = self.m_file[file_path][0]
         muid = self.m_info[model_key]['muid']
         if not muid:
-            self.add_and_refresh_model(model_key, [file_path])
+            self.add_or_refresh_model(model_key, [file_path])
+            self.save_model_info()
             muid = self.m_info[model_key]['muid']
         return muid
 
