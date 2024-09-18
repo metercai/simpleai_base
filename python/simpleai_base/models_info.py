@@ -445,7 +445,7 @@ class ModelsInfo:
                 self.m_muid = {}
                 self.m_file = {}
 
-    def refresh_from_path(self, scan_hash=True):
+    def refresh_from_path(self, scan_hash=False):
         new_info_key = []
         new_model_key = []
         del_model_key = []
@@ -628,10 +628,13 @@ class ModelsInfo:
                 print(f'[ModelInfo] The added file path {file_path} does not match any path in path_map.')
                 return
 
+            scan_hash = self.scan_models_hash
+            self.scan_models_hash = True
             model_name = model_name.replace(os.sep, '/')
             model_key = f'{catalog}/{model_name}'
             self.add_or_refresh_model(model_key, [file_path], url)
             print(f'[ModelInfo] Added model {model_key} with file {file_path}')
+            self.scan_models_hash = scan_hash
 
         elif action == 'delete':
             if file_path not in self.m_file:
@@ -716,8 +719,11 @@ class ModelsInfo:
         model_key = self.m_file[file_path][0]
         muid = self.m_info[model_key]['muid']
         if not muid:
+            scan_hash = self.scan_models_hash
+            self.scan_models_hash = True
             self.add_or_refresh_model(model_key, [file_path])
             self.save_model_info()
+            self.scan_models_hash = scan_hash
             muid = self.m_info[model_key]['muid']
         return muid
 
