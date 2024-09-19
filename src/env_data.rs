@@ -141,7 +141,7 @@ impl EnvData {
 
         //println!("basepkg: {}, root_path: {}", basepkg.len(), root_path);
         for (filename, size) in basepkg {
-            let full_path = Path::new(root_path).join(filename);
+            let full_path = PathBuf::from(root_path).join(filename);
             if !full_path.exists() {
                 println!("Checking file is not exists / 检测到文件有缺失: {}", full_path.to_string_lossy());
                 return false;

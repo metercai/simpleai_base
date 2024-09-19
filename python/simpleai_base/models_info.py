@@ -648,18 +648,20 @@ class ModelsInfo:
     def exists_model(self, catalog='', model_path='', muid=None):
         if muid and muid in self.m_muid:
             return True
-        for f in self.m_info.keys():
-            cata = f.split('/')[0]
-            m_path_or_file = f[len(cata) + 1:]
-            if model_path:
-                model_path = model_path.replace(os.sep, '/')
-                if catalog and cata == catalog and m_path_or_file == model_path:
-                    return True
+        if catalog and model_path:
+            model_path = model_path.replace(os.sep, '/')
+            model_key = f'{catalog}/{model_path}'
+            if model_key in self.m_info:
+                return True
         return False
 
     def exists_model_key(self, model_key):
-        if model_key in self.m_info:
-            return True
+        if model_key:
+            cata = model_key.split('/')[0]
+            model_path = model_key[len(cata) + 1:].replace(os.sep, '/')
+            model_key = f'{cata}/{model_path}'
+            if model_key in self.m_info:
+                return True
         return False
 
     def get_model_filepath(self, catalog='', model_path='', muid=None):
@@ -668,12 +670,10 @@ class ModelsInfo:
             file_paths = self.m_info[model_key]['file']
             return file_paths[0]
         if catalog and model_path:
-            for f in self.m_info.keys():
-                cata = f.split('/')[0]
-                m_path_or_file = f[len(cata) + 1:]
-                model_path = model_path.replace(os.sep, '/')
-                if cata == catalog and m_path_or_file == model_path:
-                    return self.m_info[f]['file'][0]
+            model_path = model_path.replace(os.sep, '/')
+            model_key = f'{catalog}/{model_path}'
+            if model_key in self.m_info:
+                return self.m_info[model_key]['file'][0]
         return ''
 
     def get_model_names(self, catalog, filters=[], casesensitive=False, reverse=False):
@@ -703,14 +703,19 @@ class ModelsInfo:
             return sorted(result_reverse, key=str.casefold)
         return sorted(result, key=str.casefold)
 
-    def get_model_info(self, catalog, model_name):
-        model_name = model_name.replace(os.sep, '/')
-        model_key = f'{catalog}/{model_name}'
+    def get_model_info(self, catalog, model_path):
+        if catalog and model_path:
+            model_path = model_path.replace(os.sep, '/')
+        model_key = f'{catalog}/{model_path}'
         return self.get_model_key_info(model_key)
 
     def get_model_key_info(self, model_key):
-        if model_key in self.m_info:
-            return self.m_info[model_key]
+        if model_key:
+            cata = model_key.split('/')[0]
+            model_path = model_key[len(cata) + 1:].replace(os.sep, '/')
+            model_key = f'{cata}/{model_path}'
+            if model_key in self.m_info:
+                return self.m_info[model_key]
         return None
 
     def get_file_muid(self, file_path):
@@ -727,6 +732,37 @@ class ModelsInfo:
             muid = self.m_info[model_key]['muid']
         return muid
 
+    def get_model_path_by_name(self, catalog, name, casesensitive=True):
+        if catalog and name:
+            catalog = f'{catalog}/'
+            name = f'/{name}'
+            if casesensitive:
+                name=name.lower()
+                catalog=catalog.lower()
+            for f in self.m_info.keys():
+                if casesensitive:
+                    f=f.lower()
+                if f.startswith(catalog) and f.endswith(name):
+                    cata = f.split('/')[0]
+                    model_path = f[len(cata) + 1:].replace('/', os.sep)
+                    return model_path
+        return ''
+
+    def get_file_path_by_name(self, catalog, name, casesensitive=True):
+        if catalog and name:
+            cata = f'{catalog}/'
+            name = f'/{name}'
+            if casesensitive:
+                name=name.lower()
+                cata=cata.lower()
+            for f in self.m_info.keys():
+                if casesensitive:
+                    f=f.lower()
+                if f.startswith(cata) and f.endswith(name):
+                    file_paths = self.m_info[f]['file']
+                    return file_paths[0]
+            return os.path.join(self.path_map[catalog][0], name)
+        return ''
 
 def get_model_filenames(folder_paths, extensions=None, name_filter=None, variation=False):
     if extensions is None:
