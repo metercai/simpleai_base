@@ -732,7 +732,7 @@ class ModelsInfo:
             muid = self.m_info[model_key]['muid']
         return muid
 
-    def get_model_path_by_name(self, catalog, name, casesensitive=True):
+    def get_model_path_by_name(self, catalog, name, casesensitive=True, collection=False):
         if catalog and name:
             catalog = f'{catalog}/'
             if os.sep in name:
@@ -741,16 +741,21 @@ class ModelsInfo:
             if casesensitive:
                 name1=name1.lower()
                 catalog=catalog.lower()
+            results = []
             for f in self.m_info.keys():
                 if casesensitive:
                     f=f.lower()
                 if f.startswith(catalog) and f.endswith(name1):
                     cata = f.split('/')[0]
                     model_path = f[len(cata) + 1:].replace('/', os.sep)
-                    return model_path
+                    if not collection:
+                        return model_path
+                    results.append(model_path)
+            if collection:
+                return results
         return ''
 
-    def get_file_path_by_name(self, catalog, name, casesensitive=True):
+    def get_file_path_by_name(self, catalog, name, casesensitive=True, collection=False):
         if catalog and name:
             cata = f'{catalog}/'
             if os.sep in name:
@@ -759,12 +764,17 @@ class ModelsInfo:
             if casesensitive:
                 name1=name1.lower()
                 cata=cata.lower()
+            results = []
             for f in self.m_info.keys():
                 if casesensitive:
                     f=f.lower()
                 if f.startswith(cata) and f.endswith(name1):
                     file_paths = self.m_info[f]['file']
-                    return file_paths[0]
+                    if not collection:
+                        return file_paths[0]
+                    results.append(file_paths[0])
+            if collection and len(results)>0:
+                return results
             return os.path.join(self.path_map[catalog][0], name.replace('/', os.sep))
         return ''
 
