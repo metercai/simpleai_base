@@ -188,6 +188,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
                 if entry.file_type()?.is_file() {
                     if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
                         if extensions.contains(&ext) {
+                            println!("file to hash: {:?}", entry.path());
                             let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
                             if let Some(file_name) = entry.path().file_name() {
                                 py_hashes.insert(file_name.to_os_string(), hash);
@@ -199,6 +200,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
         } else if full_path.is_file() {
             if let Some(ext) = full_path.extension().and_then(|s| s.to_str()) {
                 if extensions.contains(&ext) {
+                    println!("file to hash: {:?}", full_path);
                     let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
                     if let Some(file_name) = full_path.file_name() {
                         py_hashes.insert(file_name.to_os_string(), hash);
@@ -216,6 +218,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
 
     let mut combined_py_hash = Sha256::new();
     for key in keys {
+        println!("file key: {:?}", key);
         combined_py_hash.update(&py_hashes[&key]);
     }
     let combined_py_hash = combined_py_hash.finalize();
