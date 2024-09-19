@@ -649,7 +649,7 @@ class ModelsInfo:
         if muid and muid in self.m_muid:
             return True
         if catalog and model_path:
-            model_path = model_path.replace(os.sep, '/')
+            model_path = model_path.replace('\\', '/').replace(os.sep, '/')
             model_key = f'{catalog}/{model_path}'
             if model_key in self.m_info:
                 return True
@@ -658,7 +658,7 @@ class ModelsInfo:
     def exists_model_key(self, model_key):
         if model_key:
             cata = model_key.split('/')[0]
-            model_path = model_key[len(cata) + 1:].replace(os.sep, '/')
+            model_path = model_key[len(cata) + 1:].replace('\\', '/').replace(os.sep, '/')
             model_key = f'{cata}/{model_path}'
             if model_key in self.m_info:
                 return True
@@ -670,7 +670,7 @@ class ModelsInfo:
             file_paths = self.m_info[model_key]['file']
             return file_paths[0]
         if catalog and model_path:
-            model_path = model_path.replace(os.sep, '/')
+            model_path = model_path.replace('\\', '/').replace(os.sep, '/')
             model_key = f'{catalog}/{model_path}'
             if model_key in self.m_info:
                 return self.m_info[model_key]['file'][0]
@@ -705,14 +705,14 @@ class ModelsInfo:
 
     def get_model_info(self, catalog, model_path):
         if catalog and model_path:
-            model_path = model_path.replace(os.sep, '/')
+            model_path = model_path.replace('\\', '/').replace(os.sep, '/')
         model_key = f'{catalog}/{model_path}'
         return self.get_model_key_info(model_key)
 
     def get_model_key_info(self, model_key):
         if model_key:
             cata = model_key.split('/')[0]
-            model_path = model_key[len(cata) + 1:].replace(os.sep, '/')
+            model_path = model_key[len(cata) + 1:].replace('\\', '/').replace(os.sep, '/')
             model_key = f'{cata}/{model_path}'
             if model_key in self.m_info:
                 return self.m_info[model_key]
