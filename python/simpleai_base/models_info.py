@@ -738,14 +738,16 @@ class ModelsInfo:
             if os.sep in name:
                 name = name.replace(os.sep, '/')
             name1 = f'/{name}'
-            if casesensitive:
-                name1=name1.lower()
+            if not casesensitive:
+                name=name1.lower()
                 catalog=catalog.lower()
             results = []
             for f in self.m_info.keys():
-                if casesensitive:
-                    f=f.lower()
-                if f.startswith(catalog) and f.endswith(name1):
+                if not casesensitive:
+                    f1=f.lower()
+                else:
+                    f1=f
+                if f1.startswith(catalog) and f1.endswith(name):
                     cata = f.split('/')[0]
                     model_path = f[len(cata) + 1:].replace('/', os.sep)
                     if not collection:
@@ -761,14 +763,16 @@ class ModelsInfo:
             if os.sep in name:
                 name = name.replace(os.sep, '/')
             name1 = f'/{name}'
-            if casesensitive:
+            if not casesensitive:
                 name1=name1.lower()
                 cata=cata.lower()
             results = []
             for f in self.m_info.keys():
-                if casesensitive:
-                    f=f.lower()
-                if f.startswith(cata) and f.endswith(name1):
+                if not casesensitive:
+                    f1=f.lower()
+                else:
+                    f1=f
+                if f1.startswith(cata) and f1.endswith(name1):
                     file_paths = self.m_info[f]['file']
                     if not collection:
                         return file_paths[0]
