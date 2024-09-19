@@ -735,14 +735,16 @@ class ModelsInfo:
     def get_model_path_by_name(self, catalog, name, casesensitive=True):
         if catalog and name:
             catalog = f'{catalog}/'
-            name = f'/{name}'
+            if os.sep in name:
+                name = name.replace(os.sep, '/')
+            name1 = f'/{name}'
             if casesensitive:
-                name=name.lower()
+                name1=name1.lower()
                 catalog=catalog.lower()
             for f in self.m_info.keys():
                 if casesensitive:
                     f=f.lower()
-                if f.startswith(catalog) and f.endswith(name):
+                if f.startswith(catalog) and f.endswith(name1):
                     cata = f.split('/')[0]
                     model_path = f[len(cata) + 1:].replace('/', os.sep)
                     return model_path
@@ -751,17 +753,19 @@ class ModelsInfo:
     def get_file_path_by_name(self, catalog, name, casesensitive=True):
         if catalog and name:
             cata = f'{catalog}/'
-            name = f'/{name}'
+            if os.sep in name:
+                name = name.replace(os.sep, '/')
+            name1 = f'/{name}'
             if casesensitive:
-                name=name.lower()
+                name1=name1.lower()
                 cata=cata.lower()
             for f in self.m_info.keys():
                 if casesensitive:
                     f=f.lower()
-                if f.startswith(cata) and f.endswith(name):
+                if f.startswith(cata) and f.endswith(name1):
                     file_paths = self.m_info[f]['file']
                     return file_paths[0]
-            return os.path.join(self.path_map[catalog][0], name)
+            return os.path.join(self.path_map[catalog][0], name.replace('/', os.sep))
         return ''
 
 def get_model_filenames(folder_paths, extensions=None, name_filter=None, variation=False):
