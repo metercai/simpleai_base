@@ -168,7 +168,7 @@ impl SimpleAI {
                 format!("{}-{}", sysinfo.pyhash, (now_sec/100000*100000).to_string())
                     .as_bytes()));
 
-            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
+            println!("[SimpleAI] new 所运行程序为非官方版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
             feedback_code += 4;
         }
 
@@ -177,7 +177,7 @@ impl SimpleAI {
 
     pub fn get_pyhash(&self) -> String {
         let sysinfo = self.get_sysinfo();
-        let now_sec = SystemTime::now().duration_since(UNIX_EPOCH).expect("error time").as_secs()/100*100;
+        let now_sec = SystemTime::now().duration_since(UNIX_EPOCH).expect("error time").as_secs();
         let pyhash = EnvData::get_check_pyhash(&sysinfo.pyhash.clone(), now_sec);
         pyhash
     }

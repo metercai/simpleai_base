@@ -148,7 +148,7 @@ impl EnvData {
 
     pub fn get_check_pyhash(pyhash: &str, timestamp: u64) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(format!("{}-{}", pyhash, timestamp));
+        hasher.update(format!("{}-{}", pyhash, timestamp/100*100));
         let check_hash = hasher.finalize();
         let check_hash_base64 = URL_SAFE_NO_PAD.encode(check_hash);
         check_hash_base64[..10].to_string()
