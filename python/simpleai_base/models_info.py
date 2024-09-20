@@ -423,6 +423,7 @@ class ModelsInfo:
                             model_files = self.m_info[k]['file']
                             exists_file_list = []
                             for file in model_files:
+                                file = file.replace("/", os.sep)
                                 if os.path.exists(file):
                                     if file in self.m_file and self.m_file[file]:
                                         self.m_file[file].append(k)
@@ -460,8 +461,7 @@ class ModelsInfo:
                 path_filenames = self.get_path_filenames(path)
                 #print(f'path_filenames_{path}:{path_filenames}')
                 for (p, k) in path_filenames:
-                    k = k.replace(os.sep, '/')
-                    model_key = f'{path}/{k}'
+                    model_key = f"{path}/{k.replace(os.sep, '/')}"
                     file_path = os.path.join(p, k)
                     if file_path not in new_file_key:
                         new_file_key.append(file_path)
@@ -719,18 +719,20 @@ class ModelsInfo:
         return None
 
     def get_file_muid(self, file_path):
-        if file_path not in self.m_file:
-            self.refresh_file('add', file_path)
-        model_key = self.m_file[file_path][0]
-        muid = self.m_info[model_key]['muid']
-        if not muid:
-            scan_hash = self.scan_models_hash
-            self.scan_models_hash = True
-            self.add_or_refresh_model(model_key, [file_path])
-            self.save_model_info()
-            self.scan_models_hash = scan_hash
+        if file_path:
+            if file_path not in self.m_file:
+                self.refresh_file('add', file_path)
+            model_key = self.m_file[file_path][0]
             muid = self.m_info[model_key]['muid']
-        return muid
+            if not muid:
+                scan_hash = self.scan_models_hash
+                self.scan_models_hash = True
+                self.add_or_refresh_model(model_key, [file_path])
+                self.save_model_info()
+                self.scan_models_hash = scan_hash
+                muid = self.m_info[model_key]['muid']
+            return muid
+        return ''
 
     def get_model_path_by_name(self, catalog, name, casesensitive=True, collection=False):
         if catalog and name:

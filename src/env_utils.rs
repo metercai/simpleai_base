@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, Error, ErrorKind};
-use std::path::Path;
+use std::io::{self, Read, Error, ErrorKind};
+use std::path::{Path, MAIN_SEPARATOR};
 use std::ffi::OsString;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
@@ -181,7 +181,8 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let extensions = vec!["py", "whl"];
     let mut py_hashes: HashMap<OsString, String> = HashMap::new();
     for path in path_py {
-        let full_path = path_root.join(path);
+        let path_os = path.replace("/", &MAIN_SEPARATOR.to_string());
+        let full_path = path_root.join(path_os);
         if full_path.is_dir() {
             for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
@@ -307,9 +308,21 @@ pub fn calc_sha256(input: &[u8]) -> [u8; 32] {
 }
 
 pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
+    const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB chunks
+
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
-    let file_size = io::copy(&mut file, &mut hasher)?;
+    let mut buffer = [0; CHUNK_SIZE];
+    let mut file_size = 0;
+
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+        file_size += bytes_read as u64;
+    }
     let file_hash = URL_SAFE_NO_PAD.encode(hasher.finalize());
     Ok((file_hash, file_size))
 }

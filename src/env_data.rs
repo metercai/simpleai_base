@@ -1,7 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use ripemd::{Ripemd160, Digest};
 use sha2::{Sha256, Digest as ShaDigest};
 use base58::ToBase58;
@@ -141,7 +141,8 @@ impl EnvData {
 
         //println!("basepkg: {}, root_path: {}", basepkg.len(), root_path);
         for (filename, size) in basepkg {
-            let full_path = PathBuf::from(root_path).join(filename);
+            let file_name = filename.to_string_lossy().replace("/", &MAIN_SEPARATOR.to_string());
+            let full_path = PathBuf::from(root_path).join(file_name);
             if !full_path.exists() {
                 println!("Checking file is not exists / 检测到文件有缺失: {}", full_path.to_string_lossy());
                 return false;
