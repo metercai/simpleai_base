@@ -216,7 +216,7 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
 
     let mut combined_py_hash = Sha256::new();
     for key in keys {
-        println!("file key: {:?},{:?}", key, py_hashes[&key]);
+        //println!("file key: {:?},{:?}", key, py_hashes[&key]);
         combined_py_hash.update(&py_hashes[&key]);
     }
     let combined_py_hash = combined_py_hash.finalize();
@@ -310,7 +310,7 @@ pub fn calc_sha256(input: &[u8]) -> [u8; 32] {
 
 pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
     let is_text = match path.extension().and_then(|ext| ext.to_str()) {
-        Some(ext) if matches!(ext, "txt" | "log" | "py" | "rs" | "toml") => true,
+        Some(ext) if matches!(ext, "txt" | "log" | "py" | "rs" | "toml" | "md") => true,
         _ => false,
     };
     let mut file = File::open(path)?;

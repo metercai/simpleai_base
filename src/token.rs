@@ -168,7 +168,7 @@ impl SimpleAI {
                 format!("{}-{}", sysinfo.pyhash, (now_sec/100000*100000).to_string())
                     .as_bytes()));
 
-            println!("[SimpleAI] new 所运行程序为非官方版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
+            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
             feedback_code += 4;
         }
 
