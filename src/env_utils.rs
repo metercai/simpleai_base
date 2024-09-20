@@ -34,6 +34,7 @@ use crate::error::TokenError;
 use crate::systeminfo::SystemBaseInfo;
 
 pub const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
+const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB chunks
 
 /// Ed25519 Algorithm Identifier.
 pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIdentifierRef {
@@ -308,20 +309,30 @@ pub fn calc_sha256(input: &[u8]) -> [u8; 32] {
 }
 
 pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
-    const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB chunks
-
+    let is_text = match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) if matches!(ext, "txt" | "log" | "py" | "rs" | "toml") => true,
+        _ => false,
+    };
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
-    let mut buffer = [0; CHUNK_SIZE];
     let mut file_size = 0;
 
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
+    if is_text {
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        let normalized_content = content.replace("\r\n", "\n");
+        hasher.update(normalized_content.as_bytes());
+        file_size = normalized_content.len() as u64;
+    } else {
+        let mut buffer = [0; CHUNK_SIZE];
+        loop {
+            let bytes_read = file.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+            file_size += bytes_read as u64;
         }
-        hasher.update(&buffer[..bytes_read]);
-        file_size += bytes_read as u64;
     }
     let file_hash = URL_SAFE_NO_PAD.encode(hasher.finalize());
     Ok((file_hash, file_size))

@@ -4,6 +4,7 @@ use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use sha2::{Sha256, Digest};
 use x25519_dalek::PublicKey;
 use ed25519_dalek::{VerifyingKey, Verifier, Signature};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -141,7 +142,6 @@ impl SimpleAI {
     pub fn check_ready(&self, v1: String, v2: String, v3: String, root: String) -> i32 {
         let start = Instant::now();
         let mut feedback_code = 0;
-        let target_pyhash = EnvData::get_pyhash(&v1, &v2, &v3);
         if !EnvData::check_basepkg(&root) {
             println!("[SimpleAI] 程序所需基础模型包有检测异常，未完全正确安装。请检查并正确安装后，再启动程序。");
             feedback_code += 2;
@@ -160,10 +160,12 @@ impl SimpleAI {
             sysinfo = self.get_sysinfo();
         }
 
-        if target_pyhash != "Unknown" && target_pyhash != sysinfo.pyhash {
+        let (target_pyhash, timestamp) = EnvData::get_pyhash(&v1, &v2, &v3);
+        let check_pyhash = EnvData::get_check_pyhash(&sysinfo.pyhash.clone(), timestamp);
+        if target_pyhash != "Unknown" && target_pyhash != check_pyhash {
             let now_sec = SystemTime::now().duration_since(UNIX_EPOCH).expect("error time").as_secs();
             let pyhash_display = URL_SAFE_NO_PAD.encode(env_utils::calc_sha256(
-                format!("{}{}", sysinfo.pyhash, (now_sec/100000).to_string())
+                format!("{}-{}", sysinfo.pyhash, (now_sec/100000*100000).to_string())
                     .as_bytes()));
 
             println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
@@ -171,6 +173,13 @@ impl SimpleAI {
         }
 
         feedback_code
+    }
+
+    pub fn get_pyhash(&self) -> String {
+        let sysinfo = self.get_sysinfo();
+        let now_sec = SystemTime::now().duration_since(UNIX_EPOCH).expect("error time").as_secs()/100*100;
+        let pyhash = EnvData::get_check_pyhash(&sysinfo.pyhash.clone(), now_sec);
+        pyhash
     }
 
     pub fn get_pyhash_key(&self, v1: String, v2: String, v3: String) -> String {

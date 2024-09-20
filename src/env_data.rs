@@ -1,10 +1,14 @@
 use std::fs;
 use std::fs::File;
+use std::time::UNIX_EPOCH;
 use std::io::{BufRead, BufReader};
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use ripemd::{Ripemd160, Digest};
 use sha2::{Sha256, Digest as ShaDigest};
 use base58::ToBase58;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+
 
 pub(crate) struct EnvData;
 
@@ -91,9 +95,10 @@ impl EnvData {
         ("configs/v2-inference.yaml", 1789),
     ];
 
-    pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> String {
+    pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> (String, u64) {
         let mut pyhash = "Unknown".to_string();
         let log_file_path = Path::new("simplesdxl_log.md");
+        let mut modified_timestamp = 0;
 
         if log_file_path.exists() && !v3.ends_with("_dev") {
             if let Ok(file) = File::open(log_file_path) {
@@ -114,8 +119,15 @@ impl EnvData {
                 }
             }
         }
+        if let Ok(metadata) = fs::metadata(log_file_path) {
+            if let Ok(modified) = metadata.modified() {
+                if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+                    modified_timestamp = duration.as_secs();
+                }
+            }
+        }
 
-        pyhash
+        (pyhash, modified_timestamp/100*100)
     }
 
     pub fn get_pyhash_key(v1: &str, v2: &str, v3: &str) -> String {
@@ -133,6 +145,15 @@ impl EnvData {
         let ripemd160_hash = Ripemd160::digest(&combined_hash);
         ripemd160_hash.to_vec().to_base58()
     }
+
+    pub fn get_check_pyhash(pyhash: &str, timestamp: u64) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(format!("{}-{}", pyhash, timestamp));
+        let check_hash = hasher.finalize();
+        let check_hash_base64 = URL_SAFE_NO_PAD.encode(check_hash);
+        check_hash_base64[..10].to_string()
+    }
+
 
     pub fn check_basepkg(root_path: &str) -> bool {
         let basepkg = EnvData::BASEPKG.iter().map(|(filename, size)| {
