@@ -189,7 +189,6 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
                     if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
                         if extensions.contains(&ext) {
                             let subpath = entry.path().strip_prefix(path_root.clone()).unwrap().to_path_buf().into_os_string();
-                            println!("file to hash: {:?}", subpath);
                             let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
                             py_hashes.insert(subpath, hash);
                         }
@@ -200,7 +199,6 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
             if let Some(ext) = full_path.extension().and_then(|s| s.to_str()) {
                 if extensions.contains(&ext) {
                     let subpath = full_path.strip_prefix(path_root.clone()).unwrap().to_path_buf().into_os_string();
-                    println!("file to hash: {:?}", subpath);
                     let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
                     py_hashes.insert(subpath, hash);
                 }
