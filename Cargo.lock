@@ -2613,7 +2613,7 @@ dependencies = [
 
 [[package]]
 name = "simpleai_base"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "aes-gcm",
  "argon2",

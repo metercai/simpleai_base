@@ -44,6 +44,12 @@ pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::Algorith
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
+    static ref VERBOSE_INFO: bool = {
+        match env::var("SIMPLEAI_VERBOSE") {
+            Ok(val) => if val=="on" {true} else {false},
+            Err(_) => false,
+        }
+    };
 }
 pub(crate) fn read_keypaire_or_generate_keypaire() -> Result<ed25519::Keypair, Box<dyn std::error::Error>> {
     Ok(ed25519::Keypair::from(ed25519::SecretKey::try_from_bytes(read_key_or_generate_key()?)?))
@@ -216,7 +222,9 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
 
     let mut combined_py_hash = Sha256::new();
     for key in keys {
-        //println!("file key: {:?},{:?}", key, py_hashes[&key]);
+        if *VERBOSE_INFO {
+            println!("file key: {:?},{:?}", key, py_hashes[&key]);
+        }
         combined_py_hash.update(&py_hashes[&key]);
     }
     let combined_py_hash = combined_py_hash.finalize();
