@@ -160,8 +160,8 @@ impl SimpleAI {
             sysinfo = self.get_sysinfo();
         }
 
-        let (target_pyhash, timestamp) = EnvData::get_pyhash(&v1, &v2, &v3);
-        let check_pyhash = EnvData::get_check_pyhash(&sysinfo.pyhash.clone(), timestamp);
+        let (target_pyhash, file_size) = EnvData::get_pyhash(&v1, &v2, &v3);
+        let check_pyhash = EnvData::get_check_pyhash(&sysinfo.pyhash.clone(), file_size);
         if target_pyhash != "Unknown" && target_pyhash != check_pyhash {
             let now_sec = SystemTime::now().duration_since(UNIX_EPOCH).expect("error time").as_secs();
             let pyhash_display = URL_SAFE_NO_PAD.encode(env_utils::calc_sha256(

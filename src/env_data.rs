@@ -98,7 +98,7 @@ impl EnvData {
     pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> (String, u64) {
         let mut pyhash = "Unknown".to_string();
         let log_file_path = Path::new("simplesdxl_log.md");
-        let mut modified_timestamp = 0;
+        let mut file_size = 0;
 
         if log_file_path.exists() && !v3.ends_with("_dev") {
             if let Ok(file) = File::open(log_file_path) {
@@ -120,14 +120,10 @@ impl EnvData {
             }
         }
         if let Ok(metadata) = fs::metadata(log_file_path) {
-            if let Ok(modified) = metadata.modified() {
-                if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
-                    modified_timestamp = duration.as_secs();
-                }
-            }
+            file_size = metadata.len();
         }
 
-        (pyhash, modified_timestamp/100*100)
+        (pyhash, file_size)
     }
 
     pub fn get_pyhash_key(v1: &str, v2: &str, v3: &str) -> String {
@@ -146,9 +142,9 @@ impl EnvData {
         ripemd160_hash.to_vec().to_base58()
     }
 
-    pub fn get_check_pyhash(pyhash: &str, timestamp: u64) -> String {
+    pub fn get_check_pyhash(pyhash: &str, file_size: u64) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(format!("{}-{}", pyhash, timestamp/100*100));
+        hasher.update(format!("{}-{}", pyhash, file_size));
         let check_hash = hasher.finalize();
         let check_hash_base64 = URL_SAFE_NO_PAD.encode(check_hash);
         check_hash_base64[..10].to_string()
