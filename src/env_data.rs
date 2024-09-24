@@ -141,9 +141,9 @@ impl EnvData {
     pub fn get_check_pyhash(pyhash: &str) -> String {
         let log_file_path = Path::new("simplesdxl_log.md");
         let mut file_size = 0;
-        let mut file = File::open(log_file_path)?;
+        let mut file = File::open(log_file_path).unwrap();
         let mut content = String::new();
-        file.read_to_string(&mut content)?;
+        file.read_to_string(&mut content).unwrap();
         let normalized_content = content.replace("\r\n", "\n");
         file_size = normalized_content.len() as u64;
 
