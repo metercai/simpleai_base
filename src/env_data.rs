@@ -1,7 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::time::UNIX_EPOCH;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use ripemd::{Ripemd160, Digest};
 use sha2::{Sha256, Digest as ShaDigest};
@@ -141,9 +141,12 @@ impl EnvData {
     pub fn get_check_pyhash(pyhash: &str) -> String {
         let log_file_path = Path::new("simplesdxl_log.md");
         let mut file_size = 0;
-        if let Ok(metadata) = fs::metadata(log_file_path) {
-            file_size = metadata.len();
-        }
+        let mut file = File::open(log_file_path)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        let normalized_content = content.replace("\r\n", "\n");
+        file_size = normalized_content.len() as u64;
+
         let mut hasher = Sha256::new();
         hasher.update(format!("{}-{}", pyhash, file_size));
         let check_hash = hasher.finalize();
