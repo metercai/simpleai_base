@@ -169,7 +169,19 @@ impl EnvData {
                 return false;
             }
             if let Ok(metadata) = fs::metadata(&full_path) {
-                if metadata.len() != size {
+                let is_text = match full_path.extension().and_then(|ext| ext.to_str()) {
+                    Some(ext) if matches!(ext, "txt" | "log" | "py" | "rs" | "toml" | "md") => true,
+                    _ => false,
+                };
+                let mut file_size = metadata.len();
+                if is_text {
+                    let mut file = File::open(full_path.clone()).unwrap();
+                    let mut content = String::new();
+                    file.read_to_string(&mut content).unwrap();
+                    let normalized_content = content.replace("\r\n", "\n");
+                    file_size = normalized_content.len() as u64;
+                }
+                if file_size != size {
                     println!("Checking file is imperfect / 检测到文件不完整: {}", full_path.to_string_lossy());
                     return false;
                 }
