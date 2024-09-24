@@ -95,10 +95,9 @@ impl EnvData {
         ("configs/v2-inference.yaml", 1789),
     ];
 
-    pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> (String, u64) {
+    pub fn get_pyhash(v1: &str, v2: &str, v3: &str) -> String {
         let mut pyhash = "Unknown".to_string();
         let log_file_path = Path::new("simplesdxl_log.md");
-        let mut file_size = 0;
 
         if log_file_path.exists() && !v3.ends_with("_dev") {
             if let Ok(file) = File::open(log_file_path) {
@@ -119,11 +118,8 @@ impl EnvData {
                 }
             }
         }
-        if let Ok(metadata) = fs::metadata(log_file_path) {
-            file_size = metadata.len();
-        }
 
-        (pyhash, file_size)
+        pyhash
     }
 
     pub fn get_pyhash_key(v1: &str, v2: &str, v3: &str) -> String {
@@ -142,7 +138,12 @@ impl EnvData {
         ripemd160_hash.to_vec().to_base58()
     }
 
-    pub fn get_check_pyhash(pyhash: &str, file_size: u64) -> String {
+    pub fn get_check_pyhash(pyhash: &str) -> String {
+        let log_file_path = Path::new("simplesdxl_log.md");
+        let mut file_size = 0;
+        if let Ok(metadata) = fs::metadata(log_file_path) {
+            file_size = metadata.len();
+        }
         let mut hasher = Sha256::new();
         hasher.update(format!("{}-{}", pyhash, file_size));
         let check_hash = hasher.finalize();
