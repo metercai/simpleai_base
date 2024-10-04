@@ -1,10 +1,9 @@
 use std::fs;
 use std::fs::File;
-use std::time::UNIX_EPOCH;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use ripemd::{Ripemd160, Digest};
-use sha2::{Sha256, Digest as ShaDigest};
+use sha2::Sha256;
 use base58::ToBase58;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -14,7 +13,7 @@ pub(crate) struct EnvData;
 
 impl EnvData {
 
-    const BASEPKG: [(&str, u64); 78] = [
+    const BASEPKG: [(&'static str, u64); 78] = [
         ("upscale_models/fooocus_upscaler_s409985e5.bin", 33636613),
         ("layer_model/layer_xl_transparent_conv.safetensors", 3619745776),
         ("layer_model/vae_transparent_decoder.safetensors", 208266320),
@@ -107,7 +106,7 @@ impl EnvData {
                         if ln.starts_with("- ") {
                             let pyhash_line = ln[2..].trim();
                             if pyhash_line.contains('|') {
-                                let mut parts = pyhash_line.split('|');
+                                let parts = pyhash_line.split('|');
                                 pyhash = parts.last().unwrap_or("").trim().to_string();
                             } else {
                                 pyhash = pyhash_line.to_string();
@@ -140,12 +139,11 @@ impl EnvData {
 
     pub fn get_check_pyhash(pyhash: &str) -> String {
         let log_file_path = Path::new("simplesdxl_log.md");
-        let mut file_size = 0;
         let mut file = File::open(log_file_path).unwrap();
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
         let normalized_content = content.replace("\r\n", "\n");
-        file_size = normalized_content.len() as u64;
+        let file_size = normalized_content.len() as u64;
 
         let mut hasher = Sha256::new();
         hasher.update(format!("{}-{}", pyhash, file_size));

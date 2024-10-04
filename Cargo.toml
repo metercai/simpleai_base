@@ -20,6 +20,7 @@ serde_derive = "1.0.125"
 serde_json = "1.0"
 base64 = "0.21"
 sysinfo = "0.30"
+directories-next = "2.0.0"
 zeroize = "1"
 reqwest = { version = "0.12.0", default-features = false, features = ["http2", "charset", "json", "rustls-tls", "rustls-tls-native-roots"] }
 url = "2.2.0"
