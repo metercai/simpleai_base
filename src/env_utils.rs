@@ -125,10 +125,16 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str) -> Result<[u8; 32],
             priv_key
         }
     };
+    println!("read private key: {}", file_path.display());
     Ok(private_key.try_into().unwrap())
 }
 
 fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32] {
+    if let Some(parent_dir) = file_path.parent() {
+        if !parent_dir.exists() {
+            fs::create_dir_all(parent_dir).unwrap();
+        }
+    }
     let pem_label = "SIMPLE_AI_KEY";
     let mut csprng = OsRng {};
     let secret_key = SigningKey::generate(&mut csprng).to_bytes();
