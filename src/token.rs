@@ -98,7 +98,7 @@ impl SimpleAI {
         if !crypt_secrets.contains_key(&local_did) {
             let local_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "System", &mut local_claim, &sys_phrase);
             crypt_secrets.insert(local_did.clone(), local_crypt_secret.clone());
-            println!("create_and_save_crypt_secret ok, local_crypt_secret: {}", local_crypt_secret);
+            println!("create_and_save_crypt_secret ok, sys_did: {}, local_crypt_secret: {}", local_claim.gen_did(), local_crypt_secret);
         }
         claims.insert(local_did.clone(), local_claim);
 
@@ -133,6 +133,8 @@ impl SimpleAI {
             crypt_secrets.insert(guest_did.clone(), guest_crypt_secret);
         }
         claims.insert(guest_did.clone(), guest_claim);
+
+        println!("init context finished: claims.len={}, crypt_secrets.len={}", claims.len(), crypt_secrets.len());
 
         Self {
             sys_name,

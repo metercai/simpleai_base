@@ -52,18 +52,17 @@ lazy_static! {
     };
 }
 
-fn read_key_or_generate_key(key_type: &str, id_hash: &[u8; 32], phrase: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
+fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let sysinfo = &SYSTEM_BASE_INFO;
-    let (device_hash_id, _device_phrase) = get_key_hash_id_and_phrase(key_type, id_hash);
+    let (device_hash_id, _device_phrase) = get_key_hash_id_and_phrase("Device", symbol_hash);
     let device_key_file = get_path_in_sys_key_dir(&format!(".token_device_{}.pem", device_hash_id));
     let device_phrase = format!("{}/{}/{}/{}/{}/{}/{}/{}", sysinfo.host_name, sysinfo.disk_uuid,
                                 sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
                                 sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
-
     let device_key = _read_key_or_generate_key(device_key_file.as_path(), device_phrase.as_str())?;
     let system_key = match key_type {
         "System" | "User" => {
-            let (sys_hash_id, sys_phrase) = get_key_hash_id_and_phrase(key_type, id_hash);
+            let (sys_hash_id, sys_phrase) = get_key_hash_id_and_phrase("System", symbol_hash);
             let system_key_file = get_path_in_sys_key_dir(&format!(".token_system_{}.pem", sys_hash_id));
             let local_phrase = format!("{}@{}:{}/{}/{}/{}/{}/{}/{}", sysinfo.root_dir, sysinfo.host_name,
                                        sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
@@ -78,7 +77,7 @@ fn read_key_or_generate_key(key_type: &str, id_hash: &[u8; 32], phrase: &str) ->
     match key_type {
         "System" => Ok(system_key),
         "User" => {
-            let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase(key_type, id_hash);
+            let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
             let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
             let phrase_text = format!("{}:{}",
                                       URL_SAFE_NO_PAD.encode(device_key.as_slice()),
@@ -102,7 +101,7 @@ pub fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (St
     let sysinfo = &SYSTEM_BASE_INFO;
     match key_type {
         "Device" => _get_key_hash_id_and_phrase(&format!("{}{}", sysinfo.host_name, sysinfo.disk_uuid).into_bytes(), 0),
-        "System" => _get_key_hash_id_and_phrase(&format!("{}{}",sysinfo.root_dir, sysinfo.disk_uuid).into_bytes(), 0),
+        "System" => _get_key_hash_id_and_phrase(&format!("{}{}", sysinfo.root_dir, sysinfo.disk_uuid).into_bytes(), 0),
         _ => {
             let (device_hash_id, _device_phrase) = _get_key_hash_id_and_phrase
                 (&format!("{}{}", sysinfo.host_name, sysinfo.disk_uuid).into_bytes(), 0);
@@ -332,8 +331,8 @@ pub(crate) async fn get_mac_address(ip: IpAddr) -> String {
     "Unknown".to_string()
 }
 
-pub(crate) fn get_verify_key(key_type: &str, id_sybmol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 32], TokenError> {
-    let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, id_sybmol_hash, phrase)?);
+pub(crate) fn get_verify_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 32], TokenError> {
+    let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, symbol_hash, phrase)?);
     let verifying_key: VerifyingKey = signing_key.verifying_key();
     Ok(*verifying_key.as_bytes())
 }
@@ -491,7 +490,6 @@ pub fn decrypt(data: &[u8], key: &[u8], period:u64) -> Vec<u8> {
 
 pub fn generate_did_claim(id_type: &str, nickname: &str, id_card: Option<String>, telephone: Option<String>, phrase: &str)
     -> Result<IdClaim, TokenError> {
-    let zeroed_key: [u8; 32] = [0; 32];
     let id_card = id_card.unwrap_or("-".to_string());
     let telephone = telephone.unwrap_or("-".to_string());
     let id_symbol_hash = calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
