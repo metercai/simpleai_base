@@ -495,7 +495,13 @@ pub fn read_or_generate_did_claim(id_type: &str, nickname: &str, id_card: Option
     let id_card = id_card.unwrap_or("-".to_string());
     let telephone = telephone.unwrap_or("-".to_string());
     let mut did_file_path = get_path_in_sys_key_dir(format!("{}_{}.did", id_type.to_lowercase(), nickname.to_lowercase()).as_str());
-    let root_path = did_file_path.parent().unwrap();
+    let root_path = match  did_file_path.parent().exists() {
+        true => did_file_path.parent().unwrap().to_path_buf(),
+        false => {
+            fs::create_dir_all(did_file_path).unwrap();
+            did_file_path.parent().unwrap().to_path_buf()
+        }
+    };
     let mut user_did = String::new();
     let mut dev_did = String::new();
     let mut sys_did = String::new();
