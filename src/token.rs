@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use x25519_dalek::PublicKey;
-use ed25519_dalek::{VerifyingKey, Verifier, Signature};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tokio::sync::Mutex;
@@ -23,12 +22,12 @@ use crate::env_data::EnvData;
 pub struct SimpleAI {
     pub sys_name: String,
     pub did: String,
-    pub users: Vec<String>,
     pub authorized: HashMap<String, UserContext>,
     pub sysinfo: Arc<Mutex<SystemInfo>>,
     device: String,
     claims: HashMap<String, IdClaim>,
-    crypt_secrets: HashMap<String, [u8; 32]>,
+    crypt_secrets: HashMap<String, String>,
+    guest: String,
     guest_phrase: String,
 }
 
@@ -39,42 +38,63 @@ impl SimpleAI {
         sys_name: String,
     ) -> Self {
         let sys_base_info = env_utils::SYSTEM_BASE_INFO.clone();
-        let mut claims = HashMap::new();
-        let mut users = vec![];
-        let mut crypt_secrets = HashMap::new();
+        let zeroed_key: [u8; 32] = [0; 32];
 
         let root_dir = sys_base_info.root_dir.clone();
         let disk_uuid = sys_base_info.disk_uuid.clone();
         let host_name = sys_base_info.host_name.clone();
-        let Ok((local_claim, local_crypt_secret, _local_phrase)) = env_utils::generate_did_claim("System", &sys_name.clone(), Some(root_dir), None) else { todo!() };
+        let (sys_hash_id, _sys_phrase) = env_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
+        let (device_hash_id, _device_phrase) = env_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
+        let system_name = format!("{}@{}", sys_name, sys_hash_id);
+        let device_name = format!("{}@{}", host_name, device_hash_id);
+        let guest_name = format!("guest@{}", sys_hash_id);
+
+        let Ok((mut local_claim, local_phrase)) = env_utils::read_or_generate_did_claim
+            ("System", &system_name, Some(root_dir), None) else { todo!() };
         let local_did = local_claim.gen_did();
         let sysinfo = Arc::new(Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
         let sysinfo_clone = Arc::clone(&sysinfo);
         SystemInfo::generate(sys_base_info, sysinfo_clone, local_did.clone());
-        claims.insert(local_did.clone(), local_claim);
-        crypt_secrets.insert(local_did.clone(), local_crypt_secret);
 
-        let Ok((device_claim, device_crypt_secret, _device_phrase)) = env_utils::generate_did_claim("Device", &host_name, Some(disk_uuid), None) else { todo!() };
+        let mut claims =  HashMap::new();
+        let _ = env_utils::load_did_in_local(&mut claims);
+        let mut crypt_secrets = HashMap::new();
+        let _ = env_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets, &mut claims);
+
+        if !crypt_secrets.contains_key(&local_did) {
+            let local_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "System", &mut local_claim, &local_phrase);
+            crypt_secrets.insert(local_did.clone(), local_crypt_secret);
+        }
+
+        let Ok((mut device_claim, device_phrase)) = env_utils::read_or_generate_did_claim
+            ("Device", &device_name, Some(disk_uuid), None) else { todo!() };
         let device_did = device_claim.gen_did();
-        claims.insert(device_did.clone(), device_claim);
-        crypt_secrets.insert(device_did.clone(), device_crypt_secret);
+        if !crypt_secrets.contains_key(&device_did) {
+            let device_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "Device", &mut device_claim, &device_phrase);
+            crypt_secrets.insert(device_did.clone(), device_crypt_secret);
+        }
 
-        let Ok((guest_claim, guest_crypt_secret, guest_phrase)) = env_utils::generate_did_claim("User", "guest_default", None, None) else { todo!() };
+        let Ok((mut guest_claim, guest_phrase)) = env_utils::read_or_generate_did_claim
+            ("User", &guest_name, None, None) else { todo!() };
         let guest_did = guest_claim.gen_did();
-        claims.insert(guest_did.clone(), guest_claim);
-        crypt_secrets.insert(guest_did.clone(), guest_crypt_secret);
+        if !crypt_secrets.contains_key(&guest_did) {
+            let guest_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "User", &mut guest_claim, &guest_phrase);
+            crypt_secrets.insert(guest_did.clone(), guest_crypt_secret);
+        }
 
-        users.push(guest_did);
+        claims.insert(local_did.clone(), local_claim);
+        claims.insert(device_did.clone(), device_claim);
+        claims.insert(guest_did.clone(), guest_claim);
 
         Self {
             sys_name,
             did: local_did,
             device: device_did,
-            users,
             authorized: HashMap::new(),
             sysinfo,
             claims,
             crypt_secrets,
+            guest: guest_did,
             guest_phrase,
         }
     }
@@ -119,44 +139,39 @@ impl SimpleAI {
 
     pub fn sign_by_did(&self, text: &str, did: &str, phrase: &str) -> Vec<u8> {
         let claim = self.claims.get(did).unwrap();
-        env_utils::get_signature(text, &claim.id_type, &claim.telephone_hash, phrase)
-            .unwrap_or_else(|_| String::from("unknown").into())
+        env_utils::get_signature(text, &claim.id_type, &claim.get_telephone_hash(), phrase)
+            .unwrap_or_else(|_| String::from("Unknown").into())
     }
-    pub fn verify(&self, text: &str, signature: &str) -> bool {
+    pub fn verify(&mut self, text: &str, signature: &str) -> bool {
         self.verify_by_did(text, signature, &self.did.clone())
     }
 
-    pub fn verify_by_did(&self, text: &str, signature_str: &str, did: &str) -> bool {
-        let claim = self.claims.get(did).unwrap();
-        let verify_key_bytes = claim.verify_key.clone();
-        let verify_key = VerifyingKey::from_bytes(&verify_key_bytes.as_slice().try_into().unwrap()).unwrap();
-        let signature = Signature::from_bytes(&URL_SAFE_NO_PAD.decode(signature_str).unwrap().as_slice().try_into().unwrap());
-        match verify_key.verify(text.as_bytes(), &signature) {
-            Ok(()) => true,
-            Err(_) => false,
-        }
+    pub fn verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
+        env_utils::virify_signature(text, signature_str, did, &mut self.claims)
     }
 
-    pub fn encrypt_by_did(&self, text: &str, did: &str, period:u64) -> PyResult<String> {
-        let claim = self.claims.get(did).unwrap();
-        let crypt_secret = self.crypt_secrets.get(did).unwrap();
-        let did_public = PublicKey::from(claim.crypt_key.clone());
-        let shared_key = env_utils::get_diffie_hellman_key(&did_public, *crypt_secret)?;
+    pub fn encrypt_for_did(&self, did: &str, text: &str, for_did: &str, period:u64) -> PyResult<String> {
+        let self_crypt_secret = env_utils::convert_base64_to_key(self.crypt_secrets.get(did).unwrap());
+        let for_did_public = PublicKey::from(self.claims.get(for_did).unwrap().get_crypt_key());
+        let shared_key = env_utils::get_diffie_hellman_key(&for_did_public, self_crypt_secret)?;
         let ctext = env_utils::encrypt(text.as_bytes(), &shared_key, period);
         Ok(URL_SAFE_NO_PAD.encode(ctext))
     }
 
-    pub fn decrypt_by_did(&mut self, ctext: &str, did: &str, period:u64) -> PyResult<String> {
-        let claim = self.claims.get(did).unwrap();
-        let crypt_secret = self.crypt_secrets.get(did).unwrap();
-        let did_public = PublicKey::from(claim.crypt_key.clone());
-        let shared_key = env_utils::get_diffie_hellman_key(&did_public, *crypt_secret)?;
+    pub fn decrypt_by_did(&mut self, did: &str, ctext: &str, by_did: &str, period:u64) -> PyResult<String> {
+        let self_crypt_secret = env_utils::convert_base64_to_key(self.crypt_secrets.get(did).unwrap());
+        let by_did_public = PublicKey::from(self.claims.get(by_did).unwrap().get_crypt_key());
+        let shared_key = env_utils::get_diffie_hellman_key(&by_did_public, self_crypt_secret)?;
         let text = env_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
         Ok(String::from_utf8(text).expect("undecryptable"))
     }
 
+    pub fn get_device_did(&self) -> String {
+        self.device.clone()
+    }
+
     pub fn get_guest_did(&self) -> String {
-        self.users.first().unwrap().clone()
+        self.guest.clone()
     }
 
     pub fn get_guest_user_context(&mut self) -> UserContext {
@@ -172,10 +187,10 @@ impl SimpleAI {
     pub fn get_user_context(&mut self, did: &str) -> UserContext {
         self.authorized.get(did).cloned().unwrap_or_else(|| {
             let (context, sig) = env_utils::get_user_token_from_file(did).unwrap_or(
-                (UserContext::default(), String::from("unknown"))
+                (UserContext::default(), String::from("Unknown"))
             );
             let token_text = format!("{}{}", did, context.get_text());
-            if sig != "unknown" && self.verify_by_did(&token_text, &sig, did) {
+            if sig != "Unknown" && self.verify_by_did(&token_text, &sig, did) {
                 self.authorized.insert(did.to_string(), context.clone());
                 context
             } else {
@@ -186,29 +201,22 @@ impl SimpleAI {
 
     pub fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
         let claim = self.claims.get(did).unwrap();
-        let zeroed_key: [u8; 32] = [0u8; 32];
-        let secret_key = env_utils::get_random_secret_key(&claim.id_type, &claim.telephone_hash, phrase)
-                .unwrap_or([0u8; 32]);
-        match secret_key {
-            zeroed_key => UserContext::default(),
-            _ => {
-                // 检测user_token文件，判断是全新创建还是继承历史数据（也就是展期）的token
-                let default_context = env_utils::create_user_token(
-                    did, &claim.nickname, &claim.id_type, &claim.telephone_hash, phrase);
-                let token_text = format!("{}{}", did, default_context.get_text());
-                let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&token_text, did, phrase));
-                match env_utils::save_user_token_to_file(did, &default_context, &sig) {
-                    Ok(_) => {
-                        self.authorized.insert(did.to_string(), default_context.clone());
-                        default_context
-                    },
-                    Err(e) => {
-                        eprintln!("Failed to save user token: {}", e);
-                        UserContext::default()
-                    }
-                }
+        // 要检测user_token文件，判断是全新创建还是继承历史数据（也就是展期）的token
+        let context = env_utils::create_or_renew_user_token(
+            did, &claim.nickname, &claim.id_type, &claim.get_telephone_hash(), phrase);
+        let token_text = format!("{}{}", did, context.get_text());
+        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&token_text, did, phrase));
+        match env_utils::save_user_token_to_file(did, &context, &sig) {
+            Ok(_) => {
+                self.authorized.insert(did.to_string(), context.clone());
+                context
+            },
+            Err(e) => {
+                eprintln!("Failed to save user token: {}", e);
+                UserContext::default()
             }
         }
+
     }
 
     pub fn check_ready(&self, v1: String, v2: String, v3: String, root: String) -> i32 {
