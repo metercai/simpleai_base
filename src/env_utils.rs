@@ -640,6 +640,7 @@ pub fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMa
     let token_data = decrypt(&token_raw_data, &crypt_key, 0);
     let system_token: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
 
+    println!("Load token from file: {}", system_token);
     if let Some(Value::Object(hellman_secrets)) = system_token.get("hellman_secrets") {
         for (key, value) in hellman_secrets {
             if let Value::String(secrets_str) = value {
@@ -649,7 +650,9 @@ pub fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMa
                     let timestamp = parts[1];
                     let sig_base64 = parts[2];
                     let text = format!("{}:{}:{}", key, secret_base64, timestamp);
+                    println!("Verify signature for text: {}", text);
                     if virify_signature(&text, sig_base64, key, claims) {
+                        println!("Signature verified with: {}", sig_base64);
                         crypt_secrets.insert(key.clone(), secret_base64.to_string());
                     }
                 }
@@ -686,6 +689,7 @@ pub fn save_secret_to_system_token_file(sys_did: &str, did: &str, secret: &[u8; 
     let system_token_file = get_path_in_sys_key_dir(&format!("authorized2system_{}.token", sys_did));
     let crypt_key = get_token_cyrpt_key();
     let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
+    println!("Save token to file: {}", json_string);
     fs::write(system_token_file, token_raw_data)?;
     Ok(secret_base64.clone())
 }
