@@ -96,8 +96,7 @@ impl SimpleAI {
         println!("load_token_by_authorized2system: len={}", crypt_secrets.len());
 
         if !crypt_secrets.contains_key(&local_did) {
-            let local_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "System", &mut local_claim, &sys_phrase);
-            crypt_secrets.insert(local_did.clone(), local_crypt_secret.clone());
+            let local_crypt_secret = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "System", &mut local_claim, &sys_phrase);
             println!("create_and_save_crypt_secret ok, sys_did: {}, local_crypt_secret: {}", local_claim.gen_did(), local_crypt_secret);
         }
         claims.insert(local_did.clone(), local_claim);
@@ -113,8 +112,7 @@ impl SimpleAI {
             false => claims.get(&device_did).unwrap().clone(),
         };
         if !crypt_secrets.contains_key(&device_did) {
-            let device_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "Device", &mut device_claim, &device_phrase);
-            crypt_secrets.insert(device_did.clone(), device_crypt_secret);
+            let _ = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "Device", &mut device_claim, &device_phrase);
         }
         claims.insert(device_did.clone(), device_claim);
 
@@ -129,8 +127,7 @@ impl SimpleAI {
             false => claims.get(&guest_did).unwrap().clone(),
         };
         if !crypt_secrets.contains_key(&guest_did) {
-            let guest_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "User", &mut guest_claim, &guest_phrase);
-            crypt_secrets.insert(guest_did.clone(), guest_crypt_secret);
+            let _ = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "User", &mut guest_claim, &guest_phrase);
         }
         claims.insert(guest_did.clone(), guest_claim);
 

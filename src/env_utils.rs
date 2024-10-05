@@ -372,8 +372,8 @@ pub(crate) fn get_diffie_hellman_key(did_key: &PublicKey, secret_key: [u8; 32]) 
     let shared_key = secret_key.diffie_hellman(&did_key);
     Ok(*shared_key.as_bytes())
 }
-pub(crate) fn get_signature(text: &str, key_type: &str, id_sybmol_hash: &[u8; 32], phrase: &str) -> Result<Vec<u8>, TokenError> {
-    let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, id_sybmol_hash, phrase)?);
+pub(crate) fn get_signature(text: &str, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Result<Vec<u8>, TokenError> {
+    let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, symbol_hash, phrase)?);
     let signature = signing_key.sign(text.as_bytes());
     Ok(Vec::from(signature.to_bytes()))
 }
@@ -662,25 +662,27 @@ pub fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMa
     Ok(())
 }
 
-pub fn create_and_save_crypt_secret(sys_did: &str, id_type: &str, claim: &mut IdClaim,  phrase: &str) -> String {
+pub fn create_and_save_crypt_secret(crypt_secrets: &mut HashMap<String, String>, sys_did: &str,
+                                    id_type: &str, claim: &mut IdClaim,  phrase: &str) -> String {
     let zeroed_key_40: [u8; 40] = [0; 40];
     let crypt_secret = get_specific_secret_key(
         "hellman",0,id_type, &claim.get_symbol_hash(), &phrase).unwrap_or_else(|_| zeroed_key_40);
-    let crypt_secret_with_sig = save_secret_to_system_token_file(
+    let crypt_secret_with_sig = save_secret_to_system_token_file(crypt_secrets,
         &sys_did, &claim.gen_did(), &crypt_secret, id_type, &claim.get_symbol_hash(), &phrase);
     claim.set_crypt_key_and_save_file(crypt_secret);
     crypt_secret_with_sig.unwrap_or_else(|_| String::from("Unknown"))
 }
 
-pub fn save_secret_to_system_token_file(sys_did: &str, did: &str, secret: &[u8; 40], id_type: &str, id_sybmol_hash: &[u8; 32], phrase: &str) -> Result<String, TokenError> {
+pub fn save_secret_to_system_token_file(
+    crypt_secrets: &mut HashMap<String, String>, sys_did: &str, did: &str, secret: &[u8; 40],
+    id_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Result<String, TokenError> {
     let secret_base64 = URL_SAFE_NO_PAD.encode(secret);
     let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     let text = format!("{}:{}:{}", did, secret_base64, timestamp);
-    let sig = URL_SAFE_NO_PAD.encode(get_signature(text.as_str(), id_type, id_sybmol_hash, phrase)
+    let sig = URL_SAFE_NO_PAD.encode(get_signature(text.as_str(), id_type, symbol_hash, phrase)
         .unwrap_or_else(|_| String::from("Unknown").into()));
     let token_value = format!("{}:{}:{}", secret_base64, timestamp, sig);
-    let mut crypt_secrets : HashMap<String, String> = HashMap::new();
-    crypt_secrets.insert(id_type.to_string(), token_value);
+    crypt_secrets.insert(did.to_string(), token_value);
 
     let mut json_system_token = json!({});
     json_system_token["hellman_secrets"] = json!(crypt_secrets);
