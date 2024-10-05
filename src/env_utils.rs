@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::{env, fs};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use serde_json::{json, Value};
 use directories_next::BaseDirs;
 
@@ -44,7 +44,7 @@ pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::Algorith
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
-    static ref VERBOSE_INFO: bool = {
+    pub static ref VERBOSE_INFO: bool = {
         match env::var("SIMPLEAI_VERBOSE") {
             Ok(val) => if val=="on" {true} else {false},
             Err(_) => false,
@@ -113,6 +113,13 @@ pub fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (St
     }
 }
 
+pub fn exists_key_file(key_type: &str, symbol_hash: &[u8; 32]) -> bool {
+    let (key_hash_id, _phrase) = get_key_hash_id_and_phrase(key_type, symbol_hash);
+    let key_file = get_path_in_sys_key_dir(&format!(".token_{}_{}.pem",
+                                                    key_type.to_lowercase(), key_hash_id));
+    key_file.exists()
+}
+
 fn _get_key_hash_id_and_phrase(symbol_hash: &Vec<u8>, period: u64 ) -> (String, String) {
     let key_file_hash_id = sha256_prefix(symbol_hash, 10);
     let phrase_text = sha256_prefix(&hkdf_key_deadline(symbol_hash, period), 10);
@@ -136,7 +143,9 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str) -> Result<[u8; 32],
             priv_key
         }
     };
-    println!("read private key: {}", file_path.display());
+    if *VERBOSE_INFO {
+        println!("read private key: {}", file_path.display());
+    }
     Ok(private_key.try_into().unwrap())
 }
 
@@ -521,12 +530,6 @@ pub fn read_did_claim_from_file(did: &str) -> Result<IdClaim, TokenError> {
     Ok(IdClaim::default())
 }
 
-fn parse_did_from_filename(id_type: &str, filename: &str) -> String {
-    filename
-        .trim_start_matches(format!("{}_", id_type.to_lowercase()).as_str())
-        .trim_end_matches(".did").to_string()
-}
-
 fn get_token_cyrpt_key() -> [u8; 32] {
     let id_hash = [0u8; 32];
     let device_key = read_key_or_generate_key("Device", &id_hash, "None").unwrap_or(id_hash);
@@ -640,7 +643,9 @@ pub fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMa
     let token_data = decrypt(&token_raw_data, &crypt_key, 0);
     let system_token: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
 
-    println!("Load token from file: {}", system_token);
+    if *VERBOSE_INFO {
+        println!("Load token from file: {}", system_token);
+    }
     if let Some(Value::Object(hellman_secrets)) = system_token.get("hellman_secrets") {
         for (key, value) in hellman_secrets {
             if let Value::String(secrets_str) = value {
@@ -650,9 +655,7 @@ pub fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMa
                     let timestamp = parts[1];
                     let sig_base64 = parts[2];
                     let text = format!("{}:{}:{}", key, secret_base64, timestamp);
-                    println!("Verify signature for text: {}", text);
                     if virify_signature(&text, sig_base64, key, claims) {
-                        println!("Signature verified with: {}", sig_base64);
                         crypt_secrets.insert(key.clone(), secret_base64.to_string());
                     }
                 }
@@ -691,7 +694,9 @@ pub fn save_secret_to_system_token_file(
     let system_token_file = get_path_in_sys_key_dir(&format!("authorized2system_{}.token", sys_did));
     let crypt_key = get_token_cyrpt_key();
     let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
-    println!("Save token to file: {}", json_string);
+    if *VERBOSE_INFO {
+        println!("Save token to file: {}", json_string);
+    }
     fs::write(system_token_file, token_raw_data)?;
     Ok(secret_base64.clone())
 }
@@ -713,7 +718,7 @@ pub fn load_did_in_local(claims: &mut HashMap<String, IdClaim>) -> Result<(), To
         let entry = entry?;
         let path = entry.path();
         if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
-            if file_name.starts_with("user_") && file_name.ends_with(".did") {
+            if file_name.ends_with(".did") {
                 let claim: IdClaim = serde_json::from_str(&fs::read_to_string(path)?)?;
                 claims.insert(claim.gen_did(), claim);
             }

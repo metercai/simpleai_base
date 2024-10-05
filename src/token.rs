@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::thread;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use base58::ToBase58;
 
 use x25519_dalek::PublicKey;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -49,14 +50,15 @@ impl SimpleAI {
         let system_name = format!("{}@{}", sys_name, sys_hash_id);
         let device_name = format!("{}@{}", host_name, device_hash_id);
         let guest_name = format!("guest@{}", sys_hash_id);
-        println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
+        if *env_utils::VERBOSE_INFO {
+            println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
+        }
 
         let guest_symbol_hash = env_utils::get_symbol_hash_by_source(&guest_name, "Unknown");
-        let (guest_hash_id, guest_phrase) = env_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+        let (_, guest_phrase) = env_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
 
         let mut claims =  HashMap::new();
         let _ = env_utils::load_did_in_local(&mut claims);
-        println!("load_did_in_local: len={}", claims.len());
 
         let mut local_did = String::new();
         let mut device_did = String::new();
@@ -81,7 +83,6 @@ impl SimpleAI {
                 let Ok(_local_claim) = env_utils::generate_did_claim
                     ("System", &system_name, Some(root_dir), None, &sys_phrase) else { todo!() };
                 local_did = _local_claim.gen_did();
-                println!("system_did:{}", local_did);
                 _local_claim
             }
             false => claims.get(&local_did).unwrap().clone(),
@@ -89,15 +90,12 @@ impl SimpleAI {
         let sysinfo = Arc::new(Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
         let sysinfo_clone = Arc::clone(&sysinfo);
         SystemInfo::generate(sys_base_info, sysinfo_clone, local_did.clone());
-        println!("SystemInfo::generat ok");
 
         let mut crypt_secrets = HashMap::new();
         let _ = env_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets, &mut claims);
-        println!("load_token_by_authorized2system: len={}", crypt_secrets.len());
 
         if !crypt_secrets.contains_key(&local_did) {
-            let local_crypt_secret = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "System", &mut local_claim, &sys_phrase);
-            println!("create_and_save_crypt_secret ok, sys_did: {}, local_crypt_secret: {}", local_claim.gen_did(), local_crypt_secret);
+            let _ = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "System", &mut local_claim, &sys_phrase);
         }
         claims.insert(local_did.clone(), local_claim);
 
@@ -106,7 +104,6 @@ impl SimpleAI {
                 let Ok(_device_claim) = env_utils::generate_did_claim
                     ("Device", &device_name, Some(disk_uuid), None, &device_phrase) else { todo!() };
                 device_did = _device_claim.gen_did();
-                println!("Device_did:{}", device_did);
                 _device_claim
             }
             false => claims.get(&device_did).unwrap().clone(),
@@ -121,7 +118,6 @@ impl SimpleAI {
                 let Ok(_guest_claim) = env_utils::generate_did_claim
                     ("User", &guest_name, None, None, &guest_phrase) else { todo!() };
                 guest_did = _guest_claim.gen_did();
-                println!("User_did:{}", guest_did);
                 _guest_claim
             }
             false => claims.get(&guest_did).unwrap().clone(),
@@ -131,7 +127,9 @@ impl SimpleAI {
         }
         claims.insert(guest_did.clone(), guest_claim);
 
-        println!("init context finished: claims.len={}, crypt_secrets.len={}", claims.len(), crypt_secrets.len());
+        if *env_utils::VERBOSE_INFO {
+            println!("init context finished: claims.len={}, crypt_secrets.len={}", claims.len(), crypt_secrets.len());
+        }
 
         Self {
             sys_name,
@@ -221,9 +219,30 @@ impl SimpleAI {
         self.guest.clone()
     }
 
+    pub fn get_guest_sstoken(&self) -> String {
+        let text = format!("{}|{}|{}", self.guest.clone(),
+                           self.crypt_secrets[&self.did], self.crypt_secrets[&self.get_guest_did()]);
+        let text_hash = env_utils::calc_sha256(text.as_bytes()).to_base58();
+        println!("sstoken, text_hash: {}", text_hash);
+        format!("{}|{}", self.guest.clone(), text_hash[..16].to_string())
+    }
+
+    pub fn check_sstoken_and_get_did(&self, sstoken: String) -> String {
+        let parts: Vec<&str> = sstoken.split('|').collect();
+        if parts.len() == 2 {
+            let did = parts[0].to_string();
+            let sig = parts[1].to_string();
+            let text = format!("{}|{}|{}", did.clone(), self.crypt_secrets[&self.did], self.crypt_secrets[&did]);
+            let text_hash = env_utils::calc_sha256(text.as_bytes()).to_base58();
+            if sig == text_hash[..16] {
+                return did;
+            }
+        }
+        return String::from("Unknown");
+    }
+
     pub fn get_guest_user_context(&mut self) -> UserContext {
         let guest_did = self.get_guest_did();
-        println!("guest_user_context, did: {}", guest_did);
         let mut guest_user_context = self.get_user_context(&guest_did);
         guest_user_context = match guest_user_context.is_default() {
             true => self.sign_user_context(&guest_did, &self.guest_phrase.clone()),
@@ -233,7 +252,6 @@ impl SimpleAI {
     }
 
     pub fn get_user_context(&mut self, did: &str) -> UserContext {
-        println!("user_context, did: {}", did);
         self.authorized.get(did).cloned().unwrap_or_else(|| {
             let (context, sig) = env_utils::get_user_token_from_file(did).unwrap_or(
                 (UserContext::default(), String::from("Unknown"))
@@ -249,9 +267,7 @@ impl SimpleAI {
     }
 
     pub fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
-        println!("sign_user_context, did: {}", did);
         let claim = self.claims.get(did).unwrap();
-        // 要检测user_token文件，判断是全新创建还是继承历史数据（也就是展期）的token
         let context = env_utils::create_or_renew_user_token(
             did, &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
         let token_text = format!("{}{}", did, context.get_text());
@@ -266,7 +282,6 @@ impl SimpleAI {
                 UserContext::default()
             }
         }
-
     }
 
     pub fn check_ready(&self, v1: String, v2: String, v3: String, root: String) -> i32 {
