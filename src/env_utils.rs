@@ -697,7 +697,7 @@ pub fn load_did_in_local(claims: &mut HashMap<String, IdClaim>) -> Result<(), To
             if parent.exists() {
                 parent
             } else {
-                fs::create_dir_all(did_file_path.clone()).unwrap();
+                fs::create_dir_all(parent).unwrap();
                 parent
             }
         },
