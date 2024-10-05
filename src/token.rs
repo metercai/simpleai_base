@@ -121,9 +121,9 @@ impl SimpleAI {
         let mut guest_claim = match guest_did.is_empty() {
             true => {
                 let Ok(_guest_claim) = env_utils::generate_did_claim
-                    ("Device", &guest_name, None, None, &guest_phrase) else { todo!() };
+                    ("User", &guest_name, None, None, &guest_phrase) else { todo!() };
                 guest_did = _guest_claim.gen_did();
-                println!("Device_did:{}", guest_did);
+                println!("User_did:{}", guest_did);
                 _guest_claim
             }
             false => claims.get(&guest_did).unwrap().clone(),
