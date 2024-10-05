@@ -51,7 +51,7 @@ impl SimpleAI {
         let guest_name = format!("guest@{}", sys_hash_id);
         println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
-        let guest_symbol_hash = env_utils::get_id_symbol_hash(&guest_name, "Unknown");
+        let guest_symbol_hash = env_utils::get_symbol_hash_by_source(&guest_name, "Unknown");
         let (guest_hash_id, guest_phrase) = env_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
 
         let mut claims =  HashMap::new();
@@ -189,7 +189,7 @@ impl SimpleAI {
 
     pub fn sign_by_did(&self, text: &str, did: &str, phrase: &str) -> Vec<u8> {
         let claim = self.claims.get(did).unwrap();
-        env_utils::get_signature(text, &claim.id_type, &claim.get_telephone_hash(), phrase)
+        env_utils::get_signature(text, &claim.id_type, &claim.get_symbol_hash(), phrase)
             .unwrap_or_else(|_| String::from("Unknown").into())
     }
     pub fn verify(&mut self, text: &str, signature: &str) -> bool {
@@ -226,6 +226,7 @@ impl SimpleAI {
 
     pub fn get_guest_user_context(&mut self) -> UserContext {
         let guest_did = self.get_guest_did();
+        println!("guest_user_context, did: {}", guest_did);
         let mut guest_user_context = self.get_user_context(&guest_did);
         guest_user_context = match guest_user_context.is_default() {
             true => self.sign_user_context(&guest_did, &self.guest_phrase.clone()),
@@ -235,6 +236,7 @@ impl SimpleAI {
     }
 
     pub fn get_user_context(&mut self, did: &str) -> UserContext {
+        println!("user_context, did: {}", did);
         self.authorized.get(did).cloned().unwrap_or_else(|| {
             let (context, sig) = env_utils::get_user_token_from_file(did).unwrap_or(
                 (UserContext::default(), String::from("Unknown"))
@@ -250,10 +252,11 @@ impl SimpleAI {
     }
 
     pub fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
+        println!("sign_user_context, did: {}", did);
         let claim = self.claims.get(did).unwrap();
         // 要检测user_token文件，判断是全新创建还是继承历史数据（也就是展期）的token
         let context = env_utils::create_or_renew_user_token(
-            did, &claim.nickname, &claim.id_type, &claim.get_telephone_hash(), phrase);
+            did, &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
         let token_text = format!("{}{}", did, context.get_text());
         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&token_text, did, phrase));
         match env_utils::save_user_token_to_file(did, &context, &sig) {

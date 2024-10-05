@@ -337,24 +337,24 @@ pub(crate) fn get_verify_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &st
     Ok(*verifying_key.as_bytes())
 }
 
-pub(crate) fn get_specific_secret_key(key_name: &str, period:u64, key_type: &str, id_sybmol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 40], TokenError> {
-    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, id_sybmol_hash, phrase)?);
+pub(crate) fn get_specific_secret_key(key_name: &str, period:u64, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 40], TokenError> {
+    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase)?);
     let key_name_bytes = calc_sha256(key_name.as_bytes());
     let mut com_phrase = [0u8; 64];
     com_phrase[..32].copy_from_slice(&key_name_bytes);
-    com_phrase[32..].copy_from_slice(id_sybmol_hash);
+    com_phrase[32..].copy_from_slice(symbol_hash);
     let secret_key = StaticSecret::from(derive_key(&com_phrase, &key_hash)?);
     Ok(convert_to_sk_with_expire(secret_key.as_bytes(), period))
 }
 
-pub(crate) fn get_random_secret_key(key_type: &str, period:u64, id_sybmol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 40], TokenError> {
-    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, id_sybmol_hash, phrase)?);
+pub(crate) fn get_random_secret_key(key_type: &str, period:u64, symbol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 40], TokenError> {
+    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase)?);
     let mut csprng = OsRng {};
     let mut random_number = [0u8; 16];
     csprng.fill_bytes(&mut random_number);
     let mut com_phrase = [0u8; 48];
     com_phrase[..16].copy_from_slice(&random_number);
-    com_phrase[16..].copy_from_slice(id_sybmol_hash);
+    com_phrase[16..].copy_from_slice(symbol_hash);
     let secret_key = StaticSecret::from(derive_key(&com_phrase, &key_hash)?);
     Ok(convert_to_sk_with_expire(secret_key.as_bytes(), period))
 }
@@ -492,11 +492,11 @@ pub fn generate_did_claim(id_type: &str, nickname: &str, id_card: Option<String>
     -> Result<IdClaim, TokenError> {
     let id_card = id_card.unwrap_or("-".to_string());
     let telephone = telephone.unwrap_or("-".to_string());
-    let id_symbol_hash = calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
+    let id_card_hash = calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
     let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
     let face_image_hash = calc_sha256(format!("{}:face_image:-", nickname).as_bytes());
     let file_hash_hash = calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
-    let claim = IdClaim::new(id_type, &phrase, nickname, telephone_hash, id_symbol_hash, face_image_hash, file_hash_hash);
+    let claim = IdClaim::new(id_type, &phrase, nickname, telephone_hash, id_card_hash, face_image_hash, file_hash_hash);
     Ok(claim)
 
 }
@@ -560,18 +560,19 @@ pub fn save_user_token_to_file(did: &str, context: &UserContext, sig: &str) -> R
     Ok(json_string)
 }
 
-pub fn create_or_renew_user_token(did: &str, nickname: &str, id_type: &str, id_sybmol_hash: &[u8; 32], phrase: &str) -> UserContext {
+pub fn create_or_renew_user_token(did: &str, nickname: &str, id_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> UserContext {
     let zeroed_key: [u8; 32] = [0u8; 32];
     let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
     let context = match user_token_file.exists() {
         true => {
+            println!("Renew user token: {}", did);
             let Ok((mut context_renew, _sig)) = read_user_token_from_file(user_token_file.as_path())
                 else { todo!() };
-            let crypt_key = get_specific_secret_key("context", 0, id_type, id_sybmol_hash, phrase).unwrap_or([0u8; 40]);
+            let crypt_key = get_specific_secret_key("context", 0, id_type, symbol_hash, phrase).unwrap_or([0u8; 40]);
             let aes_key_old_vec = decrypt(&URL_SAFE_NO_PAD.decode(
                 context_renew.get_aes_key_encrypted()).unwrap_or(zeroed_key.to_vec()), &crypt_key, 0);
             let aes_key_old = convert_vec_to_key(&aes_key_old_vec);
-            let secret_key_new = get_random_secret_key(id_type, 0, id_sybmol_hash, phrase)
+            let secret_key_new = get_random_secret_key(id_type, 0, symbol_hash, phrase)
                 .unwrap_or([0u8; 40]);
             let default_expire = 90*24*3600;
             context_renew.set_auth_sk_with_secret(&URL_SAFE_NO_PAD.encode(secret_key_new), default_expire);
@@ -582,20 +583,21 @@ pub fn create_or_renew_user_token(did: &str, nickname: &str, id_type: &str, id_s
             context_renew
         }
         false => {
+            println!("Create user token: {}", did);
             let default_permissions = "standard".to_string();
-            let default_private_paths = serde_json::to_string(&vec!["config", "preset", "wildcard", "style"]).unwrap_or("".to_string());
+            let default_private_paths = serde_json::to_string(
+                &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
             let mut context_default = UserContext::new(nickname, &default_permissions, &default_private_paths);
-            let secret_key = get_random_secret_key(id_type, 0, id_sybmol_hash, phrase)
+            let secret_key = get_random_secret_key(id_type, 0, symbol_hash, phrase)
                 .unwrap_or([0u8; 40]);
             let default_expire = 90*24*3600;
             context_default.set_auth_sk_with_secret(&URL_SAFE_NO_PAD.encode(secret_key), default_expire);
-            let crypt_key = get_specific_secret_key("context", 0, id_type, id_sybmol_hash, phrase).unwrap_or([0u8; 40]);
+            let crypt_key = get_specific_secret_key("context", 0, id_type, symbol_hash, phrase).unwrap_or([0u8; 40]);
             let aes_key_encrypted = URL_SAFE_NO_PAD.encode(encrypt(&context_default.get_crypt_key(), &crypt_key, 0));
             context_default.set_aes_key_encrypted(&aes_key_encrypted);
             context_default
         }
     };
-
     context
 }
 
@@ -660,9 +662,9 @@ pub fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMa
 pub fn create_and_save_crypt_secret(sys_did: &str, id_type: &str, claim: &mut IdClaim,  phrase: &str) -> String {
     let zeroed_key_40: [u8; 40] = [0; 40];
     let crypt_secret = get_specific_secret_key(
-        "hellman",0,id_type, &claim.get_id_symbol_hash(), &phrase).unwrap_or_else(|_| zeroed_key_40);
+        "hellman",0,id_type, &claim.get_symbol_hash(), &phrase).unwrap_or_else(|_| zeroed_key_40);
     let crypt_secret_with_sig = save_secret_to_system_token_file(
-        &sys_did, &claim.gen_did(), &crypt_secret, id_type, &claim.get_id_symbol_hash(), &phrase);
+        &sys_did, &claim.gen_did(), &crypt_secret, id_type, &claim.get_symbol_hash(), &phrase);
     claim.set_crypt_key_and_save_file(crypt_secret);
     crypt_secret_with_sig.unwrap_or_else(|_| String::from("Unknown"))
 }
@@ -739,12 +741,11 @@ pub fn convert_base64_to_key(key_str: &str) -> [u8; 32] {
     key.copy_from_slice(&vec[..len]);
     key
 }
-
-pub fn get_id_symbol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
-    get_id_symbol_hash(nickname, URL_SAFE_NO_PAD.encode(
+pub fn get_symbol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
+    get_symbol_hash(nickname, URL_SAFE_NO_PAD.encode(
         calc_sha256(telephone.as_bytes())).as_str())
 }
-pub fn get_id_symbol_hash(nickname: &str, telephone_base64: &str) -> [u8; 32] {
+pub fn get_symbol_hash(nickname: &str, telephone_base64: &str) -> [u8; 32] {
     calc_sha256(format!("{}:{}",nickname, telephone_base64).as_bytes())
 }
 pub fn transfer_private_data(aes_key_old: &[u8; 32], aes_key_new: &[u8; 32], private_paths: &Vec<String>) {
