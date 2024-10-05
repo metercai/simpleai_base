@@ -43,55 +43,95 @@ impl SimpleAI {
         let root_dir = sys_base_info.root_dir.clone();
         let disk_uuid = sys_base_info.disk_uuid.clone();
         let host_name = sys_base_info.host_name.clone();
-        let (sys_hash_id, _sys_phrase) = env_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
-        let (device_hash_id, _device_phrase) = env_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
+
+        let (sys_hash_id, sys_phrase) = env_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
+        let (device_hash_id, device_phrase) = env_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
         let system_name = format!("{}@{}", sys_name, sys_hash_id);
         let device_name = format!("{}@{}", host_name, device_hash_id);
         let guest_name = format!("guest@{}", sys_hash_id);
         println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
-        let Ok((mut local_claim, local_phrase)) = env_utils::read_or_generate_did_claim
-            ("System", &system_name, Some(root_dir), None) else { todo!() };
-        let local_did = local_claim.gen_did();
-        println!("system_did:{}", local_did);
-
-        let sysinfo = Arc::new(Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
-        let sysinfo_clone = Arc::clone(&sysinfo);
-        SystemInfo::generate(sys_base_info, sysinfo_clone, local_did.clone());
-        println!("SystemInfo::generat ok");
+        let guest_symbol_hash = env_utils::get_id_symbol_hash(&guest_name, "Unknown");
+        let (guest_hash_id, guest_phrase) = env_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
 
         let mut claims =  HashMap::new();
         let _ = env_utils::load_did_in_local(&mut claims);
         println!("load_did_in_local: len={}", claims.len());
+
+        let mut local_did = String::new();
+        let mut device_did = String::new();
+        let mut guest_did = String::new();
+        for (key, id_claim) in claims.iter() {
+            if id_claim.nickname == system_name && id_claim.id_type == "System" {
+                local_did = key.clone();
+            }
+            if id_claim.nickname == device_name && id_claim.id_type == "Device" {
+                device_did = key.clone();
+            }
+            if id_claim.nickname == guest_name && id_claim.id_type == "User" {
+                guest_did = key.clone();
+            }
+            if !local_did.is_empty() && !device_did.is_empty() && !guest_did.is_empty() {
+                break;
+            }
+        }
+
+        let mut local_claim = match local_did.is_empty() {
+            true => {
+                let Ok(_local_claim) = env_utils::generate_did_claim
+                    ("System", &system_name, Some(root_dir), None, &sys_phrase) else { todo!() };
+                local_did = _local_claim.gen_did();
+                println!("system_did:{}", local_did);
+                _local_claim
+            }
+            false => claims.get(&local_did).unwrap().clone(),
+        };
+        let sysinfo = Arc::new(Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
+        let sysinfo_clone = Arc::clone(&sysinfo);
+        SystemInfo::generate(sys_base_info, sysinfo_clone, local_did.clone());
+        println!("SystemInfo::generat ok");
 
         let mut crypt_secrets = HashMap::new();
         let _ = env_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets, &mut claims);
         println!("load_token_by_authorized2system: len={}", crypt_secrets.len());
 
         if !crypt_secrets.contains_key(&local_did) {
-            let local_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "System", &mut local_claim, &local_phrase);
+            let local_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "System", &mut local_claim, &sys_phrase);
             crypt_secrets.insert(local_did.clone(), local_crypt_secret.clone());
             println!("create_and_save_crypt_secret ok, local_crypt_secret: {}", local_crypt_secret);
         }
+        claims.insert(local_did.clone(), local_claim);
 
-        let Ok((mut device_claim, device_phrase)) = env_utils::read_or_generate_did_claim
-            ("Device", &device_name, Some(disk_uuid), None) else { todo!() };
-        let device_did = device_claim.gen_did();
+        let mut device_claim = match device_did.is_empty() {
+            true => {
+                let Ok(_device_claim) = env_utils::generate_did_claim
+                    ("Device", &device_name, Some(disk_uuid), None, &device_phrase) else { todo!() };
+                device_did = _device_claim.gen_did();
+                println!("Device_did:{}", device_did);
+                _device_claim
+            }
+            false => claims.get(&device_did).unwrap().clone(),
+        };
         if !crypt_secrets.contains_key(&device_did) {
             let device_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "Device", &mut device_claim, &device_phrase);
             crypt_secrets.insert(device_did.clone(), device_crypt_secret);
         }
+        claims.insert(device_did.clone(), device_claim);
 
-        let Ok((mut guest_claim, guest_phrase)) = env_utils::read_or_generate_did_claim
-            ("User", &guest_name, None, None) else { todo!() };
-        let guest_did = guest_claim.gen_did();
+        let mut guest_claim = match guest_did.is_empty() {
+            true => {
+                let Ok(_guest_claim) = env_utils::generate_did_claim
+                    ("Device", &guest_name, None, None, &guest_phrase) else { todo!() };
+                guest_did = _guest_claim.gen_did();
+                println!("Device_did:{}", guest_did);
+                _guest_claim
+            }
+            false => claims.get(&guest_did).unwrap().clone(),
+        };
         if !crypt_secrets.contains_key(&guest_did) {
             let guest_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "User", &mut guest_claim, &guest_phrase);
             crypt_secrets.insert(guest_did.clone(), guest_crypt_secret);
         }
-
-        claims.insert(local_did.clone(), local_claim);
-        claims.insert(device_did.clone(), device_claim);
         claims.insert(guest_did.clone(), guest_claim);
 
         Self {

@@ -36,9 +36,9 @@ impl IdClaim {
         let fingerprint_str = format!("telephone:{},id_card:{},face_image:{},file_hash:{}",
                                       telephone_base64, id_card_base64, face_image_base64, file_hash_base64);
         let fingerprint_hash = env_utils::calc_sha256(&fingerprint_str.as_bytes());
-        let id_sybmol_hash = env_utils::get_id_sybmol_hash(nickname, &telephone_base64);
+        let id_symbol_hash = env_utils::get_id_symbol_hash(nickname, &telephone_base64);
 
-        let verify_key = env_utils::get_verify_key(id_type, &id_sybmol_hash, phrase).unwrap_or_else(|_| zeroed_key);
+        let verify_key = env_utils::get_verify_key(id_type, &id_symbol_hash, phrase).unwrap_or_else(|_| zeroed_key);
 
         Self{
             nickname: nickname.to_string(),
@@ -78,8 +78,8 @@ impl IdClaim {
         env_utils::convert_base64_to_key(&self.telephone_hash)
     }
 
-    pub fn get_id_sybmol_hash(&self) -> [u8; 32] {
-        env_utils::get_id_sybmol_hash(&self.nickname, &self.telephone_hash)
+    pub fn get_id_symbol_hash(&self) -> [u8; 32] {
+        env_utils::get_id_symbol_hash(&self.nickname, &self.telephone_hash)
     }
 
     pub fn set_crypt_key_and_save_file(&mut self, crypt_secret: [u8; 40]) {

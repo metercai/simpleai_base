@@ -489,87 +489,18 @@ pub fn decrypt(data: &[u8], key: &[u8], period:u64) -> Vec<u8> {
     cipher.decrypt(nonce.into(), encrypted).unwrap()
 }
 
-pub fn read_or_generate_did_claim(id_type: &str, nickname: &str, id_card: Option<String>, telephone: Option<String>, )
-    -> Result<(IdClaim, String), TokenError> {
+pub fn generate_did_claim(id_type: &str, nickname: &str, id_card: Option<String>, telephone: Option<String>, phrase: &str)
+    -> Result<IdClaim, TokenError> {
     let zeroed_key: [u8; 32] = [0; 32];
     let id_card = id_card.unwrap_or("-".to_string());
     let telephone = telephone.unwrap_or("-".to_string());
-    let mut did_file_path = get_path_in_sys_key_dir(format!("{}_{}.did", id_type.to_lowercase(), nickname.to_lowercase()).as_str());
-    let root_path = match  did_file_path.parent().exists() {
-        true => did_file_path.parent().unwrap().to_path_buf(),
-        false => {
-            fs::create_dir_all(did_file_path).unwrap();
-            did_file_path.parent().unwrap().to_path_buf()
-        }
-    };
-    let mut user_did = String::new();
-    let mut dev_did = String::new();
-    let mut sys_did = String::new();
-    for entry in fs::read_dir(root_path)? {
-        let entry = entry?;
-        let path = entry.path();
-        if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
-            if file_name.ends_with(".did") {
-                let file_content = fs::read_to_string(&path)?;
-                let json_value: Value = serde_json::from_str(&file_content)?;
-                if let Some(Value::String(id_type_value)) = json_value.get("id_type") {
-                    if id_type_value == id_type {
-                        let user_id_sybmol_hash = get_id_sybmol_hash_by_source(nickname, &telephone);
-                        if let (Some(Value::String(nick_name)), Some(Value::String(telephone_base64)))
-                            = (json_value.get("nickname"), json_value.get("telephone_hash"))  {
-                            let user_id_sybmol_hash_value = get_id_sybmol_hash(nick_name, &telephone_base64);
-                            if user_id_sybmol_hash == user_id_sybmol_hash_value {
-                                user_did = parse_did_from_filename(id_type_value,file_name);
-                            }
-                        }
-                    }
-                    if id_type_value == "System" {
-                        if let Some(Value::String(nickname)) = json_value.get("nickname") {
-                            let (sys_hash_id, _key_phrase) = get_key_hash_id_and_phrase("System", &zeroed_key);
-                            let sysid = nickname.split('@').nth(1).unwrap_or("No @ symbol found");
-                            if sysid == sys_hash_id {
-                                sys_did = parse_did_from_filename(id_type_value, file_name);
-                            }
-                        }
-                    }
-                    if id_type_value == "Device" {
-                        if let Some(Value::String(nickname)) = json_value.get("nickname") {
-                            let (dev_hash_id, _key_phrase) = get_key_hash_id_and_phrase("Device", &zeroed_key);
-                            let devid = nickname.split('@').nth(1).unwrap_or("No @ device found");
-                            if devid == dev_hash_id {
-                                dev_did = parse_did_from_filename(id_type_value, file_name);
-                            }
-                        }
-                    }
-                    if !user_did.is_empty() && !sys_did.is_empty() && !dev_did.is_empty() {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    match user_did.is_empty() {
-        true => { //
-            let id_symbol_hash = calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
-            let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
-            let face_image_hash = calc_sha256(format!("{}:face_image:-", nickname).as_bytes());
-            let file_hash_hash = calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
-            let now_millis = SystemTime::now().duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_millis();
-            let phrase = sha256_prefix(&hkdf_key_deadline(
-                format!("timestamp:{},nickname:{},telephone:{}", now_millis.to_string(),
-                        nickname, URL_SAFE_NO_PAD.encode(telephone_hash)).as_bytes(), 0), 10);
+    let id_symbol_hash = calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
+    let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
+    let face_image_hash = calc_sha256(format!("{}:face_image:-", nickname).as_bytes());
+    let file_hash_hash = calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
+    let claim = IdClaim::new(id_type, &phrase, nickname, telephone_hash, id_symbol_hash, face_image_hash, file_hash_hash);
+    Ok(claim)
 
-            let claim = IdClaim::new(id_type, &phrase, nickname, telephone_hash, id_symbol_hash, face_image_hash, file_hash_hash);
-            Ok((claim, phrase))
-        }
-        false => {
-            did_file_path = get_path_in_sys_key_dir(
-                format!("{}_{}.did", id_type.to_lowercase(), user_did).as_str());
-            let claim: IdClaim = serde_json::from_str(&fs::read_to_string(did_file_path)?)?;
-            Ok((claim, "".to_string()))
-        }
-    }
 }
 
 pub fn read_did_claim_from_file(did: &str) -> Result<IdClaim, TokenError> {
@@ -731,9 +662,9 @@ pub fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMa
 pub fn create_and_save_crypt_secret(sys_did: &str, id_type: &str, claim: &mut IdClaim,  phrase: &str) -> String {
     let zeroed_key_40: [u8; 40] = [0; 40];
     let crypt_secret = get_specific_secret_key(
-        "hellman",0,id_type, &claim.get_id_sybmol_hash(), &phrase).unwrap_or_else(|_| zeroed_key_40);
+        "hellman",0,id_type, &claim.get_id_symbol_hash(), &phrase).unwrap_or_else(|_| zeroed_key_40);
     let crypt_secret_with_sig = save_secret_to_system_token_file(
-        &sys_did, &claim.gen_did(), &crypt_secret, id_type, &claim.get_id_sybmol_hash(), &phrase);
+        &sys_did, &claim.gen_did(), &crypt_secret, id_type, &claim.get_id_symbol_hash(), &phrase);
     claim.set_crypt_key_and_save_file(crypt_secret);
     crypt_secret_with_sig.unwrap_or_else(|_| String::from("Unknown"))
 }
@@ -761,7 +692,17 @@ pub fn save_secret_to_system_token_file(sys_did: &str, did: &str, secret: &[u8; 
 
 pub fn load_did_in_local(claims: &mut HashMap<String, IdClaim>) -> Result<(), TokenError> {
     let did_file_path = get_path_in_sys_key_dir("user_xxxxx.did");
-    let root_path = did_file_path.parent().unwrap();
+    let root_path = match  did_file_path.parent() {
+        Some(parent) => {
+            if parent.exists() {
+                parent
+            } else {
+                fs::create_dir_all(did_file_path.clone()).unwrap();
+                parent
+            }
+        },
+        None => panic!("{}", format!("File path does not have a parent directory: {:?}", did_file_path)),
+    };
     for entry in fs::read_dir(root_path)? {
         let entry = entry?;
         let path = entry.path();
@@ -801,11 +742,11 @@ pub fn convert_base64_to_key(key_str: &str) -> [u8; 32] {
     key
 }
 
-pub fn get_id_sybmol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
-    get_id_sybmol_hash(nickname, URL_SAFE_NO_PAD.encode(
+pub fn get_id_symbol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
+    get_id_symbol_hash(nickname, URL_SAFE_NO_PAD.encode(
         calc_sha256(telephone.as_bytes())).as_str())
 }
-pub fn get_id_sybmol_hash(nickname: &str, telephone_base64: &str) -> [u8; 32] {
+pub fn get_id_symbol_hash(nickname: &str, telephone_base64: &str) -> [u8; 32] {
     calc_sha256(format!("{}:{}",nickname, telephone_base64).as_bytes())
 }
 pub fn transfer_private_data(aes_key_old: &[u8; 32], aes_key_new: &[u8; 32], private_paths: &Vec<String>) {
