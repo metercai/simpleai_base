@@ -48,22 +48,30 @@ impl SimpleAI {
         let system_name = format!("{}@{}", sys_name, sys_hash_id);
         let device_name = format!("{}@{}", host_name, device_hash_id);
         let guest_name = format!("guest@{}", sys_hash_id);
+        println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
         let Ok((mut local_claim, local_phrase)) = env_utils::read_or_generate_did_claim
             ("System", &system_name, Some(root_dir), None) else { todo!() };
         let local_did = local_claim.gen_did();
+        println!("system_did:{}", local_did);
+
         let sysinfo = Arc::new(Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
         let sysinfo_clone = Arc::clone(&sysinfo);
         SystemInfo::generate(sys_base_info, sysinfo_clone, local_did.clone());
+        println!("SystemInfo::generat ok");
 
         let mut claims =  HashMap::new();
         let _ = env_utils::load_did_in_local(&mut claims);
+        println!("load_did_in_local: len={}", claims.len());
+
         let mut crypt_secrets = HashMap::new();
         let _ = env_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets, &mut claims);
+        println!("load_token_by_authorized2system: len={}", crypt_secrets.len());
 
         if !crypt_secrets.contains_key(&local_did) {
             let local_crypt_secret = env_utils::create_and_save_crypt_secret(&local_did, "System", &mut local_claim, &local_phrase);
-            crypt_secrets.insert(local_did.clone(), local_crypt_secret);
+            crypt_secrets.insert(local_did.clone(), local_crypt_secret.clone());
+            println!("create_and_save_crypt_secret ok, local_crypt_secret: {}", local_crypt_secret);
         }
 
         let Ok((mut device_claim, device_phrase)) = env_utils::read_or_generate_did_claim
