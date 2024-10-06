@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
 pub struct ComfyTaskParams {
-    params: HashMap<String, String>,
+    params: HashMap<String, Value>,
     fooo2node: HashMap<String, String>,
 }
 
@@ -60,9 +60,12 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
 #[pymethods]
 impl ComfyTaskParams {
     #[new]
-    pub fn new(params: HashMap<String, String>) -> Self {
+    pub fn new(params: String) -> Self {
         let fooo2node: HashMap<String, String> = FOOO2NODE_DATA.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-
+        let params: HashMap<String, Value> = match serde_json::from_str(&params) {
+            Ok(json) => json,
+            Err(_) => HashMap::new(),
+        };
         Self {
             params,
             fooo2node,
@@ -73,7 +76,11 @@ impl ComfyTaskParams {
         self.fooo2node.extend(maps);
     }
 
-    pub fn update_params(&mut self, new_params: HashMap<String, String>) {
+    pub fn update_params(&mut self, new_params: String) {
+        let new_params: HashMap<String, Value> = match serde_json::from_str(&new_params) {
+            Ok(json) => json,
+            Err(_) => HashMap::new(),
+        };
         self.params.extend(new_params);
     }
 
@@ -113,12 +120,14 @@ impl ComfyTaskParams {
                         if let Value::Array(nodes) = &mut workflow_json {
                             if inputs.contains('|') {
                                 let keys: Vec<&str> = inputs.split('|').collect();
-                                let vs: Vec<&str> = v.trim().split('|').collect();
-                                for i in 0..keys.len() {
-                                    nodes[node_index]["inputs"][keys[i]] = Value::String(vs[i].to_string());
+                                if let Value::String(vs) = v {
+                                    let vs: Vec<&str> = vs.trim().split('|').collect();
+                                    for i in 0..keys.len() {
+                                        nodes[node_index]["inputs"][keys[i]] = Value::String(vs[i].to_string());
+                                    }
                                 }
                             } else {
-                                nodes[node_index]["inputs"][inputs] = Value::String(v.to_string());
+                                nodes[node_index]["inputs"][inputs] = v.clone();
                             }
                         }
                     }
