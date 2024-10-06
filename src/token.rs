@@ -223,7 +223,6 @@ impl SimpleAI {
         let text = format!("{}|{}|{}", self.guest.clone(),
                            self.crypt_secrets[&self.did], self.crypt_secrets[&self.get_guest_did()]);
         let text_hash = env_utils::calc_sha256(text.as_bytes()).to_base58();
-        println!("sstoken, text_hash: {}", text_hash);
         format!("{}|{}", self.guest.clone(), text_hash[..16].to_string())
     }
 

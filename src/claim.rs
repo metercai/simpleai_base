@@ -151,6 +151,13 @@ impl UserContext {
         }
     }
 
+    pub fn get_nickname(&self) -> String {
+        self.nickname.clone()
+    }
+
+    pub fn get_permissions(&self) -> String {
+        self.permissions.clone()
+    }
 
     pub fn get_crypt_key(&self) -> [u8; 32] {
         let auth_sk = URL_SAFE_NO_PAD.decode(self.auth_sk.as_bytes()).unwrap_or_else(|_| [0u8; 40].to_vec());
