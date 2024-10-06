@@ -183,14 +183,14 @@ impl UserContext {
         serde_json::from_str(&self.private_paths).unwrap_or_default()
     }
 
-    pub fn get_private_list(&self, catalog: &str) -> Vec<String> {
+    pub fn get_private_paths_list(&self, catalog: &str) -> Vec<String> {
         let catalog_paths = env_utils::get_path_in_user_dir(self.did.as_str(), catalog);
         let filters = &[];
         let suffixes = &[".json"];
         env_utils::filter_files(&catalog_paths, filters, suffixes)
     }
 
-    pub fn get_private_datas(&self, catalog: &str, name: &str) -> String {
+    pub fn get_private_paths_datas(&self, catalog: &str, name: &str) -> String {
         let file_paths = env_utils::get_path_in_user_dir(self.did.as_str(), catalog).join(name);
         match file_paths.exists() {
             true => {

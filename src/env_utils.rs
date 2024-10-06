@@ -94,7 +94,7 @@ pub fn get_path_in_sys_key_dir(filename: &str) -> PathBuf {
         Some(dirs) => dirs.home_dir().to_path_buf(),
         None => PathBuf::from(sysinfo.root_dir.clone()),
     };
-    let sys_key_dir = home_dirs.join("simpleai.vip").join(".token");
+    let sys_key_dir = home_dirs.join(".simpleai.vip").join(".token");
     sys_key_dir.join(filename)
 }
 
@@ -104,7 +104,7 @@ pub fn get_path_in_user_dir(did: &str, filename: &str) -> PathBuf {
         Some(dirs) => dirs.home_dir().to_path_buf(),
         None => PathBuf::from(sysinfo.root_dir.clone()),
     };
-    let user_dir = home_dirs.join("simpleai.vip").join(did);
+    let user_dir = home_dirs.join(".simpleai.vip").join(did);
     user_dir.join(filename)
 }
 

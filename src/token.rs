@@ -220,8 +220,12 @@ impl SimpleAI {
     }
 
     pub fn get_guest_sstoken(&self) -> String {
-        let text = format!("{}|{}|{}", self.guest.clone(),
-                           self.crypt_secrets[&self.did], self.crypt_secrets[&self.get_guest_did()]);
+        self.get_user_sstoken(&self.guest)
+    }
+
+    pub fn get_user_sstoken(&self, did: &str) -> String {
+        let text = format!("{}|{}|{}", did.clone(),
+                           self.crypt_secrets[&self.did], self.crypt_secrets[did]);
         let text_hash = env_utils::calc_sha256(text.as_bytes()).to_base58();
         format!("{}|{}", self.guest.clone(), text_hash[..16].to_string())
     }
@@ -231,13 +235,16 @@ impl SimpleAI {
         if parts.len() == 2 {
             let did = parts[0].to_string();
             let sig = parts[1].to_string();
+            if !self.crypt_secrets.contains_key(&did) {
+                return String::from("Unknown");
+            }
             let text = format!("{}|{}|{}", did.clone(), self.crypt_secrets[&self.did], self.crypt_secrets[&did]);
             let text_hash = env_utils::calc_sha256(text.as_bytes()).to_base58();
             if sig == text_hash[..16] {
                 return did;
             }
         }
-        return String::from("Unknown");
+        String::from("Unknown")
     }
 
     pub fn get_guest_user_context(&mut self) -> UserContext {
