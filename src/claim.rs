@@ -88,10 +88,10 @@ impl IdClaim {
         let crypt_key = env_utils::get_crypt_key(crypt_secret).unwrap_or_else(|_| zeroed_key);
         self.crypt_key = URL_SAFE_NO_PAD.encode(crypt_key);
         let did_file_path = env_utils::get_path_in_sys_key_dir(format!("{}_{}.did", self.id_type.to_lowercase(), self.gen_did()).as_str());
-        fs::write(did_file_path, self.to_json()).unwrap();
+        fs::write(did_file_path, self.to_json_string()).unwrap();
     }
 
-    pub(crate) fn to_json(&self) -> String {
+    pub(crate) fn to_json_string(&self) -> String {
         serde_json::to_string(self).unwrap_or("Unknown".to_string())
     }
 
@@ -226,7 +226,7 @@ impl UserContext {
         self.nickname == "Default"
     }
 
-    pub(crate) fn to_json(&self) -> String {
+    pub(crate) fn to_json_string(&self) -> String {
         serde_json::to_string(self).unwrap_or("Unknown".to_string())
     }
 

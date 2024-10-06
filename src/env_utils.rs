@@ -734,9 +734,15 @@ pub fn load_did_in_local(claims: &mut HashMap<String, IdClaim>) -> Result<(), To
         if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
             if file_name.ends_with(".did") {
                 let claim: IdClaim = serde_json::from_str(&fs::read_to_string(path)?)?;
-                claims.insert(claim.gen_did(), claim);
+                claims.insert(claim.gen_did(), claim.clone());
+                if *VERBOSE_INFO {
+                    println!("Load did: {}", claim.to_json_string());
+                }
             }
         }
+    }
+    if *VERBOSE_INFO {
+        println!("Loaded claims.len={}", claims.len());
     }
     Ok(())
 }
