@@ -94,9 +94,20 @@ pub fn get_path_in_sys_key_dir(filename: &str) -> PathBuf {
         Some(dirs) => dirs.home_dir().to_path_buf(),
         None => PathBuf::from(sysinfo.root_dir.clone()),
     };
-    let sys_key_dir = home_dirs.join(".token");
+    let sys_key_dir = home_dirs.join("simpleai.vip").join(".token");
     sys_key_dir.join(filename)
 }
+
+pub fn get_path_in_user_dir(did: &str, filename: &str) -> PathBuf {
+    let sysinfo = &SYSTEM_BASE_INFO;
+    let home_dirs = match BaseDirs::new() {
+        Some(dirs) => dirs.home_dir().to_path_buf(),
+        None => PathBuf::from(sysinfo.root_dir.clone()),
+    };
+    let user_dir = home_dirs.join("simpleai.vip").join(did);
+    user_dir.join(filename)
+}
+
 pub fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {
     let sysinfo = &SYSTEM_BASE_INFO;
     match key_type {
@@ -590,7 +601,7 @@ pub fn create_or_renew_user_token(did: &str, nickname: &str, id_type: &str, symb
             let default_permissions = "standard".to_string();
             let default_private_paths = serde_json::to_string(
                 &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
-            let mut context_default = UserContext::new(nickname, &default_permissions, &default_private_paths);
+            let mut context_default = UserContext::new(did, nickname, &default_permissions, &default_private_paths);
             let secret_key = get_random_secret_key(id_type, 0, symbol_hash, phrase)
                 .unwrap_or([0u8; 40]);
             let default_expire = 90*24*3600;
@@ -611,6 +622,9 @@ fn read_user_token_from_file(user_token_file: &Path) -> Result<(UserContext, Str
     let token_raw_data = fs::read(user_token_file)?;
     let token_data = decrypt(&token_raw_data, &crypt_key, 0);
     let user_token: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
+    let did = user_token.get("did")
+        .and_then(Value::as_str)
+        .unwrap_or("None");
     let auth_sk = user_token.get("auth_sk")
         .and_then(Value::as_str)
         .unwrap_or("None");
@@ -629,7 +643,7 @@ fn read_user_token_from_file(user_token_file: &Path) -> Result<(UserContext, Str
     let sig = user_token.get("sig")
         .and_then(Value::as_str)
         .unwrap_or("None");
-    let mut context = UserContext::new(nickname, permissions, private_paths);
+    let mut context = UserContext::new(did, nickname, permissions, private_paths);
     context.set_auth_sk(auth_sk);
     context.set_aes_key_encrypted(aes_key_encrypted);
     Ok((context, sig.to_string()))
@@ -758,6 +772,29 @@ pub fn get_symbol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
 }
 pub fn get_symbol_hash(nickname: &str, telephone_base64: &str) -> [u8; 32] {
     calc_sha256(format!("{}:{}",nickname, telephone_base64).as_bytes())
+}
+
+pub fn filter_files(work_paths: &Path, filters: &[&str], suffixes: &[&str]) -> Vec<String> {
+    let mut result = Vec::new();
+    if let Ok(entries) = fs::read_dir(work_paths) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(file_name) = path.file_name() {
+                        if let Some(file_name_str) = file_name.to_str() {
+                            let contains_filter = filters.iter().any(|filter| file_name_str.contains(filter));
+                            let ends_with_suffix = suffixes.iter().any(|suffix| file_name_str.ends_with(suffix));
+                            if contains_filter && ends_with_suffix {
+                                result.push(file_name_str.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    result
 }
 pub fn transfer_private_data(aes_key_old: &[u8; 32], aes_key_new: &[u8; 32], private_paths: &Vec<String>) {
      // TODO

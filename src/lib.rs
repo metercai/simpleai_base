@@ -4,8 +4,9 @@ use base64::Engine;
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
-use crate::claim::IdClaim;
+use crate::claim::{IdClaim,UserContext};
 use crate::systeminfo::SystemInfo;
+use crate::params_mapper::ComfyTaskParams;
 
 mod claim;
 mod env_utils;
@@ -14,6 +15,7 @@ mod rathole;
 mod token;
 mod systeminfo;
 mod env_data;
+mod params_mapper;
 
 
 #[pyfunction]

@@ -1,4 +1,3 @@
-use std::fmt;
 use std::fs;
 use std::collections::HashMap;
 use serde_json::Value;
@@ -7,7 +6,7 @@ use pyo3::prelude::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
-struct ComfyTaskParams {
+pub struct ComfyTaskParams {
     params: HashMap<String, String>,
     fooo2node: HashMap<String, String>,
 }
@@ -88,107 +87,52 @@ impl ComfyTaskParams {
         let mut workflow_json: Value = match serde_json::from_str(workflow) {
             Ok(json) => json,
             Err(e) => {
-                eprintln!("Error parsing JSON: {}", e);
+                eprintln!("Error parsing JSON: {}\nInput JSON: {}", e, workflow);
                 return workflow.to_string();
             }
         };
-        let node_index = self.build_node_index(&workflow_json);
+
+        let mut node_index = HashMap::new();
+        if let Value::Array(nodes) = &mut workflow_json {
+            for (index, node) in nodes.iter().enumerate() {
+                let class_type = node["class_type"].as_str().unwrap_or_default().to_string();
+                let meta_title = node["_meta"]["title"].as_str().unwrap_or_default().to_string();
+                node_index.insert((class_type, meta_title), index);
+            }
+        }
 
         for (pk1, v) in &self.params {
             if let Some(nk) = self.fooo2node.get(pk1) {
-                self.replace_key(&mut workflow_json, &node_index, nk, v);
+                for line in nk.split(';') {
+                    let parts: Vec<&str> = line.trim().split(':').collect();
+                    let class_type = parts[0].trim().to_string();
+                    let meta_title = parts[1].trim().to_string();
+                    let inputs = parts[2].trim().to_string();
+
+                    if let Some(&node_index) = node_index.get(&(class_type, meta_title)) {
+                        if let Value::Array(nodes) = &mut workflow_json {
+                            if inputs.contains('|') {
+                                let keys: Vec<&str> = inputs.split('|').collect();
+                                let vs: Vec<&str> = v.trim().split('|').collect();
+                                for i in 0..keys.len() {
+                                    nodes[node_index]["inputs"][keys[i]] = Value::String(vs[i].to_string());
+                                }
+                            } else {
+                                nodes[node_index]["inputs"][inputs] = Value::String(v.to_string());
+                            }
+                        }
+                    }
+                }
             }
         }
 
         match serde_json::to_string(&workflow_json) {
             Ok(new_workflow) => new_workflow,
             Err(e) => {
-                eprintln!("Error converting JSON to string: {}", e);
+                eprintln!("Error converting JSON to string: {}\nJSON: {}", e, workflow_json);
                 workflow.to_string()
             }
         }
     }
 
-    fn build_node_index(workflow: &Value) -> HashMap<(String, String), &mut Value> {
-        let mut index = HashMap::new();
-        if let Value::Array(nodes) = workflow {
-            for node in nodes.iter_mut() {
-                let class_type = node["class_type"].as_str().unwrap_or_default().to_string();
-                let meta_title = node["_meta"]["title"].as_str().unwrap_or_default().to_string();
-                index.insert((class_type, meta_title), node);
-            }
-        }
-        index
-    }
-
-    fn replace_key(&self, workflow: &mut Value, node_index: &HashMap<(String, String), nk: &str, v: &str) {
-        let lines: Vec<&str> = nk.split(';').collect();
-
-        for line in lines {
-            let parts: Vec<&str> = line.trim().split(':').collect();
-            let class_type = parts[0].trim().to_string();
-            let meta_title = parts[1].trim().to_string();
-            let inputs = parts[2].trim().to_string();
-
-            if let Some(node) = node_index.get_mut(&(class_type, meta_title)) {
-                if inputs.contains('|') {
-                    let keys: Vec<&str> = inputs.split('|').collect();
-                    let vs: Vec<&str> = v.trim().split('|').collect();
-                    for i in 0..keys.len() {
-                        node["inputs"][keys[i]] = Value::String(vs[i].to_string());
-                    }
-                } else {
-                    node["inputs"][inputs] = Value::String(v.to_string());
-                }
-            }
-        }
-    }
-
-/*    fn replace_key(&self, workflow: &mut Value, nk: &str, v: &str) {
-        let lines: Vec<&str> = nk.split(';').collect();
-        for line in lines {
-            let parts: Vec<&str> = line.trim().split(':').collect();
-            let class_type = parts[0].trim().to_string();
-            let meta_title = parts[1].trim().to_string();
-            let inputs = parts[2].trim().to_string();
-
-            if let Value::Array(nodes) = workflow {
-                for node in nodes.iter_mut() {
-                    if node["class_type"] == class_type && node["_meta"]["title"] == meta_title {
-                        if inputs.contains('|') {
-                            let keys: Vec<&str> = inputs.split('|').collect();
-                            let vs: Vec<&str> = v.trim().split('|').collect();
-                            for i in 0..keys.len() {
-                                node["inputs"][keys[i]] = Value::String(vs[i].to_string());
-                            }
-                        } else {
-                            node["inputs"][inputs] = Value::String(v.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }*/
-}
-
-fn test() {
-    let mut params = HashMap::new();
-    params.insert("seed".to_string(), "12345".to_string());
-    params.insert("steps".to_string(), "50".to_string());
-
-    let workflow = r#"[
-        {
-            "class_type": "KSampler",
-            "_meta": {
-                "title": "main_sampler"
-            },
-            "inputs": {}
-        }
-    ]"#;
-
-    let comfy_task_params = ComfyTaskParams::new(params);
-    match comfy_task_params.convert2comfy(workflow) {
-        Ok(updated_workflow) => println!("{}", updated_workflow),
-        Err(e) => eprintln!("Error: {}", e),
-    }
 }

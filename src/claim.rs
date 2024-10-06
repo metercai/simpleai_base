@@ -6,6 +6,7 @@ use base58::*;
 use sha2::Digest;
 use ripemd::Ripemd160;
 use serde_derive::{Serialize, Deserialize};
+use serde_json::Value;
 use crate::env_utils;
 use pyo3::prelude::*;
 
@@ -131,6 +132,7 @@ impl fmt::Display for IdClaim {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
 pub struct UserContext {
+    did: String,
     nickname: String,
     auth_sk: String,        // 授权密钥
     permissions: String,    // 权限
@@ -141,8 +143,9 @@ pub struct UserContext {
 #[pymethods]
 impl UserContext {
     #[new]
-    pub fn new(nickname: &str, permissions: &str, private_paths: &str) -> Self {
+    pub fn new(did: &str, nickname: &str, permissions: &str, private_paths: &str) -> Self {
         Self {
+            did: did.to_string(),
             nickname: nickname.to_string(),
             auth_sk: String::new(),
             permissions: permissions.to_string(),
@@ -180,6 +183,31 @@ impl UserContext {
         serde_json::from_str(&self.private_paths).unwrap_or_default()
     }
 
+    pub fn get_private_list(&self, catalog: &str) -> Vec<String> {
+        let catalog_paths = env_utils::get_path_in_user_dir(self.did.as_str(), catalog);
+        let filters = &[];
+        let suffixes = &[".json"];
+        env_utils::filter_files(&catalog_paths, filters, suffixes)
+    }
+
+    pub fn get_private_datas(&self, catalog: &str, name: &str) -> String {
+        let file_paths = env_utils::get_path_in_user_dir(self.did.as_str(), catalog).join(name);
+        match file_paths.exists() {
+            true => {
+                let crypt_key = self.get_crypt_key();
+                match fs::read(file_paths) {
+                    Ok(raw_data) => {
+                        let data = env_utils::decrypt(&raw_data, &crypt_key, 0);
+                        let private_datas: Value = serde_json::from_slice(&data).unwrap_or(serde_json::json!({}));
+                        private_datas.to_string()
+                    },
+                    Err(_) => "Unknowns".to_string(),
+                }
+            }
+            false => "Unknowns".to_string(),
+        }
+    }
+
     pub(crate) fn get_aes_key_encrypted(&self) -> String {
         self.aes_key_encrypted.clone()
     }
@@ -207,6 +235,7 @@ impl UserContext {
 impl Default for UserContext {
     fn default() -> Self {
         UserContext {
+            did: "Default_did".to_string(),
             nickname: "Default".to_string(),
             auth_sk: "Default_auth_sk".to_string(),
             permissions: "Default_permissions".to_string(),
