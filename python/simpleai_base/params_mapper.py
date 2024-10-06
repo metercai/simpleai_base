@@ -18,6 +18,6 @@ class ComfyTaskParams:
         return json.loads(self.obj.get_params())
 
     def convert2comfy(self, workflow):
-        return self.obj.convert2comfy(workflow)
+        return self.obj.convert2comfy(json.dumps(workflow))
 
 
