@@ -249,12 +249,7 @@ impl SimpleAI {
 
     pub fn get_guest_user_context(&mut self) -> UserContext {
         let guest_did = self.get_guest_did();
-        let mut guest_user_context = self.get_user_context(&guest_did);
-        guest_user_context = match guest_user_context.is_default() {
-            true => self.sign_user_context(&guest_did, &self.guest_phrase.clone()),
-            _ => guest_user_context,
-        };
-        guest_user_context
+        self.get_user_context(&guest_did)
     }
 
     pub fn get_user_context(&mut self, did: &str) -> UserContext {
@@ -263,10 +258,13 @@ impl SimpleAI {
                 (UserContext::default(), String::from("Unknown"))
             );
             let token_text = format!("{}{}", did, context.get_text());
-            if sig != "Unknown" && self.verify_by_did(&token_text, &sig, did) {
+            if !context.is_default() && self.verify_by_did(&token_text, &sig, did) {
                 self.authorized.insert(did.to_string(), context.clone());
                 context
             } else {
+                if context.is_default() && did == &self.guest {
+                    self.sign_user_context(&guest_did, &self.guest_phrase.clone())
+                }
                 UserContext::default()
             }
         })
@@ -284,7 +282,7 @@ impl SimpleAI {
                 context
             },
             Err(e) => {
-                eprintln!("Failed to save user token: {}", e);
+                println!("Failed to save user token: {}", e);
                 UserContext::default()
             }
         }
