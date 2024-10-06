@@ -111,10 +111,11 @@ impl ComfyTaskParams {
 
         let mut node_index = HashMap::new();
         if let Value::Array(nodes) = &mut workflow_json {
-            for (index, node) in nodes.iter().enumerate() {
+            for node in nodes.iter() {
                 let class_type = node["class_type"].as_str().unwrap_or_default().to_string();
                 let meta_title = node["_meta"]["title"].as_str().unwrap_or_default().to_string();
-                node_index.insert((class_type, meta_title), index);
+                let node_ref = Rc::new(RefCell::new(node.clone()));
+                node_index.insert((class_type, meta_title), node_ref);
             }
         }
 
@@ -126,19 +127,18 @@ impl ComfyTaskParams {
                     let meta_title = parts[1].trim().to_string();
                     let inputs = parts[2].trim().to_string();
 
-                    if let Some(&node_index) = node_index.get(&(class_type, meta_title)) {
-                        if let Value::Array(nodes) = &mut workflow_json {
-                            if inputs.contains('|') {
-                                let keys: Vec<&str> = inputs.split('|').collect();
-                                if let Value::String(vs) = v {
-                                    let vs: Vec<&str> = vs.trim().split('|').collect();
-                                    for i in 0..keys.len() {
-                                        nodes[node_index]["inputs"][keys[i]] = Value::String(vs[i].to_string());
-                                    }
+                    if let Some(node_ref) = node_index.get(&(class_type, meta_title)) {
+                        let mut node = node_ref.borrow_mut();
+                        if inputs.contains('|') {
+                            let keys: Vec<&str> = inputs.split('|').collect();
+                            if let Value::String(vs) = v {
+                                let vs: Vec<&str> = vs.trim().split('|').collect();
+                                for i in 0..keys.len() {
+                                    node["inputs"][keys[i]] = Value::String(vs[i].to_string());
                                 }
-                            } else {
-                                nodes[node_index]["inputs"][inputs] = v.clone();
                             }
+                        } else {
+                            node["inputs"][inputs] = v.clone();
                         }
                     }
                 }
