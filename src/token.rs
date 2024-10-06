@@ -263,9 +263,10 @@ impl SimpleAI {
                 context
             } else {
                 if context.is_default() && did == &self.guest {
-                    self.sign_user_context(&guest_did, &self.guest_phrase.clone())
+                    self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
+                } else {
+                    UserContext::default()
                 }
-                UserContext::default()
             }
         })
     }
