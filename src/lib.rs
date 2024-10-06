@@ -43,7 +43,8 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
+    m.add_class::<UserContext>()?;
     m.add_class::<SystemInfo>()?;
-
+    m.add_class::<ComfyTaskParams>()?;
     Ok(())
 }

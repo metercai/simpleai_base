@@ -62,19 +62,19 @@ impl IdClaim {
         did.to_base58()
     }
 
-    pub fn get_verify_key(&self) -> [u8; 32] {
+    pub(crate) fn get_verify_key(&self) -> [u8; 32] {
         env_utils::convert_base64_to_key(&self.verify_key)
     }
 
-    pub fn get_crypt_key(&self) -> [u8; 32] {
+    pub(crate) fn get_crypt_key(&self) -> [u8; 32] {
         env_utils::convert_base64_to_key(&self.crypt_key)
     }
 
-    pub fn get_id_card_hash(&self) -> [u8; 32] {
+    pub(crate) fn get_id_card_hash(&self) -> [u8; 32] {
         env_utils::convert_base64_to_key(&self.id_card_hash)
     }
 
-    pub fn get_telephone_hash(&self) -> [u8; 32] {
+    pub(crate) fn get_telephone_hash(&self) -> [u8; 32] {
         env_utils::convert_base64_to_key(&self.telephone_hash)
     }
 
@@ -82,7 +82,7 @@ impl IdClaim {
         env_utils::get_symbol_hash(&self.nickname, &self.telephone_hash)
     }
 
-    pub fn set_crypt_key_and_save_file(&mut self, crypt_secret: [u8; 40]) {
+    pub(crate) fn set_crypt_key_and_save_file(&mut self, crypt_secret: [u8; 40]) {
         let zeroed_key: [u8; 32] = [0; 32];
         let crypt_key = env_utils::get_crypt_key(crypt_secret).unwrap_or_else(|_| zeroed_key);
         self.crypt_key = URL_SAFE_NO_PAD.encode(crypt_key);
@@ -90,7 +90,7 @@ impl IdClaim {
         fs::write(did_file_path, self.to_json()).unwrap();
     }
 
-    pub fn to_json(&self) -> String {
+    pub(crate) fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or("Unknown".to_string())
     }
 
@@ -155,22 +155,22 @@ impl UserContext {
         self.nickname.clone()
     }
 
-    pub fn get_permissions(&self) -> String {
+    pub(crate) fn get_permissions(&self) -> String {
         self.permissions.clone()
     }
 
-    pub fn get_crypt_key(&self) -> [u8; 32] {
+    pub(crate) fn get_crypt_key(&self) -> [u8; 32] {
         let auth_sk = URL_SAFE_NO_PAD.decode(self.auth_sk.as_bytes()).unwrap_or_else(|_| [0u8; 40].to_vec());
         let key = &auth_sk[..32];
         let expire = u64::from_le_bytes(auth_sk[32..].try_into().unwrap_or_else(|_| [0; 8]));
         env_utils::hkdf_key_deadline(&key, expire)
     }
 
-    pub fn set_auth_sk(&mut self, auth_sk: &str) {
+    pub(crate) fn set_auth_sk(&mut self, auth_sk: &str) {
         self.auth_sk = auth_sk.to_string();
     }
 
-    pub fn set_auth_sk_with_secret(&mut self, secret_key: &str, expire: u64) {
+    pub(crate) fn set_auth_sk_with_secret(&mut self, secret_key: &str, expire: u64) {
         let secret_key_bytes = env_utils::convert_base64_to_key(secret_key);
         self.auth_sk = URL_SAFE_NO_PAD.encode(env_utils::convert_to_sk_with_expire(
             &secret_key_bytes, expire));
@@ -180,16 +180,16 @@ impl UserContext {
         serde_json::from_str(&self.private_paths).unwrap_or_default()
     }
 
-    pub fn get_aes_key_encrypted(&self) -> String {
+    pub(crate) fn get_aes_key_encrypted(&self) -> String {
         self.aes_key_encrypted.clone()
     }
 
-    pub fn set_aes_key_encrypted(&mut self, key: &str) {
+    pub(crate) fn set_aes_key_encrypted(&mut self, key: &str) {
         self.aes_key_encrypted = key.to_string();
     }
 
 
-    pub fn get_text(&self) -> String {
+    pub(crate) fn get_text(&self) -> String {
         format!("{}{}{}{}{}", self.nickname, self.auth_sk, self.permissions,
                 self.private_paths, self.aes_key_encrypted)
     }
@@ -198,7 +198,7 @@ impl UserContext {
         self.nickname == "Default"
     }
 
-    pub fn to_json(&self) -> String {
+    pub(crate) fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or("Unknown".to_string())
     }
 
