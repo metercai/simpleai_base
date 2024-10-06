@@ -122,7 +122,6 @@ impl ComfyTaskParams {
         }
 */
         for (pk1, v) in &self.params {
-            println!("find pk1: {}, and set v: {:?}", pk1, v);
             if let Some(nk) = self.fooo2node.get(pk1) {
                 for line in nk.split(';') {
                     let parts: Vec<&str> = line.trim().split(':').collect();
@@ -132,7 +131,6 @@ impl ComfyTaskParams {
                     if let Value::Object(ref mut nodes) = workflow_json {
                         for (_k, node) in nodes.iter_mut() {
                             if node["class_type"] == class_type && node["_meta"]["title"] == meta_title {
-                                println!("Found {} node: {}", pk1, node);
                                 if inputs.contains('|') { // one node and multiple params
                                     let keys: Vec<&str> = inputs.split('|').collect();
                                     if let Value::String(vs) = v {
@@ -142,7 +140,6 @@ impl ComfyTaskParams {
                                         }
                                     }
                                 } else {
-                                    println!("node {} replace: {} -> {}", inputs.clone(), node["inputs"][inputs.clone()], v.clone());
                                     node["inputs"][inputs.clone()] = v.clone();
                                 }
                             }
