@@ -94,8 +94,7 @@ pub fn get_path_in_sys_key_dir(filename: &str) -> PathBuf {
         Some(dirs) => dirs.home_dir().to_path_buf(),
         None => PathBuf::from(sysinfo.root_dir.clone()),
     };
-    let sys_key_dir = home_dirs.join(".simpleai.vip").join(".token");
-    sys_key_dir.join(filename)
+    home_dirs.join(".simpleai.vip").join(".token").join(filename)
 }
 
 pub fn get_path_in_user_dir(did: &str, filename: &str) -> PathBuf {
@@ -104,8 +103,13 @@ pub fn get_path_in_user_dir(did: &str, filename: &str) -> PathBuf {
         Some(dirs) => dirs.home_dir().to_path_buf(),
         None => PathBuf::from(sysinfo.root_dir.clone()),
     };
-    let user_dir = home_dirs.join(".simpleai.vip").join(did);
-    user_dir.join(filename)
+    home_dirs.join(".simpleai.vip").join(did).join(filename)
+}
+
+pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
+    let sysinfo = &SYSTEM_BASE_INFO;
+    let root_dirs = PathBuf::from(sysinfo.root_dir.clone());
+    root_dirs.join(catalog).join(filename)
 }
 
 pub fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {

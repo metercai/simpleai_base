@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use serde_derive::{Serialize, Deserialize};
 use pyo3::prelude::*;
+use crate::env_utils;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
@@ -102,8 +103,17 @@ impl ComfyTaskParams {
         }
     }
 
-    pub fn convert2comfy(&self, workflow: &str) -> String {
-        let mut workflow_json: Value = match serde_json::from_str(workflow) {
+    pub fn convert2comfy(&self, flow_name: String) -> String {
+        let flow_file = env_utils::get_path_in_root_dir("workflows", &format!("{}_api.json", flow_name));
+        let workflow = match fs::read_to_string(flow_file) {
+            Ok(json_str) => json_str,
+            Err(e) => {
+                println!("Error reading file: {}", e);
+                "{}".to_string()
+            }
+        };
+
+        let mut workflow_json: Value = match serde_json::from_str(&workflow) {
             Ok(json) => json,
             Err(e) => {
                 eprintln!("Error parsing JSON: {}\nInput JSON: {}", e, workflow);
@@ -152,7 +162,7 @@ impl ComfyTaskParams {
         match serde_json::to_string(&workflow_json) {
             Ok(new_workflow) => new_workflow,
             Err(e) => {
-                eprintln!("Error converting JSON to string: {}\nJSON: {}", e, workflow_json);
+                println!("Error converting JSON to string: {}\nJSON: {}", e, workflow_json);
                 workflow.to_string()
             }
         }

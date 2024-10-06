@@ -148,7 +148,7 @@ def process_flow(flow_name, params, images, callback=None):
     for k,v in params.get_params().items():
         print(f'    {k} = {v}')
     try:
-        prompt_str = params.convert2comfy(flowdata)
+        prompt_str = params.convert2comfy(flow_name)
         if not utils.echo_off:
             print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
         images = get_images(ws, prompt_str, callback=callback)
