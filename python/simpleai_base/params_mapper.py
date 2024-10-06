@@ -14,6 +14,9 @@ class ComfyTaskParams:
     def delete_params(self, keys):
         return self.obj.delete_params(keys)
 
+    def get_params(self):
+        return json.loads(self.obj.get_params())
+
     def convert2comfy(self, workflow):
         return self.obj.convert2comfy(workflow)
 

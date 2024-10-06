@@ -90,6 +90,16 @@ impl ComfyTaskParams {
         }
     }
 
+    pub fn get_params(&self) -> String {
+        match serde_json::to_string(&self.params) {
+            Ok(json_string) => json_string,
+            Err(e) => {
+                println!("Error converting params to JSON string: {}", e);
+                "{}".to_string()
+            }
+        }
+    }
+
     pub fn convert2comfy(&self, workflow: &str) -> String {
         let mut workflow_json: Value = match serde_json::from_str(workflow) {
             Ok(json) => json,

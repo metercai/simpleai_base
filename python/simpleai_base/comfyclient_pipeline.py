@@ -145,7 +145,7 @@ def process_flow(flow_name, params, images, callback=None):
     with open(flow_file, 'r', encoding="utf-8") as workflow_api_file:
         flowdata = json.load(workflow_api_file)
     print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
-    for k,v in params.params.items():
+    for k,v in params.get_params().items():
         print(f'    {k} = {v}')
     try:
         prompt_str = params.convert2comfy(flowdata)
