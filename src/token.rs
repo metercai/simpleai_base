@@ -59,6 +59,7 @@ pub struct SimpleAI {
     guest_phrase: String,
     ready_users: HashMap<String, serde_json::Value>,
     blacklist: Vec<String>, // 黑名单
+    upstream_did: String,
 
 }
 
@@ -103,7 +104,7 @@ impl SimpleAI {
             let local_claim = match local_did.as_str() {
                 "Unknown" => {
                     let local_claim = GlobalClaims::generate_did_claim
-                        ("System", &system_name, Some(root_dir), None, &sys_phrase) else { todo!() };
+                        ("System", &system_name, Some(root_dir), None, &sys_phrase);
                     local_did = local_claim.gen_did();
                     claims.push_claim(local_claim.clone());
                     local_claim
@@ -113,7 +114,7 @@ impl SimpleAI {
             let device_claim = match device_did.as_str() {
                 "Unknown" => {
                     let device_claim = GlobalClaims::generate_did_claim
-                        ("Device", &device_name, Some(disk_uuid), None, &device_phrase) else { todo!() };
+                        ("Device", &device_name, Some(disk_uuid), None, &device_phrase);
                     device_did = device_claim.gen_did();
                     claims.push_claim(device_claim.clone());
                     device_claim
@@ -123,7 +124,7 @@ impl SimpleAI {
             let guest_claim = match guest_did.as_str() {
                 "Unknown" => {
                     let guest_claim = GlobalClaims::generate_did_claim
-                        ("User", &guest_name, None, None, &guest_phrase) else { todo!() };
+                        ("User", &guest_name, None, None, &guest_phrase);
                     guest_did = guest_claim.gen_did();
                     claims.push_claim(guest_claim.clone());
                     guest_claim
@@ -134,10 +135,6 @@ impl SimpleAI {
             let claims_local_length = claims.local_len();
             (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length)
         };
-
-        let local_claim_clone = local_claim.clone();
-        let device_claim_clone = device_claim.clone();
-
 
         println!("init system crypt_secrets");
         let mut crypt_secrets = HashMap::new();
@@ -177,12 +174,16 @@ impl SimpleAI {
         let sysinfo = TOKIO_RUNTIME.block_on(async {
             sysinfo_handle.await.expect("Sysinfo Task panicked")
         });
+
+        let sys_did = local_did.clone();
         let sysinfo_clone = sysinfo.clone();
+        let logging_handle = TOKIO_RUNTIME.spawn(async move {
+            SystemInfo::logging_launch_info(&sys_did, &sysinfo_clone).await
+        });
 
         println!("waitting for register");
-        TOKIO_RUNTIME.block_on(async {
-            token_utils::sys_login_to_token_tm(&local_claim_clone, &device_claim_clone, &sysinfo_clone).await
-        });
+        let upstream_did = SimpleAI::request_token_api_register(&local_claim, &device_claim);
+        println!("upstream_did: {:?}", upstream_did);
 
         if *token_utils::VERBOSE_INFO {
             println!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
@@ -203,6 +204,7 @@ impl SimpleAI {
             guest_phrase,
             ready_users: HashMap::new(),
             blacklist,
+            upstream_did,
         }
     }
 
@@ -401,7 +403,7 @@ impl SimpleAI {
             true => true,
             false => {
                 let new_claim = GlobalClaims::generate_did_claim
-                    ("User", &nickname, None, Some(telephone.to_string()), &user_phrase) else { todo!() };
+                    ("User", &nickname, None, Some(telephone.to_string()), &user_phrase);
                 let exchange_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("exchange", &new_claim, &user_phrase);
                 let issue_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("issue", &new_claim, &user_phrase);
                 let mut ready_data: serde_json::Value = json!({});
@@ -641,8 +643,46 @@ impl SimpleAI {
         let claims = self.claims.lock().unwrap();
         claims.reverse_lookup_did_by_symbol(&symbol_hash)
     }
+
+    #[staticmethod]
+    fn request_token_api_register(sys_claim: &IdClaim, dev_claim: &IdClaim) -> String  {
+        let sys_did = sys_claim.gen_did();
+        let device_did = dev_claim.gen_did();
+        let mut request: serde_json::Value = json!({});
+        request["system_claim"] = serde_json::to_value(&sys_claim).unwrap_or(json!(""));
+        request["device_claim"] = serde_json::to_value(&dev_claim).unwrap_or(json!(""));
+        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+
+        TOKIO_RUNTIME.block_on(async {
+            match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, "register"))
+                .header("Sys-Did", sys_did)
+                .header("Dev-Did", device_did)
+                .body(params.clone())
+                .send()
+                .await{
+                Ok(res) => {
+                    match res.text().await {
+                        Ok(text) => {
+                            println!("Token api response: {}", text);
+                            text
+                        },
+                        Err(e) => {
+                            println!("Failed to read response body: {}", e);
+                            "Unknown".to_string()
+                        }
+                    }
+                },
+                Err(e) => {
+                    println!("Failed to request token api: {}", e);
+                    "Unknown".to_string()
+                }
+            }
+        })
+    }
+
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
-        let encoded_params = self.encrypt_for_did(params.as_bytes(), token_utils::TOKEN_TM_DID ,0);
+        let upstream_did = self.upstream_did.clone();
+        let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
         TOKIO_RUNTIME.block_on(async {
             match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
                 .header("Sys-Did", self.did.to_string())
@@ -652,7 +692,10 @@ impl SimpleAI {
                 .await{
                 Ok(res) => {
                     match res.text().await {
-                        Ok(text) => text,
+                        Ok(text) => {
+                            println!("Token api response: {}", text);
+                            text
+                        },
                         Err(e) => {
                             println!("Failed to read response body: {}", e);
                             "Unknown".to_string()

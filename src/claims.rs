@@ -327,7 +327,7 @@ impl IdClaim {
         let did_bytes = did.from_base58().unwrap_or("Unknown".to_string().into_bytes());
         if did_bytes.len() == 21 {
             let did = did_bytes[..20].to_vec();
-            let did_hash1 = did_bytes[21];
+            let did_hash1 = did_bytes[20];
             let did_hash2 = token_utils::calc_sha256(&did)[0];
             if did_hash1 == did_hash2 {
                 return true;

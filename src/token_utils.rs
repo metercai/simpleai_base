@@ -629,38 +629,7 @@ pub fn sha256_prefix(input: &[u8], len: usize) -> String {
 }
 
 
-pub(crate) async fn sys_login_to_token_tm(sys_claim: &IdClaim, device_claim: &IdClaim, sysinfo: &SystemInfo) -> String {
-    let sys_did = sys_claim.gen_did();
-    let device_did = device_claim.gen_did();
-    let mut request: Value = json!({});
-    request["system_claim"] = serde_json::to_value(&sys_claim).unwrap();
-    request["device_claim"] = serde_json::to_value(&device_claim).unwrap();
 
-    let result = match token::REQWEST_CLIENT.post(format!("{}{}", TOKEN_TM_URL, "register"))
-        .header("Sys-Did", sys_did.to_string())
-        .header("Dev-Did", device_did.to_string())
-        .body(serde_json::to_string(&request).unwrap())
-        .send()
-        .await{
-        Ok(res) => {
-            match res.text().await {
-                Ok(text) => text,
-                Err(e) => {
-                    println!("Failed to register system to  token.tm: {}", e);
-                    "Error".to_string()
-                }
-            }
-        },
-        Err(e) => {
-            println!("Failed to register system to  token.tm: {}", e);
-            "Error".to_string()
-        }
-    };
-
-    SystemInfo::logging_launch_info(&sys_did, sysinfo).await;
-
-    result
-}
 
 fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let sysinfo = &SYSTEM_BASE_INFO;
