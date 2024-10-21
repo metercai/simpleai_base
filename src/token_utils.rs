@@ -637,8 +637,8 @@ pub(crate) async fn sys_login_to_token_tm(sys_claim: &IdClaim, device_claim: &Id
     request["device_claim"] = serde_json::to_value(&device_claim).unwrap();
 
     let result = match token::REQWEST_CLIENT.post(format!("{}{}", TOKEN_TM_URL, "register"))
-        .header("sys_did", sys_did.to_string())
-        .header("dev_did", device_did.to_string())
+        .header("Sys-Did", sys_did.to_string())
+        .header("Dev-Did", device_did.to_string())
         .body(serde_json::to_string(&request).unwrap())
         .send()
         .await{

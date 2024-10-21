@@ -645,8 +645,8 @@ impl SimpleAI {
         let encoded_params = self.encrypt_for_did(params.as_bytes(), token_utils::TOKEN_TM_DID ,0);
         TOKIO_RUNTIME.block_on(async {
             match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
-                .header("sys_did", self.did.to_string())
-                .header("dev_did", self.device.to_string())
+                .header("Sys-Did", self.did.to_string())
+                .header("Dev-Did", self.device.to_string())
                 .body(encoded_params.clone())
                 .send()
                 .await{
