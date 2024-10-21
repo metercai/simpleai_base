@@ -686,6 +686,7 @@ impl SimpleAI {
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.upstream_did.clone();
         let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
+        println!("Requesting token api: {} with params: {}", api_name, encoded_params);
         TOKIO_RUNTIME.block_on(async {
             match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
                 .header("Sys-Did", self.did.to_string())
