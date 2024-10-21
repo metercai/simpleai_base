@@ -120,7 +120,6 @@ def images_upload(images):
 def process_flow(flow_name, params, images, callback=None):
     global ws
 
-    flow_file = os.path.join(WORKFLOW_DIR, f'{flow_name}_api.json')
     if ws is None or ws.status != 101:
         if ws is not None:
             print(f'[ComfyClient] websocket status: {ws.status}, timeout:{ws.timeout}s.')
@@ -142,8 +141,6 @@ def process_flow(flow_name, params, images, callback=None):
 
     images_map = images_upload(images)
     params.update_params(images_map)
-    with open(flow_file, 'r', encoding="utf-8") as workflow_api_file:
-        flowdata = json.load(workflow_api_file)
     print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
     for k,v in params.get_params().items():
         print(f'    {k} = {v}')

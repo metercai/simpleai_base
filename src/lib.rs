@@ -4,12 +4,13 @@ use base64::Engine;
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
-use crate::claim::{IdClaim,UserContext};
+use crate::claims::{IdClaim, UserContext};
 use crate::systeminfo::SystemInfo;
 use crate::params_mapper::ComfyTaskParams;
 
-mod claim;
+mod claims;
 mod env_utils;
+mod token_utils;
 mod error;
 mod rathole;
 mod token;

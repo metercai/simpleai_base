@@ -10,18 +10,10 @@ use tokio::sync::Mutex;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tokio::join;
-use lazy_static::lazy_static;
-use tokio::runtime::Runtime;
 use sysinfo::System;
-use crate::env_utils;
 
-lazy_static! {
-    pub static ref RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-    //tokio::runtime::Runtime::new().unwrap();
-}
+use crate::{token, token_utils, env_utils};
+
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SystemBaseInfo {
@@ -107,7 +99,7 @@ impl SystemBaseInfo {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[pyclass]
 pub struct SystemInfo {
     pub os_type: String,
@@ -144,22 +136,6 @@ pub struct SystemInfo {
 
 impl SystemInfo {
 
-    pub fn generate(base: SystemBaseInfo, info: Arc<Mutex<SystemInfo>>, did: String) {
-        RUNTIME.block_on(async {
-            let info_clone = info.clone();
-            tokio::spawn(async move {
-                SystemInfo::_generate(base, info_clone, did).await;
-            });
-        });
-    }
-
-    pub fn get_sysinfo(info: Arc<Mutex<SystemInfo>>) -> SystemInfo {
-        RUNTIME.block_on(async {
-            let mutex_guard = info.lock().await;
-            (*mutex_guard).clone()
-        })
-    }
-
     pub fn from_base(base: SystemBaseInfo) -> Self {
         Self {
             os_type: base.os_type,
@@ -193,7 +169,7 @@ impl SystemInfo {
             uihash: "Unknown".to_string(),
         }
     }
-    async fn _generate(base: SystemBaseInfo, info: Arc<Mutex<SystemInfo>>, did: String) {
+    pub async fn generate(info: Arc<Mutex<SystemInfo>>) -> SystemInfo {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(127, 0, 0, 1));
         let public_ip_task = env_utils::get_ipaddr_from_public(false);
         let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);
@@ -206,38 +182,20 @@ impl SystemInfo {
         let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("Unknown".to_string(), "Unknown".to_string()));
 
         let mut sysinfo = info.lock().await;
-        *sysinfo = Self {
-            os_type: base.os_type,
-            os_name: base.os_name,
-            host_type: base.host_type,
-            host_name: base.host_name,
-            cpu_arch: base.cpu_arch,
-            cpu_brand: base.cpu_brand,
-            cpu_cores: base.cpu_cores,
-            ram_total: base.ram_total,
-            ram_free: base.ram_free,
-            ram_swap: base.ram_swap,
-            gpu_brand: base.gpu_brand,
-            gpu_name: base.gpu_name,
-            gpu_memory: base.gpu_memory,
-            driver: base.driver,
-            cuda: base.cuda,
-            local_ip: local_ip.to_string(),
-            local_port,
-            loopback_port,
-            mac_address,
-            public_ip: public_ip.unwrap_or(Ipv4Addr::new(0, 0, 0, 0)).to_string(),
-            location: location.unwrap_or("CN".to_string()).to_string(),
-            disk_total: base.disk_total,
-            disk_free: base.disk_free,
-            disk_uuid: base.disk_uuid,
-            root_dir: base.root_dir,
-            exe_dir: base.exe_dir,
-            exe_name: base.exe_name,
-            pyhash,
-            uihash,
-        };
+        sysinfo.local_ip = local_ip.to_string();
+        sysinfo.local_port = local_port;
+        sysinfo.loopback_port = loopback_port;
+        sysinfo.mac_address = mac_address;
+        sysinfo.public_ip = public_ip.unwrap_or(Ipv4Addr::new(0, 0, 0, 0)).to_string();
+        sysinfo.location = location.unwrap_or("CN".to_string()).to_string();
+        sysinfo.pyhash = pyhash;
+        sysinfo.uihash = uihash;
 
+        (*sysinfo).clone()
+    }
+
+    pub(crate) async fn logging_launch_info(did: &str, sysinfo: Arc<Mutex<SystemInfo>>){
+        let sysinfo = sysinfo.lock().await;
         let loginfo = format!(
             "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             sysinfo.os_type, sysinfo.os_name, sysinfo.host_type, sysinfo.cpu_arch,
@@ -245,9 +203,15 @@ impl SystemInfo {
             sysinfo.gpu_memory/1024, sysinfo.location, sysinfo.disk_total/1024,
             sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
         let shared_key = b"Simple_114.124";
-        let ctext = URL_SAFE_NO_PAD.encode(env_utils::encrypt(loginfo.as_bytes(), shared_key, 0));
+        let ctext = URL_SAFE_NO_PAD.encode(token_utils::encrypt(loginfo.as_bytes(), shared_key, 0));
         //println!("loginfo: {}\nctext: {}", loginfo, ctext);
-        let _ = env_utils::logging_launch_info(&did, &ctext).await;
+
+
+        let url = reqwest::Url::parse_with_params("https://edge.tokentm.net/log.gif", &[("d", did), ("p", &ctext)]).unwrap();
+
+        let _ = token::REQWEST_CLIENT.get(url.as_str())
+            .send()
+            .await;
     }
 }
 

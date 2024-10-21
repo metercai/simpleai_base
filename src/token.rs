@@ -1,35 +1,65 @@
 use std::collections::HashMap;
 use std::thread;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use base58::ToBase58;
+use serde_json::{self, json};
+use base58::{ToBase58, FromBase58};
 
 use x25519_dalek::PublicKey;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use tokio::sync::Mutex;
+use once_cell::sync::Lazy;
+use tokio::runtime::Runtime;
 
-use crate::claim::{IdClaim, UserContext};
-use crate::rathole::Rathole;
-use crate::env_utils;
-use crate::systeminfo::{SystemInfo, RUNTIME};
 use pyo3::prelude::*;
+
+use crate::token_utils;
 use crate::error::TokenError;
 use crate::env_data::EnvData;
+use crate::claims::{GlobalClaims, IdClaim, UserContext};
+use crate::rathole::Rathole;
+use crate::systeminfo::SystemInfo;
 
+
+pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+    Runtime::new().expect("Failed to create Tokio runtime")
+});
+
+pub static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::new()
+});
+
+macro_rules! exchange_key {
+    ($did:expr) => {
+        format!("{}_exchange", $did)
+    };
+}
+
+macro_rules! issue_key {
+    ($did:expr) => {
+        format!("{}_issue", $did)
+    };
+}
 
 #[derive(Clone, Debug)]
 #[pyclass]
 pub struct SimpleAI {
     pub sys_name: String,
     pub did: String,
-    pub authorized: HashMap<String, UserContext>,
-    pub sysinfo: Arc<Mutex<SystemInfo>>,
+    pub authorized: HashMap<String, UserContext>,   // 用户绑定的授权
+    pub sysinfo: SystemInfo,
+    claims: Arc<Mutex<GlobalClaims>>,       // 留存本地的身份自证
+    crypt_secrets: HashMap<String, String>, // 授权母钥，源自于pk.pem，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}
+    certificates: HashMap<String, String>,  // 授权给本系统的他证, key={issue_did}|{for_did}|{用途}，value={encrypted_key}|{memo}|{time}|{sig}
+    issued_certs: HashMap<String, String>,  // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=
+                                            // encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
+    admin: String,
     device: String,
-    claims: HashMap<String, IdClaim>,
-    crypt_secrets: HashMap<String, String>,
     guest: String,
     guest_phrase: String,
+    ready_users: HashMap<String, serde_json::Value>,
+    blacklist: Vec<String>, // 黑名单
+
 }
 
 #[pymethods]
@@ -38,119 +68,141 @@ impl SimpleAI {
     pub fn new(
         sys_name: String,
     ) -> Self {
-        let sys_base_info = env_utils::SYSTEM_BASE_INFO.clone();
+        let sys_base_info = token_utils::SYSTEM_BASE_INFO.clone();
+        let sysinfo = Arc::new(tokio::sync::Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
+        let sys_info = sysinfo.clone();
+        let sysinfo_handle = TOKIO_RUNTIME.spawn(async move {
+            SystemInfo::generate(sysinfo.clone()).await
+        });
+
         let zeroed_key: [u8; 32] = [0; 32];
 
         let root_dir = sys_base_info.root_dir.clone();
         let disk_uuid = sys_base_info.disk_uuid.clone();
         let host_name = sys_base_info.host_name.clone();
 
-        let (sys_hash_id, sys_phrase) = env_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
-        let (device_hash_id, device_phrase) = env_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
+        let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
+        let (device_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
         let system_name = format!("{}@{}", sys_name, sys_hash_id);
         let device_name = format!("{}@{}", host_name, device_hash_id);
         let guest_name = format!("guest@{}", sys_hash_id);
-        if *env_utils::VERBOSE_INFO {
+        if *token_utils::VERBOSE_INFO {
             println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
         }
 
-        let guest_symbol_hash = env_utils::get_symbol_hash_by_source(&guest_name, "Unknown");
-        let (_, guest_phrase) = env_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+        let guest_symbol_hash = token_utils::get_symbol_hash_by_source(&guest_name, "Unknown");
+        let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
 
-        let mut claims =  HashMap::new();
-        let _ = env_utils::load_did_in_local(&mut claims);
-
-        let mut local_did = String::new();
-        let mut device_did = String::new();
-        let mut guest_did = String::new();
-        for (key, id_claim) in claims.iter() {
-            if id_claim.nickname == system_name && id_claim.id_type == "System" {
-                local_did = key.clone();
-            }
-            if id_claim.nickname == device_name && id_claim.id_type == "Device" {
-                device_did = key.clone();
-            }
-            if id_claim.nickname == guest_name && id_claim.id_type == "User" {
-                guest_did = key.clone();
-            }
-            if !local_did.is_empty() && !device_did.is_empty() && !guest_did.is_empty() {
-                break;
-            }
-        }
-
-        let mut local_claim = match local_did.is_empty() {
-            true => {
-                let Ok(_local_claim) = env_utils::generate_did_claim
-                    ("System", &system_name, Some(root_dir), None, &sys_phrase) else { todo!() };
-                local_did = _local_claim.gen_did();
-                _local_claim
-            }
-            false => claims.get(&local_did).unwrap().clone(),
+        let claims = GlobalClaims::instance();
+        let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length) = {
+            let mut claims = claims.lock().unwrap();
+            let mut local_did = claims.reverse_lookup_did_by_nickname("System", &system_name);
+            let mut device_did = claims.reverse_lookup_did_by_nickname("Device", &device_name);
+            let mut guest_did = claims.reverse_lookup_did_by_nickname("User", &guest_name);
+            let local_claim = match local_did.as_str() {
+                "Unknown" => {
+                    let local_claim = GlobalClaims::generate_did_claim
+                        ("System", &system_name, Some(root_dir), None, &sys_phrase) else { todo!() };
+                    local_did = local_claim.gen_did();
+                    claims.push_claim(local_claim.clone());
+                    local_claim
+                }
+                _ => claims.get_claim_from_local(&local_did),
+            };
+            let device_claim = match device_did.as_str() {
+                "Unknown" => {
+                    let device_claim = GlobalClaims::generate_did_claim
+                        ("Device", &device_name, Some(disk_uuid), None, &device_phrase) else { todo!() };
+                    device_did = device_claim.gen_did();
+                    claims.push_claim(device_claim.clone());
+                    device_claim
+                }
+                _ => claims.get_claim_from_local(&device_did),
+            };
+            let guest_claim = match guest_did.as_str() {
+                "Unknown" => {
+                    let guest_claim = GlobalClaims::generate_did_claim
+                        ("User", &guest_name, None, None, &guest_phrase) else { todo!() };
+                    guest_did = guest_claim.gen_did();
+                    claims.push_claim(guest_claim.clone());
+                    guest_claim
+                }
+                _ => claims.get_claim_from_local(&guest_did),
+            };
+            claims.set_system_device_did(&local_did, &device_did);
+            let claims_local_length = claims.local_len();
+            (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length)
         };
-        let sysinfo = Arc::new(Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
-        let sysinfo_clone = Arc::clone(&sysinfo);
-        SystemInfo::generate(sys_base_info, sysinfo_clone, local_did.clone());
+
+        let local_claim_clone = local_claim.clone();
+        let device_claim_clone = device_claim.clone();
+        let register_handle = TOKIO_RUNTIME.spawn(async move {
+            token_utils::sys_login_to_token_tm(&local_claim_clone, &device_claim_clone, sys_info).await
+        });
 
         let mut crypt_secrets = HashMap::new();
-        let _ = env_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets, &mut claims);
+        let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
+        let mut certificates = HashMap::new();
+        let _ = token_utils::load_token_of_user_certificates(&local_did, &mut certificates);
+        let blacklist = token_utils::load_did_blacklist_from_file();
 
-        if !crypt_secrets.contains_key(&local_did) {
-            let _ = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "System", &mut local_claim, &sys_phrase);
+        if !crypt_secrets.contains_key(&exchange_key!(local_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "exchange", &local_claim, &sys_phrase);
         }
-        claims.insert(local_did.clone(), local_claim);
+        if !crypt_secrets.contains_key(&issue_key!(local_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "issue", &local_claim, &sys_phrase);
+        }
+        if !crypt_secrets.contains_key(&exchange_key!(device_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "exchange", &device_claim, &device_phrase);
+        }
+        if !crypt_secrets.contains_key(&issue_key!(device_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "issue", &device_claim, &device_phrase);
+        }
+        if !crypt_secrets.contains_key(&exchange_key!(guest_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "exchange", &guest_claim, &guest_phrase);
+        }
+        if !crypt_secrets.contains_key(&issue_key!(guest_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "issue", &guest_claim, &guest_phrase);
+        }
+        token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
 
-        let mut device_claim = match device_did.is_empty() {
-            true => {
-                let Ok(_device_claim) = env_utils::generate_did_claim
-                    ("Device", &device_name, Some(disk_uuid), None, &device_phrase) else { todo!() };
-                device_did = _device_claim.gen_did();
-                _device_claim
-            }
-            false => claims.get(&device_did).unwrap().clone(),
-        };
-        if !crypt_secrets.contains_key(&device_did) {
-            let _ = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "Device", &mut device_claim, &device_phrase);
-        }
-        claims.insert(device_did.clone(), device_claim);
 
-        let mut guest_claim = match guest_did.is_empty() {
-            true => {
-                let Ok(_guest_claim) = env_utils::generate_did_claim
-                    ("User", &guest_name, None, None, &guest_phrase) else { todo!() };
-                guest_did = _guest_claim.gen_did();
-                _guest_claim
-            }
-            false => claims.get(&guest_did).unwrap().clone(),
-        };
-        if !crypt_secrets.contains_key(&guest_did) {
-            let _ = env_utils::create_and_save_crypt_secret(&mut crypt_secrets, &local_did, "User", &mut guest_claim, &guest_phrase);
-        }
-        claims.insert(guest_did.clone(), guest_claim);
+        let mut issued_certs = HashMap::new();
+        let _ = token_utils::load_token_of_issued_certs(&local_did, &mut issued_certs);
 
-        if *env_utils::VERBOSE_INFO {
-            println!("init context finished: claims.len={}, crypt_secrets.len={}", claims.len(), crypt_secrets.len());
+        if *token_utils::VERBOSE_INFO {
+            println!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
         }
+
+        let sysinfo = TOKIO_RUNTIME.block_on(async {
+            //register_handle.await.expect("Register Task panicked");
+            sysinfo_handle.await.expect("Sysinfo Task panicked")
+        });
 
         Self {
             sys_name,
             did: local_did,
             device: device_did,
+            admin,
             authorized: HashMap::new(),
             sysinfo,
             claims,
             crypt_secrets,
+            issued_certs,
+            certificates,
             guest: guest_did,
             guest_phrase,
+            ready_users: HashMap::new(),
+            blacklist,
         }
     }
-
 
 
     pub fn start_base_services(&self) -> Result<(), TokenError> {
         let config = "client.toml";
         let did = self.did.clone();
         let _rt_handle = thread::spawn(move || {
-            RUNTIME.block_on(async {
+            TOKIO_RUNTIME.block_on(async {
                 //let _ = Rathole::new(&config).start_service().await;
                 //todo!()
                 //println!("Rathole service started");
@@ -158,57 +210,125 @@ impl SimpleAI {
         });
         Ok(())
     }
-    pub fn get_name(&self) -> String { self.sys_name.clone() }
-    pub fn get_did(&self) -> String { self.did.clone() }
+    pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
+    pub fn get_sys_did(&self) -> String { self.did.clone() }
     pub fn get_sysinfo(&self) -> SystemInfo {
-        SystemInfo::get_sysinfo(self.sysinfo.clone())
+        self.sysinfo.clone()
     }
 
     pub fn push_claim(&mut self, claim: &IdClaim) {
-        let did = claim.gen_did();
-        self.claims.insert(did, claim.clone());
+        let mut claims = self.claims.lock().unwrap();
+        claims.push_claim(claim.clone());
     }
 
+    pub fn pop_claim(&mut self, did: &str) -> IdClaim {
+        let mut claims = self.claims.lock().unwrap();
+        claims.pop_claim(did)
+    }
 
-    pub fn get_claim(&self, for_did: &str) -> Option<IdClaim> {
-        let did = if for_did.is_empty() { self.did.to_string().clone() } else { for_did.to_string() };
-        if self.claims.contains_key(&did) {
-            return Some(self.claims.get(&did).unwrap().clone());
+    pub fn get_claim(&mut self, for_did: &str) -> IdClaim {
+        let mut claims = self.claims.lock().unwrap();
+        if self.admin == token_utils::TOKEN_TM_DID {
+            claims.get_claim_from_local(for_did)
+        } else {
+            claims.get_claim_from_global(for_did)
         }
-        None
     }
 
-    pub fn sign(&self, text: &str) -> Vec<u8> {
+    pub fn create_user(&mut self, nickname: &str, id_card: Option<String>, telephone: Option<String>, phrase: Option<String>)
+        -> (String, String) {
+        let user_telephone = telephone.clone().unwrap_or("Unknown".to_string());
+        let user_symbol_hash = token_utils::get_symbol_hash_by_source(&nickname, &user_telephone);
+        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+        let phrase = phrase.unwrap_or(user_phrase);
+        let user_claim = GlobalClaims::generate_did_claim("User", nickname, id_card, telephone, &phrase);
+        let user_did = user_claim.gen_did();
+        let mut claims = self.claims.lock().unwrap();
+        claims.push_claim(user_claim.clone());
+        if !self.crypt_secrets.contains_key(&exchange_key!(user_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "exchange", &user_claim, &phrase);
+        }
+        if !self.crypt_secrets.contains_key(&issue_key!(user_did)) {
+            let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "issue", &user_claim, &phrase);
+        }
+        (user_did, phrase)
+    }
+
+    pub fn push_certificate(&mut self, cert_key: &str, cert: &str) {
+        self.certificates.insert(cert_key.to_string(), cert.to_string());
+        token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
+    }
+
+    pub fn push_issue_cert(&mut self, issue_key: &str, issue_cert: &str) {
+        self.issued_certs.insert(issue_key.to_string(), issue_cert.to_string());
+        token_utils::save_issued_certs_to_file(&self.did, &self.issued_certs);
+
+    }
+
+    pub fn sign_and_issue_cert(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str, phrase: &str)
+        -> (String, String) {
+        let issuer_did = self.admin.clone();
+        self.sign_and_issue_cert_by_did(&issuer_did, item, for_did, for_sys_did, memo, phrase)
+    }
+
+    pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str, phrase: &str)
+        -> (String, String) {
+        let issuer_key = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&"Unknown".to_string()));
+        let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&issuer_key)).unwrap_or([0u8; 32]);
+        let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
+        let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
+        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+        let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
+        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&cert_text, issuer_did, phrase));
+        (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
+    }
+
+    #[staticmethod]
+    pub fn parse_issue_cert(cert: &str) -> (String, String, String, String, String, u64, String) {
+        let mut items = cert.split("|");
+        let issuer_did = items.next().unwrap().to_string();
+        let for_did = items.next().unwrap().to_string();
+        let item = items.next().unwrap().to_string();
+        let encrypt_item_key = items.next().unwrap().to_string();
+        let memo = items.next().unwrap().to_string();
+        let timestamp = items.next().unwrap().parse::<u64>().unwrap();
+        let sig = items.next().unwrap().to_string();
+        (issuer_did, for_did, item, encrypt_item_key, memo, timestamp, sig)
+    }
+
+
+    pub fn sign(&mut self, text: &str) -> Vec<u8> {
         self.sign_by_did(text, &self.did.clone(),"no need")
     }
 
-    pub fn sign_by_did(&self, text: &str, did: &str, phrase: &str) -> Vec<u8> {
-        let claim = self.claims.get(did).unwrap();
-        env_utils::get_signature(text, &claim.id_type, &claim.get_symbol_hash(), phrase)
-            .unwrap_or_else(|_| String::from("Unknown").into())
+    pub fn sign_by_did(&mut self, text: &str, did: &str, phrase: &str) -> Vec<u8> {
+        let claim = self.get_claim(did);
+        token_utils::get_signature(text, &claim.id_type, &claim.get_symbol_hash(), phrase)
     }
     pub fn verify(&mut self, text: &str, signature: &str) -> bool {
         self.verify_by_did(text, signature, &self.did.clone())
     }
 
     pub fn verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
-        env_utils::virify_signature(text, signature_str, did, &mut self.claims)
+        let claim = self.get_claim(did);
+        token_utils::verify_signature(text, signature_str, &claim.get_verify_key())
     }
 
-    pub fn encrypt_for_did(&self, did: &str, text: &str, for_did: &str, period:u64) -> PyResult<String> {
-        let self_crypt_secret = env_utils::convert_base64_to_key(self.crypt_secrets.get(did).unwrap());
-        let for_did_public = PublicKey::from(self.claims.get(for_did).unwrap().get_crypt_key());
-        let shared_key = env_utils::get_diffie_hellman_key(&for_did_public, self_crypt_secret)?;
-        let ctext = env_utils::encrypt(text.as_bytes(), &shared_key, period);
-        Ok(URL_SAFE_NO_PAD.encode(ctext))
+    pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
+        let self_crypt_secret = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
+        let for_did_public = PublicKey::from(self.get_claim(for_did).get_crypt_key());
+        let shared_key = token_utils::get_diffie_hellman_key(&for_did_public, self_crypt_secret);
+        let ctext = token_utils::encrypt(text, &shared_key, period);
+        URL_SAFE_NO_PAD.encode(ctext)
     }
 
-    pub fn decrypt_by_did(&mut self, did: &str, ctext: &str, by_did: &str, period:u64) -> PyResult<String> {
-        let self_crypt_secret = env_utils::convert_base64_to_key(self.crypt_secrets.get(did).unwrap());
-        let by_did_public = PublicKey::from(self.claims.get(by_did).unwrap().get_crypt_key());
-        let shared_key = env_utils::get_diffie_hellman_key(&by_did_public, self_crypt_secret)?;
-        let text = env_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
-        Ok(String::from_utf8(text).expect("undecryptable"))
+    pub fn decrypt_by_did(&mut self, ctext: &str, by_did: &str, period:u64) -> String {
+        let self_crypt_secret = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
+        let by_did_public = PublicKey::from(self.get_claim(by_did).get_crypt_key());
+        let shared_key = token_utils::get_diffie_hellman_key(&by_did_public, self_crypt_secret);
+        let text = token_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
+        String::from_utf8(text).expect("Unknown")
     }
 
     pub fn get_device_did(&self) -> String {
@@ -224,9 +344,9 @@ impl SimpleAI {
     }
 
     pub fn get_user_sstoken(&self, did: &str) -> String {
-        let text = format!("{}|{}|{}", did.clone(),
-                           self.crypt_secrets[&self.did], self.crypt_secrets[did]);
-        let text_hash = env_utils::calc_sha256(text.as_bytes()).to_base58();
+        let text = format!("{}|{}|{}", did,
+                           self.crypt_secrets[&exchange_key!(self.did)], self.crypt_secrets[&exchange_key!(did)]);
+        let text_hash = token_utils::calc_sha256(text.as_bytes()).to_base58();
         format!("{}|{}", self.guest.clone(), text_hash[..16].to_string())
     }
 
@@ -235,11 +355,11 @@ impl SimpleAI {
         if parts.len() == 2 {
             let did = parts[0].to_string();
             let sig = parts[1].to_string();
-            if !self.crypt_secrets.contains_key(&did) {
+            if !self.crypt_secrets.contains_key(&exchange_key!(did)) {
                 return String::from("Unknown");
             }
-            let text = format!("{}|{}|{}", did.clone(), self.crypt_secrets[&self.did], self.crypt_secrets[&did]);
-            let text_hash = env_utils::calc_sha256(text.as_bytes()).to_base58();
+            let text = format!("{}|{}|{}", did.clone(), self.crypt_secrets[&exchange_key!(self.did)], self.crypt_secrets[&exchange_key!(did)]);
+            let text_hash = token_utils::calc_sha256(text.as_bytes()).to_base58();
             if sig == text_hash[..16] {
                 return did;
             }
@@ -252,33 +372,239 @@ impl SimpleAI {
         self.get_user_context(&guest_did)
     }
 
-    pub fn get_user_context(&mut self, did: &str) -> UserContext {
-        self.authorized.get(did).cloned().unwrap_or_else(|| {
-            let (context, sig) = env_utils::get_user_token_from_file(did).unwrap_or(
-                (UserContext::default(), String::from("Unknown"))
-            );
-            let token_text = format!("{}{}", did, context.get_text());
-            if !context.is_default() && self.verify_by_did(&token_text, &sig, did) {
-                self.authorized.insert(did.to_string(), context.clone());
-                context
-            } else {
-                if context.is_default() && did == &self.guest {
-                    self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
-                } else {
-                    UserContext::default()
+    pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> bool {
+        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        match token_utils::exists_key_file("User", &symbol_hash) {
+            true => true,
+            false => {
+                let new_claim = GlobalClaims::generate_did_claim
+                            ("User", &nickname, None, Some(telephone.to_string()), &user_phrase) else { todo!() };
+                let exchange_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("exchange", &new_claim, &user_phrase);
+                let issue_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("issue", &new_claim, &user_phrase);
+                let mut ready_data: serde_json::Value = json!({});
+                ready_data["user_phrase"] =  serde_json::to_value(user_phrase.clone()).unwrap_or(json!(""));
+                ready_data["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
+                ready_data["exchange_crypt_secret_with_sig"] = serde_json::to_value(exchange_crypt_secret_with_sig).unwrap_or(json!(""));
+                ready_data["issue_crypt_secret_with_sig"] = serde_json::to_value(issue_crypt_secret_with_sig).unwrap_or(json!(""));
+                ready_data["vcode_try_counts"] = json!(3);
+                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, &user_phrase);
+                ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
+
+
+                let mut request: serde_json::Value = json!({});
+                request["nickname"] = serde_json::to_value(nickname).unwrap_or(json!(""));
+                request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
+                request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
+
+                let user_certificate = self.request_token_api(
+                    "apply",
+                    &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+                if user_certificate != "Unknown".to_string()  {
+                    ready_data["user_certificate"] = serde_json::to_value(user_certificate.clone()).unwrap_or(json!(""));
                 }
+                self.ready_users.insert(user_hash_id.clone(), ready_data);
+                false
             }
-        })
+        }
     }
 
-    pub fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
-        let claim = self.claims.get(did).unwrap();
-        let context = env_utils::create_or_renew_user_token(
-            did, &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
-        let token_text = format!("{}{}", did, context.get_text());
-        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&token_text, did, phrase));
-        match env_utils::save_user_token_to_file(did, &context, &sig) {
+    pub fn get_user_context(&mut self, did: &str) -> UserContext {
+        if !self.blacklist.contains(&did.to_string()) {
+            self.authorized.get(did).cloned().unwrap_or_else(|| {
+                let context = token_utils::get_user_token_from_file(did).unwrap_or(
+                    UserContext::default()
+                );
+                if !context.is_default() && context.get_sys_did() == self.did &&
+                    self.verify_by_did(&context.get_text(), &context.get_sig(), did) {
+                    self.authorized.insert(did.to_string(), context.clone());
+                    context
+                } else {
+                    if context.is_default() && did == &self.guest {
+                        self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
+                    } else {
+                        UserContext::default()
+                    }
+                }
+            })
+        } else { UserContext::default()  }
+    }
+
+    pub fn check_user_verify_code(&mut self, nickname: &str, telephone: &str, vcode: &str)-> String {
+        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        if self.ready_users.contains_key(&user_hash_id) {
+            let mut ready_data: serde_json::Value = self.ready_users.get(&user_hash_id).unwrap().clone();
+            let mut try_count = ready_data["vcode_try_counts"].as_i64().unwrap_or(0) as i32;
+            try_count -= 1;
+            if try_count >= 0 {
+                let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
+                let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
+                let did = claim.gen_did();
+                let result_certificate = URL_SAFE_NO_PAD.decode(result_certificate_string).unwrap_or([0; 32].to_vec());
+                let mut key = [0; 32];
+                key[..28].copy_from_slice(&result_certificate[..28]);
+                key[28..].copy_from_slice(&vcode.from_base58().unwrap_or([0; 4].to_vec())[..4]);
+                let user_certificate = URL_SAFE_NO_PAD.encode(&result_certificate[28..]);
+                let user_certificate_text = self.decrypt_by_did(&user_certificate, token_utils::TOKEN_TM_DID, 0);
+                if user_certificate_text != "Unknown".to_string() {
+                    let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();
+                    if user_certificate_text_array.len() >= 6
+                        && IdClaim::validity(user_certificate_text_array[0])
+                        && IdClaim::validity(user_certificate_text_array[1])
+                    {
+                        let (certs_key, certs_value) = token_utils::parse_user_certs(&user_certificate_text);
+                        self.push_certificate(&certs_key, &certs_value);
+
+                        let mut request: serde_json::Value = json!({});
+                        request["user_symbol"] = serde_json::to_value(&URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                        request["user_vcode"] = serde_json::to_value(vcode).unwrap();
+                        let user_copy_hash_id = ready_data["user_copy_hash_id"].as_str().unwrap_or("Unknown");
+                        request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
+
+                        if did == user_certificate_text_array[1] {
+                            let _ = self.request_token_api(
+                                "confirm",
+                                &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+                            return "create".to_string();
+                        } else {
+                            return "recall".to_string();
+                        }
+                    }
+                }
+                ready_data["vcode_try_counts"] = try_count.into();
+                self.ready_users.insert(user_hash_id.clone(), ready_data);
+                return format!("error:{}", try_count).to_string();
+            }
+        }
+        "error:0".to_string()
+    }
+
+    pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
+        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        if self.ready_users.contains_key(&user_hash_id) {
+            let ready_data = self.ready_users.get(&user_hash_id).unwrap();
+            let old_phrase = ready_data["user_phrase"].as_str().unwrap_or("Unknown");
+            let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, old_phrase);
+            let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
+            let did = claim.gen_did();
+            let exchange_crypt_secret_with_sig = ready_data["exchange_crypt_secret_with_sig"].as_str().unwrap_or("Unknown");
+            let issue_crypt_secret_with_sig = ready_data["issue_crypt_secret_with_sig"].as_str().unwrap_or("Unknown");
+            self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret_with_sig.to_string());
+            self.crypt_secrets.insert(issue_key!(did.clone()), issue_crypt_secret_with_sig.to_string());
+            token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), old_phrase, phrase);
+            self.push_claim(&claim);
+            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+            let context = self.sign_user_context(&did, phrase);
+
+            let pem_claim_string = token_utils::load_pem_and_claim_from_file("User", &claim.get_symbol_hash(), &did);
+            let context_json = serde_json::to_string(&context).unwrap_or("Unknown".to_string());
+            let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context_json.as_bytes(), phrase.as_bytes(), 0));
+            let certificates = token_utils::filter_user_certs(&did, "*", &self.certificates);
+            let certificates_str = certificates
+                .iter()
+                .map(|(key, value)| format!("{}:{}", key, value))
+                .collect::<Vec<String>>()
+                .join(",");
+            let _ = certificates_str.replace("|", ":");
+            let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
+            let user_copy_to_cloud = format!("{}|{}|{}", pem_claim_string, context_crypt, certificate_crypt);
+            let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, phrase);
+
+            let mut request: serde_json::Value = json!({});
+            request["old_user_copy_hash_id"] = serde_json::to_value(&old_user_copy_hash_id).unwrap();
+            request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
+            request["data"] = serde_json::to_value(&user_copy_to_cloud).unwrap();
+            let _ = self.request_token_api("submit_user_copy",
+                                           &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+
+            context
+        } else {
+            UserContext::default()
+        }
+    }
+    pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
+        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        match token_utils::exists_key_file("User", &symbol_hash) {
+            true => {
+                let did = self.reverse_lookup_did_by_symbol(symbol_hash);
+                self.sign_user_context(&did, phrase)
+            },
+            false => {
+                let mut request: serde_json::Value = json!({});
+                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, phrase);
+                request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
+                request["user_symbol"] = serde_json::to_value(&URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                let user_copy_from_cloud = self.request_token_api("get_user_copy",
+                                               &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+
+                match user_copy_from_cloud != "Unknown".to_string()  {
+                    true => {
+                        let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
+                        if user_copy_from_cloud_array.len() >= 4 {
+                            let pem = user_copy_from_cloud_array[0];
+                            token_utils::save_user_pem(&symbol_hash, pem);
+                            let claim: IdClaim = serde_json::from_str(&user_copy_from_cloud_array[1]).unwrap_or(IdClaim::default());
+                            let did = claim.gen_did();
+                            // reset crypt_secret
+                            if !self.crypt_secrets.contains_key(&exchange_key!(did)) {
+                                let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "exchange", &claim, phrase);
+                            }
+                            if !self.crypt_secrets.contains_key(&issue_key!(did)) {
+                                let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "issue", &claim, phrase);
+                            }
+                            self.push_claim(&claim.clone());
+                            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+
+                            let context_string = String::from_utf8(token_utils::decrypt(URL_SAFE_NO_PAD.decode(
+                                user_copy_from_cloud_array[2]).unwrap().as_slice(), phrase.as_bytes(), 0))
+                                .expect("Unknown");
+
+                            let _ = token_utils::save_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
+                                .unwrap_or(UserContext::default()));
+
+                            let certificate_string = String::from_utf8(token_utils::decrypt(URL_SAFE_NO_PAD.decode(
+                                user_copy_from_cloud_array[3]).unwrap().as_slice(), phrase.as_bytes(), 0))
+                                .expect("Unknown");
+                            let _ = certificate_string.replace(":", "|");
+                            let certs_array: Vec<&str> = certificate_string.split(",").collect();
+                            for cert in &certs_array {
+                                let (certs_key, certs_value) = token_utils::parse_user_certs(cert);
+                                if certs_key != "Unknown" {
+                                    self.certificates.insert(certs_key, certs_value);
+                                }
+                            }
+                            token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
+                            self.sign_user_context(&did, phrase)
+                        } else {
+                            UserContext::default()
+                        }
+                    },
+                    false => {
+                        UserContext::default()
+                    }
+                }
+            }
+        }
+    }
+
+
+    pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
+        if self.blacklist.contains(&did.to_string()) {
+            return UserContext::default();
+        }
+        let claim = self.get_claim(did);
+        let mut context = token_utils::create_or_renew_user_context_token(
+            did, &self.did, &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
+        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&context.get_text(), did, phrase));
+        context.set_sig(&sig);
+        match token_utils::save_user_token_to_file(&context) {
             Ok(_) => {
+                if self.admin.is_empty() {
+                    self.admin = did.to_string();
+                    let _ = token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
+                }
                 self.authorized.insert(did.to_string(), context.clone());
                 context
             },
@@ -287,6 +613,36 @@ impl SimpleAI {
                 UserContext::default()
             }
         }
+    }
+
+    fn reverse_lookup_did_by_symbol(&self, symbol_hash: [u8; 32]) -> String {
+        let claims = self.claims.lock().unwrap();
+        claims.reverse_lookup_did_by_symbol(&symbol_hash)
+    }
+    fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
+        let encoded_params = self.encrypt_for_did(params.as_bytes(), token_utils::TOKEN_TM_DID ,0);
+        TOKIO_RUNTIME.block_on(async {
+            match REQWEST_CLIENT.post(format!("{}/{}", token_utils::TOKEN_TM_URL, api_name))
+                .header("sys_did", self.did.to_string())
+                .header("dev_did", self.device.to_string())
+                .body(encoded_params.clone())
+                .send()
+                .await{
+                Ok(res) => {
+                    match res.text().await {
+                        Ok(text) => text,
+                        Err(e) => {
+                            println!("Failed to read response body: {}", e);
+                            "Unknown".to_string()
+                        }
+                    }
+                },
+                Err(e) => {
+                    println!("Failed to request token api: {}", e);
+                    "Unknown".to_string()
+                }
+            }
+        })
     }
 
     pub fn check_ready(&self, v1: String, v2: String, v3: String, root: String) -> i32 {
@@ -315,7 +671,7 @@ impl SimpleAI {
         if target_pyhash != "Unknown" && target_pyhash != check_pyhash {
             let now_sec = SystemTime::now().duration_since(UNIX_EPOCH)
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-            let pyhash_display = URL_SAFE_NO_PAD.encode(env_utils::calc_sha256(
+            let pyhash_display = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(
                 format!("{}-{}", sysinfo.pyhash, (now_sec/100000*100000).to_string())
                     .as_bytes()));
 
@@ -335,4 +691,5 @@ impl SimpleAI {
     pub fn get_pyhash_key(&self, v1: String, v2: String, v3: String) -> String {
         return EnvData::get_pyhash_key(&v1, &v2, &v3);
     }
+
 }
