@@ -182,7 +182,8 @@ impl SimpleAI {
         });
 
         println!("waitting for register");
-        let upstream_did = SimpleAI::request_token_api_register(&local_claim, &device_claim);
+        let upstream_did_json = SimpleAI::request_token_api_register(&local_claim, &device_claim);
+        let upstream_did = serde_json::from_str(&upstream_did_json).unwrap();
         println!("upstream_did: {:?}", upstream_did);
 
         if *token_utils::VERBOSE_INFO {
