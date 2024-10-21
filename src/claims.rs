@@ -170,7 +170,7 @@ impl GlobalClaims {
 
                 let result = token::TOKIO_RUNTIME.block_on(async {
                     match token::REQWEST_CLIENT.post(
-                        format!("{}/{}", token_utils::TOKEN_TM_URL, "get_use_claim"))
+                        format!("{}{}", token_utils::TOKEN_TM_URL, "get_use_claim"))
                         .header("sys_did", self.sys_did.to_string())
                         .header("dev_did", self.device_did.to_string())
                         .body(serde_json::to_string(&request).unwrap())
