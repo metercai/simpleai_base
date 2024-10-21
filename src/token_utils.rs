@@ -41,7 +41,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 };
 
 pub(crate) static TOKEN_TM_URL: &str = "https://v2.token.tm/api_";
-pub(crate) static TOKEN_TM_DID: &str = "96PghYp9YVaYsrgY6HBUVzPfwYxCm";
+pub(crate) static TOKEN_TM_DID: &str = "3dspcVjx6cRVb6NpADSG3uQSbw6fy";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
