@@ -184,7 +184,7 @@ impl SimpleAI {
         println!("waitting for register");
         let upstream_did_json = SimpleAI::request_token_api_register(&local_claim, &device_claim);
         let upstream_did = serde_json::from_str(&upstream_did_json).unwrap();
-        println!("upstream_did: {:?}", upstream_did);
+        println!("upstream_did: {}", upstream_did);
 
         if *token_utils::VERBOSE_INFO {
             println!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
@@ -226,6 +226,8 @@ impl SimpleAI {
     pub fn get_sys_did(&self) -> String { self.did.clone() }
 
     pub fn get_admin_did(&self) -> String { self.admin.clone() }
+
+    pub fn get_upstream_did(&self) -> String { self.upstream_did.clone() }
 
     pub fn get_sysinfo(&self) -> SystemInfo {
         self.sysinfo.clone()
