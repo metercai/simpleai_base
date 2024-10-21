@@ -346,6 +346,7 @@ impl SimpleAI {
         let self_crypt_secret = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let for_did_public = PublicKey::from(self.get_claim(for_did).get_crypt_key());
         let shared_key = token_utils::get_diffie_hellman_key(&for_did_public, self_crypt_secret);
+        println!("encrypt_for_did, shared_key:{:?}", shared_key);
         let ctext = token_utils::encrypt(text, &shared_key, period);
         URL_SAFE_NO_PAD.encode(ctext)
     }
@@ -354,6 +355,7 @@ impl SimpleAI {
         let self_crypt_secret = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let by_did_public = PublicKey::from(self.get_claim(by_did).get_crypt_key());
         let shared_key = token_utils::get_diffie_hellman_key(&by_did_public, self_crypt_secret);
+        println!("decrypt_by_did, shared_key:{:?}", shared_key);
         let text = token_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
         String::from_utf8_lossy(text.as_slice()).to_string()
     }
