@@ -135,7 +135,6 @@ pub struct SystemInfo {
 
 
 impl SystemInfo {
-
     pub fn from_base(base: SystemBaseInfo) -> Self {
         Self {
             os_type: base.os_type,
@@ -169,7 +168,7 @@ impl SystemInfo {
             uihash: "Unknown".to_string(),
         }
     }
-    pub async fn generate(info: Arc<Mutex<SystemInfo>>) -> SystemInfo {
+    pub async fn generate() -> SystemInfo {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(127, 0, 0, 1));
         let public_ip_task = env_utils::get_ipaddr_from_public(false);
         let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);
@@ -181,7 +180,9 @@ impl SystemInfo {
             join!(public_ip_task, local_port_task, loopback_port_task, location_task, program_hash_task, mac_address_task);
         let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("Unknown".to_string(), "Unknown".to_string()));
 
-        let mut sysinfo = info.lock().await;
+        let sys_base_info = token_utils::SYSTEM_BASE_INFO.clone();
+
+        let mut sysinfo = SystemInfo::from_base(sys_base_info);
         sysinfo.local_ip = local_ip.to_string();
         sysinfo.local_port = local_port;
         sysinfo.loopback_port = loopback_port;
@@ -191,11 +192,11 @@ impl SystemInfo {
         sysinfo.pyhash = pyhash;
         sysinfo.uihash = uihash;
 
-        (*sysinfo).clone()
+        println!("sysinfo is finished");
+        sysinfo
     }
 
-    pub(crate) async fn logging_launch_info(did: &str, sysinfo: Arc<Mutex<SystemInfo>>){
-        let sysinfo = sysinfo.lock().await;
+    pub(crate) async fn logging_launch_info(did: &str, sysinfo: &SystemInfo){
         let loginfo = format!(
             "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             sysinfo.os_type, sysinfo.os_name, sysinfo.host_type, sysinfo.cpu_arch,

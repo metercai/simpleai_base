@@ -29,7 +29,7 @@ use lazy_static::lazy_static;
 
 
 use crate::error::TokenError;
-use crate::claims::{IdClaim, UserContext};
+use crate::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::{claims, token};
 
 const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
@@ -40,8 +40,8 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
     parameters: None,
 };
 
-pub(crate) static TOKEN_TM_URL: &str = "https://token.tm/api/";
-pub(crate) static TOKEN_TM_DID: &str = "ssssssssssss";
+pub(crate) static TOKEN_TM_URL: &str = "https://v2.token.tm:3030/api/";
+pub(crate) static TOKEN_TM_DID: &str = "96PghYp9YVaYsrgY6HBUVzPfwYxCm";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
@@ -123,7 +123,7 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
                         claims_guard.get_claim_from_global(did)
                     };
                     if verify_signature(&text, sig_base64, &claim.get_verify_key()) {
-                        certificates.insert(key.clone(), secret_base64.to_string());
+                        certificates.insert(key.clone(), secrets_str.to_string());
                     }
                 }
             }
@@ -184,7 +184,7 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
                         claims_guard.get_claim_from_global(did)
                     };
                     if verify_signature(&text, sig_base64, &claim.get_verify_key()) {
-                        issued_certs.insert(key.clone(), secret_base64.to_string());
+                        issued_certs.insert(key.clone(), secrets_str.to_string());
                     }
                 }
             }
@@ -290,7 +290,7 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
                                 claims_guard.get_claim_from_global(did)
                             };
                             if verify_signature(&text, sig_base64, &claim.get_verify_key()) {
-                                crypt_secrets.insert(key.clone(), secret_base64.to_string());
+                                crypt_secrets.insert(key.clone(), secrets_str.to_string());
                             }
                         }
                     }
@@ -629,7 +629,7 @@ pub fn sha256_prefix(input: &[u8], len: usize) -> String {
 }
 
 
-pub(crate) async fn sys_login_to_token_tm(sys_claim: &IdClaim, device_claim: &IdClaim, sysinfo: Arc<Mutex<SystemInfo>>) -> String {
+pub(crate) async fn sys_login_to_token_tm(sys_claim: &IdClaim, device_claim: &IdClaim, sysinfo: &SystemInfo) -> String {
     let sys_did = sys_claim.gen_did();
     let device_did = device_claim.gen_did();
     let mut request: Value = json!({});
@@ -752,8 +752,14 @@ pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], Token
     Ok(key)
 }
 
-
 fn get_token_crypt_key() -> [u8; 32] {
+    let mut claims =GlobalClaims::instance();
+    let mut claims =claims.lock().unwrap();
+    claims.get_file_crypt_key()
+}
+
+
+pub(crate) fn get_file_crypt_key() -> [u8; 32] {
     let id_hash = [0u8; 32];
     let device_key = calc_sha256(&read_key_or_generate_key("Device", &id_hash, "None").unwrap_or(id_hash));
     let local_key = calc_sha256(&read_key_or_generate_key("System", &id_hash, "None").unwrap_or(id_hash));
@@ -783,13 +789,13 @@ pub(crate) fn save_secret_to_system_token_file(crypt_secrets: &HashMap<String, S
     let crypt_key = get_token_crypt_key();
     let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
     if *VERBOSE_INFO {
-        println!("Save token to file: {}", json_string);
+        println!("Save secret token to file: {}", json_string);
     }
     fs::write(system_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", system_token_file.display()))
 }
 
 
-fn convert_vec_to_key(vec: &Vec<u8>) -> [u8; 32] {
+pub(crate) fn convert_vec_to_key(vec: &Vec<u8>) -> [u8; 32] {
     let mut key: [u8; 32] = [0; 32];
     let len_vec = vec.len();
     let len = if len_vec > 32 { 32 } else { len_vec };

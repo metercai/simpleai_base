@@ -23,6 +23,7 @@ pub struct GlobalClaims {
     claims: HashMap<String, IdClaim>,       // 留存本地的身份自证
     sys_did: String,                      // 系统did
     device_did: String,                    // 设备id
+    file_crypt_key: String,                // 文件加密密钥
 }
 
 impl GlobalClaims {
@@ -88,6 +89,7 @@ impl GlobalClaims {
             claims,
             sys_did: String::new(),
             device_did: String::new(),
+            file_crypt_key: String::new(),
         }
     }
 
@@ -97,6 +99,13 @@ impl GlobalClaims {
     }
     pub fn instance() -> Arc<Mutex<GlobalClaims>> {
         GLOBAL_CLAIMS.clone()
+    }
+
+    pub fn get_file_crypt_key(&mut self) -> [u8; 32] {
+        if self.file_crypt_key.is_empty() {
+            self.file_crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_file_crypt_key());
+        };
+        token_utils::convert_vec_to_key(&URL_SAFE_NO_PAD.decode(self.file_crypt_key.as_bytes()).unwrap())
     }
 
     pub fn local_len(&self) -> usize {
@@ -275,7 +284,7 @@ impl IdClaim {
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
         let text_sig = format!("nickname:{},verify_key:{},crypt_key:{},fingerprint:{},timestamp:{}",
-            nickname, verify_key, crypt_key, fingerprint, now_sec);
+                               nickname, verify_key, crypt_key, fingerprint, now_sec);
         let signature = URL_SAFE_NO_PAD.encode(token_utils::get_signature(&text_sig, id_type, &symbol_hash, phrase));
 
         Self{

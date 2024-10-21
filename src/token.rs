@@ -69,14 +69,12 @@ impl SimpleAI {
         sys_name: String,
     ) -> Self {
         let sys_base_info = token_utils::SYSTEM_BASE_INFO.clone();
-        let sysinfo = Arc::new(tokio::sync::Mutex::new(SystemInfo::from_base(sys_base_info.clone())));
-        let sys_info = sysinfo.clone();
         let sysinfo_handle = TOKIO_RUNTIME.spawn(async move {
-            SystemInfo::generate(sysinfo.clone()).await
+            SystemInfo::generate().await
         });
 
+        println!("init system variables");
         let zeroed_key: [u8; 32] = [0; 32];
-
         let root_dir = sys_base_info.root_dir.clone();
         let disk_uuid = sys_base_info.disk_uuid.clone();
         let host_name = sys_base_info.host_name.clone();
@@ -95,6 +93,9 @@ impl SimpleAI {
 
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length) = {
+            if *token_utils::VERBOSE_INFO {
+                println!("init system/device/guest did and claim.");
+            }
             let mut claims = claims.lock().unwrap();
             let mut local_did = claims.reverse_lookup_did_by_nickname("System", &system_name);
             let mut device_did = claims.reverse_lookup_did_by_nickname("Device", &device_name);
@@ -136,16 +137,16 @@ impl SimpleAI {
 
         let local_claim_clone = local_claim.clone();
         let device_claim_clone = device_claim.clone();
-        let register_handle = TOKIO_RUNTIME.spawn(async move {
-            token_utils::sys_login_to_token_tm(&local_claim_clone, &device_claim_clone, sys_info).await
-        });
 
+
+        println!("init system crypt_secrets");
         let mut crypt_secrets = HashMap::new();
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
         let mut certificates = HashMap::new();
         let _ = token_utils::load_token_of_user_certificates(&local_did, &mut certificates);
         let blacklist = token_utils::load_did_blacklist_from_file();
 
+        let crypt_secrets_len = crypt_secrets.len();
         if !crypt_secrets.contains_key(&exchange_key!(local_did)) {
             let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "exchange", &local_claim, &sys_phrase);
         }
@@ -164,20 +165,28 @@ impl SimpleAI {
         if !crypt_secrets.contains_key(&issue_key!(guest_did)) {
             let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "issue", &guest_claim, &guest_phrase);
         }
-        token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
+        if crypt_secrets.len() > crypt_secrets_len {
+            token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
+        }
 
-
+        println!("init system issued_certs");
         let mut issued_certs = HashMap::new();
         let _ = token_utils::load_token_of_issued_certs(&local_did, &mut issued_certs);
+
+        println!("waitting for sysinfo");
+        let sysinfo = TOKIO_RUNTIME.block_on(async {
+            sysinfo_handle.await.expect("Sysinfo Task panicked")
+        });
+        let sysinfo_clone = sysinfo.clone();
+
+        println!("waitting for register");
+        TOKIO_RUNTIME.block_on(async {
+            token_utils::sys_login_to_token_tm(&local_claim_clone, &device_claim_clone, &sysinfo_clone).await
+        });
 
         if *token_utils::VERBOSE_INFO {
             println!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
         }
-
-        let sysinfo = TOKIO_RUNTIME.block_on(async {
-            //register_handle.await.expect("Register Task panicked");
-            sysinfo_handle.await.expect("Sysinfo Task panicked")
-        });
 
         Self {
             sys_name,
@@ -212,6 +221,9 @@ impl SimpleAI {
     }
     pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
     pub fn get_sys_did(&self) -> String { self.did.clone() }
+
+    pub fn get_admin_did(&self) -> String { self.admin.clone() }
+
     pub fn get_sysinfo(&self) -> SystemInfo {
         self.sysinfo.clone()
     }
@@ -236,20 +248,27 @@ impl SimpleAI {
     }
 
     pub fn create_user(&mut self, nickname: &str, id_card: Option<String>, telephone: Option<String>, phrase: Option<String>)
-        -> (String, String) {
+                       -> (String, String) {
         let user_telephone = telephone.clone().unwrap_or("Unknown".to_string());
         let user_symbol_hash = token_utils::get_symbol_hash_by_source(&nickname, &user_telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
-        let user_claim = GlobalClaims::generate_did_claim("User", nickname, id_card, telephone, &phrase);
+        let user_claim = {
+            let user_claim = GlobalClaims::generate_did_claim("User", nickname, id_card, telephone, &phrase);
+            let mut claims = self.claims.lock().unwrap();
+            claims.push_claim(user_claim.clone());
+            user_claim
+        };
         let user_did = user_claim.gen_did();
-        let mut claims = self.claims.lock().unwrap();
-        claims.push_claim(user_claim.clone());
+        let crypt_secrets_len = self.crypt_secrets.len();
         if !self.crypt_secrets.contains_key(&exchange_key!(user_did)) {
             let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "exchange", &user_claim, &phrase);
         }
         if !self.crypt_secrets.contains_key(&issue_key!(user_did)) {
             let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "issue", &user_claim, &phrase);
+        }
+        if self.crypt_secrets.len() > crypt_secrets_len {
+            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
         (user_did, phrase)
     }
@@ -266,13 +285,16 @@ impl SimpleAI {
     }
 
     pub fn sign_and_issue_cert(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str, phrase: &str)
-        -> (String, String) {
-        let issuer_did = self.admin.clone();
+                               -> (String, String) {
+        let issuer_did = match self.admin.is_empty() {
+            true => self.did.clone(),
+            false => self.admin.clone(),
+        };
         self.sign_and_issue_cert_by_did(&issuer_did, item, for_did, for_sys_did, memo, phrase)
     }
 
     pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str, phrase: &str)
-        -> (String, String) {
+                                      -> (String, String) {
         let issuer_key = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&"Unknown".to_string()));
         let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&issuer_key)).unwrap_or([0u8; 32]);
         let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
@@ -379,7 +401,7 @@ impl SimpleAI {
             true => true,
             false => {
                 let new_claim = GlobalClaims::generate_did_claim
-                            ("User", &nickname, None, Some(telephone.to_string()), &user_phrase) else { todo!() };
+                    ("User", &nickname, None, Some(telephone.to_string()), &user_phrase) else { todo!() };
                 let exchange_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("exchange", &new_claim, &user_phrase);
                 let issue_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("issue", &new_claim, &user_phrase);
                 let mut ready_data: serde_json::Value = json!({});
@@ -537,7 +559,7 @@ impl SimpleAI {
                 request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
                 request["user_symbol"] = serde_json::to_value(&URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
                 let user_copy_from_cloud = self.request_token_api("get_user_copy",
-                                               &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+                                                                  &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
 
                 match user_copy_from_cloud != "Unknown".to_string()  {
                     true => {
