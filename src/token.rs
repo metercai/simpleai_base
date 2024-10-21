@@ -355,7 +355,7 @@ impl SimpleAI {
         let by_did_public = PublicKey::from(self.get_claim(by_did).get_crypt_key());
         let shared_key = token_utils::get_diffie_hellman_key(&by_did_public, self_crypt_secret);
         let text = token_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
-        String::from_utf8(text).expect("Unknown")
+        String::from_utf8_lossy(text.as_slice()).to_string()
     }
 
     pub fn get_device_did(&self) -> String {
