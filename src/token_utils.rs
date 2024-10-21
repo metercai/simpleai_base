@@ -536,7 +536,7 @@ pub(crate) fn encrypt(data: &[u8], key: &[u8], period:u64) -> Vec<u8> {
     let key = Key::<Aes256Gcm>::from_slice(&aes_key);
     let cipher = Aes256Gcm::new(&key);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    println!("encrypt nonce length: {}", nonce.len());
+    println!("encrypt nonce length = {}", nonce.len());
     let encrypted = cipher.encrypt(&nonce, data).unwrap_or("Unknown".as_bytes().to_vec());
     let mut result = Vec::with_capacity(nonce.len() + encrypted.len());
     result.extend_from_slice(&nonce);
