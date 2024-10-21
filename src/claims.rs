@@ -280,7 +280,7 @@ impl IdClaim {
         let zeroed_key: [u8; 32] = [0; 32];
         let symbol_hash = token_utils::get_symbol_hash(nickname, &telephone_base64);
         let verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_verify_key(id_type, &symbol_hash, phrase));
-        let crypt_secret = token_utils::get_specific_secret_key("hellman",0,id_type, &symbol_hash, phrase);
+        let crypt_secret = token_utils::get_specific_secret_key("exchange",0,id_type, &symbol_hash, phrase);
         let crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_crypt_key(crypt_secret).unwrap_or_else(|_| zeroed_key));
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();

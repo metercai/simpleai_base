@@ -274,7 +274,7 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
             };
 
             let claims = claims::GlobalClaims::instance();
-            if let Some(Value::Object(hellman_secrets)) = system_token.get("hellman_secrets") {
+            if let Some(Value::Object(hellman_secrets)) = system_token.get("exchange_secrets") {
                 for (key, value) in hellman_secrets {
                     let parts_key: Vec<&str> = key.split('_').collect();
                     let did = parts_key[0];
@@ -536,7 +536,6 @@ pub(crate) fn encrypt(data: &[u8], key: &[u8], period:u64) -> Vec<u8> {
     let key = Key::<Aes256Gcm>::from_slice(&aes_key);
     let cipher = Aes256Gcm::new(&key);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    println!("encrypt nonce length = {}", nonce.len());
     let encrypted = cipher.encrypt(&nonce, data).unwrap_or("Unknown".as_bytes().to_vec());
     let mut result = Vec::with_capacity(nonce.len() + encrypted.len());
     result.extend_from_slice(&nonce);
@@ -752,7 +751,7 @@ fn read_user_token_from_file(user_token_file: &Path) -> Result<UserContext, Toke
 pub(crate) fn save_secret_to_system_token_file(crypt_secrets: &HashMap<String, String>, sys_did: &str, admin: &str) {
     let mut json_system_token = json!({});
     json_system_token["admin_did"] = json!(admin);
-    json_system_token["hellman_secrets"] = json!(crypt_secrets);
+    json_system_token["exchange_secrets"] = json!(crypt_secrets);
     let json_string = serde_json::to_string(&json_system_token).unwrap_or(String::from("{}"));
 
     let system_token_file = get_path_in_sys_key_dir(&format!("authorized2system_{}.token", sys_did));
