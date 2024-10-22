@@ -390,9 +390,9 @@ impl SimpleAI {
                 let new_claim = GlobalClaims::generate_did_claim
                     ("User", &nickname, None, Some(telephone.to_string()), &user_phrase);
                 let exchange_crypt_secret =  URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
-                    "exchange", 0, new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
+                    "exchange", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
                 let issue_crypt_secret = URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
-                    "issue", 0, new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
+                    "issue", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
                 let mut ready_data: serde_json::Value = json!({});
                 ready_data["user_phrase"] =  serde_json::to_value(user_phrase.clone()).unwrap_or(json!(""));
                 ready_data["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));

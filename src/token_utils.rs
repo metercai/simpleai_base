@@ -39,7 +39,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 };
 
 pub(crate) static TOKEN_TM_URL: &str = "https://v2.token.tm/api_";
-pub(crate) static TOKEN_TM_DID: &str = "89yyQJo1F7EXu3xRiSq4324FNkXeS";
+pub(crate) static TOKEN_TM_DID: &str = "CvPP8BvPfHZmHM4E85uHHn4XXvCrk";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
@@ -77,13 +77,13 @@ pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>
     let did = claim.gen_did();
     if !crypt_secrets.contains_key(&exchange_key!(did)) {
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
-            "exchange",0,claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
+            "exchange",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
         println!("init_user_crypt_secret get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(claim.get_symbol_hash()), crypt_secret);
         crypt_secrets.insert(exchange_key!(did), crypt_secret.clone());
     }
     if !crypt_secrets.contains_key(&issue_key!(did)) {
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
-            "issue",0,claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
+            "issue",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
         crypt_secrets.insert(issue_key!(did), crypt_secret.clone());
     }
 }
@@ -335,12 +335,11 @@ pub(crate) fn create_or_renew_user_context_token(did: &str, sys_did: &str, nickn
             let Ok(mut context_renew) = read_user_token_from_file(user_token_file.as_path())
                 else { todo!() };
             context_renew.set_sys_did(sys_did);
-            let crypt_key = get_specific_secret_key("context", 0, id_type, symbol_hash, phrase);
+            let crypt_key = get_specific_secret_key("context", id_type, symbol_hash, phrase);
             let aes_key_old_vec = decrypt(&URL_SAFE_NO_PAD.decode(
                 context_renew.get_aes_key_encrypted()).unwrap_or(zeroed_key.to_vec()), &crypt_key, 0);
             let aes_key_old = convert_vec_to_key(&aes_key_old_vec);
-            let secret_key_new = get_random_secret_key(id_type, 0, symbol_hash, phrase)
-                .unwrap_or([0u8; 40]);
+            let secret_key_new = get_random_secret_key(id_type, symbol_hash, phrase);
             let default_expire = 90*24*3600;
             context_renew.set_auth_sk_with_secret(&URL_SAFE_NO_PAD.encode(secret_key_new), default_expire);
             let aes_key_new = context_renew.get_crypt_key();
@@ -355,11 +354,10 @@ pub(crate) fn create_or_renew_user_context_token(did: &str, sys_did: &str, nickn
             let default_private_paths = serde_json::to_string(
                 &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
             let mut context_default = UserContext::new(did, sys_did, nickname, &default_permissions, &default_private_paths);
-            let secret_key = get_random_secret_key(id_type, 0, symbol_hash, phrase)
-                .unwrap_or([0u8; 40]);
+            let secret_key = get_random_secret_key(id_type, symbol_hash, phrase);
             let default_expire = 90*24*3600;
             context_default.set_auth_sk_with_secret(&URL_SAFE_NO_PAD.encode(secret_key), default_expire);
-            let crypt_key = get_specific_secret_key("context", 0, id_type, symbol_hash, phrase);
+            let crypt_key = get_specific_secret_key("context", id_type, symbol_hash, phrase);
             let aes_key_encrypted = URL_SAFE_NO_PAD.encode(encrypt(&context_default.get_crypt_key(), &crypt_key, 0));
             context_default.set_aes_key_encrypted(&aes_key_encrypted);
             context_default
@@ -424,35 +422,33 @@ pub(crate) fn get_verify_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &st
     *verifying_key.as_bytes()
 }
 
-pub(crate) fn get_specific_secret_key(key_name: &str, period:u64, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 40] {
+pub(crate) fn get_specific_secret_key(key_name: &str, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
     let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase).unwrap_or([0u8; 32]));
     let key_name_bytes = calc_sha256(key_name.as_bytes());
     let mut com_phrase = [0u8; 64];
     com_phrase[..32].copy_from_slice(&key_hash);
     com_phrase[32..].copy_from_slice(symbol_hash);
     let secret_key = StaticSecret::from(derive_key(&com_phrase, &key_name_bytes).unwrap_or([0u8; 32]));
-    convert_to_sk_with_expire(secret_key.as_bytes(), period)
+    *secret_key.as_bytes()
 }
 
 
-pub(crate) fn get_random_secret_key(key_type: &str, period:u64, symbol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 40], TokenError> {
-    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase)?);
+pub(crate) fn get_random_secret_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
+    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase).unwrap_or([0u8; 32]));
     let mut csprng = OsRng {};
     let mut random_number = [0u8; 16];
     csprng.fill_bytes(&mut random_number);
     let mut com_phrase = [0u8; 48];
     com_phrase[..16].copy_from_slice(&random_number);
     com_phrase[16..].copy_from_slice(symbol_hash);
-    let secret_key = StaticSecret::from(derive_key(&com_phrase, &key_hash)?);
-    Ok(convert_to_sk_with_expire(secret_key.as_bytes(), period))
+    let secret_key = StaticSecret::from(derive_key(&com_phrase, &key_hash).unwrap_or([0u8; 32]));
+    *secret_key.as_bytes()
 }
 
-pub(crate) fn get_crypt_key(secret_key: [u8; 40]) -> Result<[u8; 32], TokenError> {
-    let key = &secret_key[..32];
-    let expire = u64::from_le_bytes(secret_key[32..].try_into().unwrap_or_else(|_| [0; 8]));
-    let secret_key = StaticSecret::from(hkdf_key_deadline(key, expire));
+pub(crate) fn get_crypt_key(secret_key: [u8; 32]) -> [u8; 32] {
+    let secret_key = StaticSecret::from(secret_key);
     let crypt_key = PublicKey::from(&secret_key);
-    Ok(*crypt_key.as_bytes())
+    *crypt_key.as_bytes()
 }
 
 pub(crate) fn get_diffie_hellman_key(did_key: [u8; 32], secret_key: [u8; 32]) -> [u8; 32] {
