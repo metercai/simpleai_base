@@ -465,8 +465,10 @@ impl SimpleAI {
                     {
                         let (certs_key, certs_value) = token_utils::parse_user_certs(&user_certificate_text);
                         self.push_certificate(&certs_key, &certs_value);
+                        let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(claim.get_symbol_hash());
+                        println!("symbol_hash_base64: {}", symbol_hash_base64);
                         let mut request: serde_json::Value = json!({});
-                        request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                        request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
                         request["user_vcode"] = serde_json::to_value(vcode).unwrap();
                         request["user_copy_hash_id"] = ready_data["user_copy_hash_id"].clone();
                         let _ = self.request_token_api(
