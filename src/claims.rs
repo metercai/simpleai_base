@@ -275,7 +275,7 @@ impl IdClaim {
                                       telephone_base64, id_card_base64, face_image_base64, file_hash_base64);
         let fingerprint = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(&fingerprint_str.as_bytes()));
 
-        let symbol_hash = token_utils::get_symbol_hash(nickname, &telephone_base64);
+        let symbol_hash = token_utils::calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
         let verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_verify_key(id_type, &symbol_hash, phrase));
         let crypt_secret = token_utils::get_specific_secret_key("exchange", id_type, &symbol_hash, phrase);
         println!("IdClaim new() get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(crypt_secret));
@@ -343,8 +343,15 @@ impl IdClaim {
         token_utils::convert_base64_to_key(&self.crypt_key)
     }
 
+    #[staticmethod]
+    pub fn get_symbol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
+        let telephone_hash = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(
+            format!("{}:telephone:{}", nickname, telephone).as_bytes()));
+        token_utils::calc_sha256(format!("{}|{}", nickname, telephone_hash).as_bytes())
+    }
+
     pub fn get_symbol_hash(&self) -> [u8; 32] {
-        token_utils::get_symbol_hash(&self.nickname, &self.telephone_hash)
+        token_utils::calc_sha256(format!("{}|{}", self.nickname, self.telephone_hash).as_bytes())
     }
 
     pub(crate) fn to_json_string(&self) -> String {

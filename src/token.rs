@@ -89,7 +89,7 @@ impl SimpleAI {
             println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
         }
 
-        let guest_symbol_hash = token_utils::get_symbol_hash_by_source(&guest_name, "Unknown");
+        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, "Unknown");
         let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
 
         let claims = GlobalClaims::instance();
@@ -240,7 +240,7 @@ impl SimpleAI {
     pub fn create_user(&mut self, nickname: &str, id_card: Option<String>, telephone: Option<String>, phrase: Option<String>)
                        -> (String, String) {
         let user_telephone = telephone.clone().unwrap_or("Unknown".to_string());
-        let user_symbol_hash = token_utils::get_symbol_hash_by_source(&nickname, &user_telephone);
+        let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &user_telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
         let user_claim = {
@@ -380,7 +380,7 @@ impl SimpleAI {
     }
 
     pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> bool {
-        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => true,
@@ -443,7 +443,7 @@ impl SimpleAI {
     }
 
     pub fn check_user_verify_code(&mut self, nickname: &str, telephone: &str, vcode: &str)-> String {
-        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if self.ready_users.contains_key(&user_hash_id) {
             let mut ready_data = self.ready_users.get(&user_hash_id).cloned().unwrap_or_default();
@@ -493,7 +493,7 @@ impl SimpleAI {
     }
 
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
-        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if self.ready_users.contains_key(&user_hash_id) {
             let ready_data = self.ready_users.get(&user_hash_id).unwrap();
@@ -537,7 +537,7 @@ impl SimpleAI {
         }
     }
     pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
-        let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
                 let did = self.reverse_lookup_did_by_symbol(symbol_hash);

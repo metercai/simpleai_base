@@ -515,15 +515,6 @@ pub(crate) fn hkdf_key_deadline(key: &[u8], period:u64) -> [u8; 32] {
     aes_key
 }
 
-pub(crate) fn get_symbol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
-    get_symbol_hash(nickname, URL_SAFE_NO_PAD.encode(
-        calc_sha256(telephone.as_bytes())).as_str())
-}
-
-pub(crate)fn get_symbol_hash(nickname: &str, telephone_base64: &str) -> [u8; 32] {
-    calc_sha256(format!("{}|{}",nickname, telephone_base64).as_bytes())
-}
-
 pub(crate) fn convert_to_sk_with_expire(secret_key: &[u8; 32], expire: u64) -> [u8; 40] {
     let expire_bytes = expire.to_le_bytes();
     let mut auth_sk = [0; 40];
