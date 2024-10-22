@@ -469,10 +469,9 @@ impl SimpleAI {
                         let (certs_key, certs_value) = token_utils::parse_user_certs(&user_certificate_text);
                         self.push_certificate(&certs_key, &certs_value);
                         let mut request: serde_json::Value = json!({});
-                        request["user_symbol"] = serde_json::to_value(&URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                        request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
                         request["user_vcode"] = serde_json::to_value(vcode).unwrap();
-                        let user_copy_hash_id = ready_data["user_copy_hash_id"].as_str().unwrap_or("Unknown");
-                        request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
+                        request["user_copy_hash_id"] = ready_data["user_copy_hash_id"].clone();
                         let _ = self.request_token_api(
                             "confirm",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
@@ -666,7 +665,7 @@ impl SimpleAI {
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.upstream_did.clone();
         let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
-        println!("Requesting token api: {} with params: {}", api_name, encoded_params);
+        println!("Requesting token api: {} with params: {}", api_name, params);
         TOKIO_RUNTIME.block_on(async {
             match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
                 .header("Sys-Did", self.did.to_string())
