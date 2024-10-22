@@ -391,6 +391,7 @@ impl SimpleAI {
                     "exchange", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
                 let issue_crypt_secret = URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
                     "issue", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
+                println!("check_local_user_token, new_claim did: {}\n claim: {:?}", new_claim.gen_did(), new_claim);
                 let mut ready_data: serde_json::Value = json!({});
                 ready_data["user_phrase"] =  serde_json::to_value(user_phrase.clone()).unwrap_or(json!(""));
                 ready_data["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
@@ -454,7 +455,7 @@ impl SimpleAI {
                 let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
                 let upstream_did = self.get_upstream_did();
                 let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
-                println!("verify_code: ready user: {}, user_certificate_text: {}", did, user_certificate_text);
+                println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}", did, user_certificate_text, claim);
                 if user_certificate_text != "Unknown".to_string() {
                     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
                     let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();

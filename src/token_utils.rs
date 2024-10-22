@@ -807,9 +807,7 @@ pub(crate) fn encrypt_issue_cert_and_get_vcode(issue_cert: &str) -> (String, Str
 
 pub(crate) fn decrypt_issue_cert_with_vcode(vcode: &str, issue_cert: &str) -> String {
     let result_certificate = URL_SAFE_NO_PAD.decode(issue_cert).unwrap_or([0; 32].to_vec());
-    println!("result_certificate: {:?}", result_certificate);
     let vcode_bytes = vcode.from_base58().unwrap_or([0; 4].to_vec());
-    println!("vcode_bytes: {}, {:?}", vcode, vcode_bytes);
     let mut key = [0; 32];
     key[..28].copy_from_slice(&result_certificate[..28]);
     key[28..].copy_from_slice(&vcode_bytes[..4]);
