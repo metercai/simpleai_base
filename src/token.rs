@@ -324,8 +324,8 @@ impl SimpleAI {
 
     pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
         let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
-        let for_did_public = PublicKey::from(self.get_claim(for_did).get_crypt_key());
-        let shared_key = token_utils::get_diffie_hellman_key(&for_did_public, self_crypt_secret);
+        let for_did_public = self.get_claim(for_did).get_crypt_key();
+        let shared_key = token_utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
         println!("encrypt_for_did, shared_key:{:?}", shared_key);
         let ctext = token_utils::encrypt(text, &shared_key, period);
         URL_SAFE_NO_PAD.encode(ctext)
@@ -333,8 +333,8 @@ impl SimpleAI {
 
     pub fn decrypt_by_did(&mut self, ctext: &str, by_did: &str, period:u64) -> String {
         let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
-        let by_did_public = PublicKey::from(self.get_claim(by_did).get_crypt_key());
-        let shared_key = token_utils::get_diffie_hellman_key(&by_did_public, self_crypt_secret);
+        let by_did_public = self.get_claim(by_did).get_crypt_key();
+        let shared_key = token_utils::get_diffie_hellman_key(by_did_public, self_crypt_secret);
         println!("decrypt_by_did, shared_key:{:?}", shared_key);
         let text = token_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
         String::from_utf8_lossy(text.as_slice()).to_string()

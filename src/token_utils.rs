@@ -39,7 +39,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 };
 
 pub(crate) static TOKEN_TM_URL: &str = "https://v2.token.tm/api_";
-pub(crate) static TOKEN_TM_DID: &str = "CxBK7dE2nbM16zgCL9wEoaVHqqGbQ";
+pub(crate) static TOKEN_TM_DID: &str = "89yyQJo1F7EXu3xRiSq4324FNkXeS";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
@@ -78,7 +78,7 @@ pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>
     if !crypt_secrets.contains_key(&exchange_key!(did)) {
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
             "exchange",0,claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
-        println!("get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(claim.get_symbol_hash()), crypt_secret);
+        println!("init_user_crypt_secret get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(claim.get_symbol_hash()), crypt_secret);
         crypt_secrets.insert(exchange_key!(did), crypt_secret.clone());
     }
     if !crypt_secrets.contains_key(&issue_key!(did)) {
@@ -451,13 +451,13 @@ pub(crate) fn get_crypt_key(secret_key: [u8; 40]) -> Result<[u8; 32], TokenError
     let key = &secret_key[..32];
     let expire = u64::from_le_bytes(secret_key[32..].try_into().unwrap_or_else(|_| [0; 8]));
     let secret_key = StaticSecret::from(hkdf_key_deadline(key, expire));
-    let crypt_key = PublicKey::from(secret_key.to_bytes());
+    let crypt_key = PublicKey::from(&secret_key);
     Ok(*crypt_key.as_bytes())
 }
 
-pub(crate) fn get_diffie_hellman_key(did_key: &PublicKey, secret_key: [u8; 32]) -> [u8; 32] {
+pub(crate) fn get_diffie_hellman_key(did_key: [u8; 32], secret_key: [u8; 32]) -> [u8; 32] {
     let secret_key = StaticSecret::from(secret_key);
-    let shared_key = secret_key.diffie_hellman(&did_key);
+    let shared_key = secret_key.diffie_hellman(&PublicKey::from(did_key));
     *shared_key.as_bytes()
 }
 pub(crate) fn get_signature(text: &str, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Vec<u8> {
