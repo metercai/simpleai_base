@@ -406,9 +406,10 @@ impl SimpleAI {
                 request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
                 request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
 
-                let user_certificate = self.request_token_api(
+                let user_certificate_json = self.request_token_api(
                     "apply",
                     &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+                let user_certificate: String = serde_json::from_str(&user_certificate_json).unwrap();
                 if user_certificate != "Unknown".to_string()  {
                     ready_data["user_certificate"] = serde_json::to_value(user_certificate.clone()).unwrap_or(json!(""));
                 }
