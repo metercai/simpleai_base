@@ -453,8 +453,7 @@ impl SimpleAI {
             if try_count >= 0 {
                 let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
                 println!("claim: {}", ready_data["claim"]);
-                let claim: IdClaim = serde_json::from_str(ready_data.get("claim").and_then(serde_json::Value::as_str).unwrap_or("{}")).unwrap_or_default();
-                //let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
+                let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
                 let did = claim.gen_did();
                 let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
                 let upstream_did = self.get_upstream_did();
