@@ -448,10 +448,10 @@ impl SimpleAI {
             let mut try_count = ready_data["vcode_try_counts"].as_i64().unwrap_or(0) as i32;
             try_count -= 1;
             if try_count >= 0 {
-                let result_certificate_string = serde_json::to_string(&ready_data["user_certificate"]).unwrap_or("Unknown".to_string());
+                let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
                 let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
                 let did = claim.gen_did();
-                let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, &result_certificate_string);
+                let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
                 let upstream_did = self.get_upstream_did();
                 let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
                 println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}\n symbol_hash_b64: {}",
@@ -493,15 +493,15 @@ impl SimpleAI {
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if self.ready_users.contains_key(&user_hash_id) {
             let ready_data = self.ready_users.get(&user_hash_id).unwrap();
-            let old_phrase = serde_json::to_string(&ready_data["user_phrase"]).unwrap_or("Unknown".to_string());
-            let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, &old_phrase);
+            let old_phrase = ready_data["user_phrase"].as_str().unwrap_or("Unknown");
+            let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, old_phrase);
             let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
             let did = claim.gen_did();
-            let exchange_crypt_secret = serde_json::to_string(&ready_data["exchange_crypt_secret"]).unwrap_or("Unknown".to_string());
-            let issue_crypt_secret = serde_json::to_string(&ready_data["issue_crypt_secret"]).unwrap_or("Unknown".to_string());
+            let exchange_crypt_secret = ready_data["exchange_crypt_secret"].as_str().unwrap_or("Unknown");
+            let issue_crypt_secret = &ready_data["issue_crypt_secret"].as_str().unwrap_or("Unknown");
             self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret.to_string());
             self.crypt_secrets.insert(issue_key!(did.clone()), issue_crypt_secret.to_string());
-            token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), &old_phrase, phrase);
+            token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), old_phrase, phrase);
             self.push_claim(&claim);
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
             let context = self.sign_user_context(&did, phrase);
