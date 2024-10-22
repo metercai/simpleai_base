@@ -326,7 +326,6 @@ impl SimpleAI {
         let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let for_did_public = self.get_claim(for_did).get_crypt_key();
         let shared_key = token_utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
-        println!("encrypt_for_did, shared_key:{:?}", shared_key);
         let ctext = token_utils::encrypt(text, &shared_key, period);
         URL_SAFE_NO_PAD.encode(ctext)
     }
@@ -335,7 +334,6 @@ impl SimpleAI {
         let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let by_did_public = self.get_claim(by_did).get_crypt_key();
         let shared_key = token_utils::get_diffie_hellman_key(by_did_public, self_crypt_secret);
-        println!("decrypt_by_did, shared_key:{:?}", shared_key);
         let text = token_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
         String::from_utf8_lossy(text.as_slice()).to_string()
     }
@@ -452,15 +450,13 @@ impl SimpleAI {
                 let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
                 let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
                 let did = claim.gen_did();
-                let result_certificate = URL_SAFE_NO_PAD.decode(result_certificate_string).unwrap_or([0; 32].to_vec());
-                let mut key = [0; 32];
-                key[..28].copy_from_slice(&result_certificate[..28]);
-                key[28..].copy_from_slice(&vcode.from_base58().unwrap_or([0; 4].to_vec())[..4]);
-                let user_certificate = URL_SAFE_NO_PAD.encode(&result_certificate[28..]);
-                let user_certificate_text = self.decrypt_by_did(&user_certificate, token_utils::TOKEN_TM_DID, 0);
+                let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
+                let upstream_did = self.get_upstream_did();
+                let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
                 if user_certificate_text != "Unknown".to_string() {
+                    // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
                     let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();
-                    if user_certificate_text_array.len() >= 6
+                    if user_certificate_text_array.len() >= 7
                         && IdClaim::validity(user_certificate_text_array[0])
                         && IdClaim::validity(user_certificate_text_array[1])
                     {

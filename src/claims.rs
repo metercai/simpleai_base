@@ -124,8 +124,6 @@ impl GlobalClaims {
         let did_file_path = token_utils::get_path_in_sys_key_dir(&format!("{}_{}.did", claim.id_type.to_lowercase(), did));
         if let Err(e) = fs::remove_file(did_file_path) {
             eprintln!("无法删除文件: {}", e);
-        } else {
-            println!("文件已成功删除");
         }
         claim
     }

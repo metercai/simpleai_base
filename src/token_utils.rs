@@ -810,5 +810,5 @@ pub(crate) fn decrypt_issue_cert_with_vcode(vcode: &str, issue_cert: &str) -> St
     let mut key = [0; 32];
     key[..28].copy_from_slice(&result_certificate[..28]);
     key[28..].copy_from_slice(&vcode.from_base58().unwrap_or([0; 4].to_vec())[..4]);
-    String::from_utf8(decrypt(&result_certificate[24..], &key, 0)).unwrap_or("Unknown".to_string())
+    String::from_utf8_lossy(decrypt(&result_certificate[28..], &key, 0).as_slice()).to_string()
 }
