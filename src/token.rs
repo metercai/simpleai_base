@@ -49,7 +49,7 @@ pub struct SimpleAI {
     pub authorized: HashMap<String, UserContext>,   // 用户绑定的授权
     pub sysinfo: SystemInfo,
     claims: Arc<Mutex<GlobalClaims>>,       // 留存本地的身份自证
-    crypt_secrets: HashMap<String, String>, // 授权母钥，源自于pk.pem，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}
+    crypt_secrets: HashMap<String, String>, // 专项密钥，源自pk.pem的派生，专项用途，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}
     certificates: HashMap<String, String>,  // 授权给本系统的他证, key={issue_did}|{for_did}|{用途}，value={encrypted_key}|{memo}|{time}|{sig}
     issued_certs: HashMap<String, String>,  // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=
                                             // encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
@@ -144,24 +144,9 @@ impl SimpleAI {
         let blacklist = token_utils::load_did_blacklist_from_file();
 
         let crypt_secrets_len = crypt_secrets.len();
-        if !crypt_secrets.contains_key(&exchange_key!(local_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "exchange", &local_claim, &sys_phrase);
-        }
-        if !crypt_secrets.contains_key(&issue_key!(local_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "issue", &local_claim, &sys_phrase);
-        }
-        if !crypt_secrets.contains_key(&exchange_key!(device_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "exchange", &device_claim, &device_phrase);
-        }
-        if !crypt_secrets.contains_key(&issue_key!(device_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "issue", &device_claim, &device_phrase);
-        }
-        if !crypt_secrets.contains_key(&exchange_key!(guest_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "exchange", &guest_claim, &guest_phrase);
-        }
-        if !crypt_secrets.contains_key(&issue_key!(guest_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut crypt_secrets, "issue", &guest_claim, &guest_phrase);
-        }
+        token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
+        token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
+        token_utils::init_user_crypt_secret(&mut crypt_secrets, &guest_claim, &guest_phrase);
         if crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
         }
@@ -266,12 +251,7 @@ impl SimpleAI {
         };
         let user_did = user_claim.gen_did();
         let crypt_secrets_len = self.crypt_secrets.len();
-        if !self.crypt_secrets.contains_key(&exchange_key!(user_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "exchange", &user_claim, &phrase);
-        }
-        if !self.crypt_secrets.contains_key(&issue_key!(user_did)) {
-            let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "issue", &user_claim, &phrase);
-        }
+        token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &user_claim, &phrase);
         if self.crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
@@ -300,7 +280,7 @@ impl SimpleAI {
 
     pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str, phrase: &str)
                                       -> (String, String) {
-        let issuer_key = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&"Unknown".to_string()));
+        let issuer_key = token_utils::convert_base64_to_key(self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&"Unknown".to_string()));
         let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&issuer_key)).unwrap_or([0u8; 32]);
         let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
         let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
@@ -343,7 +323,7 @@ impl SimpleAI {
     }
 
     pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
-        let self_crypt_secret = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
+        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let for_did_public = PublicKey::from(self.get_claim(for_did).get_crypt_key());
         let shared_key = token_utils::get_diffie_hellman_key(&for_did_public, self_crypt_secret);
         println!("encrypt_for_did, shared_key:{:?}", shared_key);
@@ -352,7 +332,7 @@ impl SimpleAI {
     }
 
     pub fn decrypt_by_did(&mut self, ctext: &str, by_did: &str, period:u64) -> String {
-        let self_crypt_secret = token_utils::parse_crypt_secrets(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
+        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let by_did_public = PublicKey::from(self.get_claim(by_did).get_crypt_key());
         let shared_key = token_utils::get_diffie_hellman_key(&by_did_public, self_crypt_secret);
         println!("decrypt_by_did, shared_key:{:?}", shared_key);
@@ -409,13 +389,15 @@ impl SimpleAI {
             false => {
                 let new_claim = GlobalClaims::generate_did_claim
                     ("User", &nickname, None, Some(telephone.to_string()), &user_phrase);
-                let exchange_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("exchange", &new_claim, &user_phrase);
-                let issue_crypt_secret_with_sig = token_utils::get_crypt_secret_with_sig("issue", &new_claim, &user_phrase);
+                let exchange_crypt_secret =  URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
+                    "exchange", 0, new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
+                let issue_crypt_secret = URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
+                    "issue", 0, new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
                 let mut ready_data: serde_json::Value = json!({});
                 ready_data["user_phrase"] =  serde_json::to_value(user_phrase.clone()).unwrap_or(json!(""));
                 ready_data["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
-                ready_data["exchange_crypt_secret_with_sig"] = serde_json::to_value(exchange_crypt_secret_with_sig).unwrap_or(json!(""));
-                ready_data["issue_crypt_secret_with_sig"] = serde_json::to_value(issue_crypt_secret_with_sig).unwrap_or(json!(""));
+                ready_data["exchange_crypt_secret"] = serde_json::to_value(exchange_crypt_secret).unwrap_or(json!(""));
+                ready_data["issue_crypt_secret"] = serde_json::to_value(issue_crypt_secret).unwrap_or(json!(""));
                 ready_data["vcode_try_counts"] = json!(3);
                 let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, &user_phrase);
                 ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
@@ -518,10 +500,10 @@ impl SimpleAI {
             let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, old_phrase);
             let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
             let did = claim.gen_did();
-            let exchange_crypt_secret_with_sig = ready_data["exchange_crypt_secret_with_sig"].as_str().unwrap_or("Unknown");
-            let issue_crypt_secret_with_sig = ready_data["issue_crypt_secret_with_sig"].as_str().unwrap_or("Unknown");
-            self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret_with_sig.to_string());
-            self.crypt_secrets.insert(issue_key!(did.clone()), issue_crypt_secret_with_sig.to_string());
+            let exchange_crypt_secret = ready_data["exchange_crypt_secret"].as_str().unwrap_or("Unknown");
+            let issue_crypt_secret = ready_data["issue_crypt_secret"].as_str().unwrap_or("Unknown");
+            self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret.to_string());
+            self.crypt_secrets.insert(issue_key!(did.clone()), issue_crypt_secret.to_string());
             token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), old_phrase, phrase);
             self.push_claim(&claim);
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
@@ -577,12 +559,7 @@ impl SimpleAI {
                             let claim: IdClaim = serde_json::from_str(&user_copy_from_cloud_array[1]).unwrap_or(IdClaim::default());
                             let did = claim.gen_did();
                             // reset crypt_secret
-                            if !self.crypt_secrets.contains_key(&exchange_key!(did)) {
-                                let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "exchange", &claim, phrase);
-                            }
-                            if !self.crypt_secrets.contains_key(&issue_key!(did)) {
-                                let _ = token_utils::init_user_crypt_secret_with_sig(&mut self.crypt_secrets, "issue", &claim, phrase);
-                            }
+                            token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &claim, phrase);
                             self.push_claim(&claim.clone());
                             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
 
@@ -632,7 +609,7 @@ impl SimpleAI {
             Ok(_) => {
                 if self.admin.is_empty() {
                     self.admin = did.to_string();
-                    let _ = token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
+                    token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
                 }
                 self.authorized.insert(did.to_string(), context.clone());
                 context

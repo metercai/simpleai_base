@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::env;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::time::SystemTime;
 use serde_json::{json, Value};
 use directories_next::BaseDirs;
@@ -63,25 +61,34 @@ pub(crate) fn load_pem_and_claim_from_file(id_type: &str, symbol_hash: &[u8; 32]
     format!("{}|{}", pem_string, claim_string)
 }
 
-
-pub(crate) fn init_user_crypt_secret_with_sig(crypt_secrets: &mut HashMap<String, String>, key_name: &str, claim: &IdClaim, phrase: &str) -> String{
-    let crypt_secret_with_sig = get_crypt_secret_with_sig(key_name, claim, phrase);
-    crypt_secrets.insert(format!("{}_{}", claim.gen_did(), key_name), crypt_secret_with_sig.clone());
-    crypt_secret_with_sig
+macro_rules! exchange_key {
+    ($did:expr) => {
+        format!("{}_exchange", $did)
+    };
 }
 
-pub(crate) fn get_crypt_secret_with_sig(key_name: &str, claim: &IdClaim, phrase: &str) -> String{
-    let crypt_secret = get_specific_secret_key(
-        key_name,0,claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase);
+macro_rules! issue_key {
+    ($did:expr) => {
+        format!("{}_issue", $did)
+    };
+}
+
+pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>, claim: &IdClaim, phrase: &str) {
     let did = claim.gen_did();
-    let secret_base64 = URL_SAFE_NO_PAD.encode(crypt_secret);
-    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-    let text = format!("{}_{}|{}|{}", did, key_name, secret_base64, timestamp);
-    let sig = URL_SAFE_NO_PAD.encode(get_signature(text.as_str(), &claim.id_type, &claim.get_symbol_hash(), phrase));
-    let crypt_secret_with_sig = format!("{}|{}|{}", secret_base64, timestamp, sig);
-    crypt_secret_with_sig
+    if !crypt_secrets.contains_key(&exchange_key!(did)) {
+        let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
+            "exchange",0,claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
+        println!("get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(claim.get_symbol_hash()), crypt_secret);
+        crypt_secrets.insert(exchange_key!(did), crypt_secret.clone());
+    }
+    if !crypt_secrets.contains_key(&issue_key!(did)) {
+        let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
+            "issue",0,claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
+        crypt_secrets.insert(issue_key!(did), crypt_secret.clone());
+    }
 }
+
+
 
 pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut HashMap<String, String>) {
     let token_file = get_path_in_sys_key_dir(&format!("user_certs_{}.token", sys_did));
@@ -273,26 +280,10 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
                 _ => String::from(""),
             };
 
-            let claims = claims::GlobalClaims::instance();
-            if let Some(Value::Object(hellman_secrets)) = system_token.get("exchange_secrets") {
+            if let Some(Value::Object(hellman_secrets)) = system_token.get("specific_secrets") {
                 for (key, value) in hellman_secrets {
-                    let parts_key: Vec<&str> = key.split('_').collect();
-                    let did = parts_key[0];
                     if let Value::String(secrets_str) = value {
-                        let parts: Vec<&str> = secrets_str.split('|').collect();
-                        if parts.len() >= 3 {
-                            let secret_base64 = parts[0];
-                            let timestamp = parts[1];
-                            let sig_base64 = parts[2];
-                            let text = format!("{}|{}|{}", key, secret_base64, timestamp);
-                            let claim = {
-                                let mut claims_guard = claims.lock().unwrap();
-                                claims_guard.get_claim_from_global(did)
-                            };
-                            if verify_signature(&text, sig_base64, &claim.get_verify_key()) {
-                                crypt_secrets.insert(key.clone(), secrets_str.to_string());
-                            }
-                        }
+                        crypt_secrets.insert(key.clone(), secrets_str.to_string());
                     }
                 }
             }
@@ -301,6 +292,21 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
         false => String::from(""),
     };
     admin_did
+}
+
+pub(crate) fn save_secret_to_system_token_file(crypt_secrets: &HashMap<String, String>, sys_did: &str, admin: &str) {
+    let mut json_system_token = json!({});
+    json_system_token["admin_did"] = json!(admin);
+    json_system_token["specific_secrets"] = json!(crypt_secrets);
+    let json_string = serde_json::to_string(&json_system_token).unwrap_or(String::from("{}"));
+
+    let system_token_file = get_path_in_sys_key_dir(&format!("authorized2system_{}.token", sys_did));
+    let crypt_key = get_token_crypt_key();
+    let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
+    if *VERBOSE_INFO {
+        println!("Save secret token to file: {}", json_string);
+    }
+    fs::write(system_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", system_token_file.display()))
 }
 
 pub(crate) fn load_did_blacklist_from_file() -> Vec<String>  {
@@ -422,9 +428,9 @@ pub(crate) fn get_specific_secret_key(key_name: &str, period:u64, key_type: &str
     let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase).unwrap_or([0u8; 32]));
     let key_name_bytes = calc_sha256(key_name.as_bytes());
     let mut com_phrase = [0u8; 64];
-    com_phrase[..32].copy_from_slice(&key_name_bytes);
+    com_phrase[..32].copy_from_slice(&key_hash);
     com_phrase[32..].copy_from_slice(symbol_hash);
-    let secret_key = StaticSecret::from(derive_key(&com_phrase, &key_hash).unwrap_or([0u8; 32]));
+    let secret_key = StaticSecret::from(derive_key(&com_phrase, &key_name_bytes).unwrap_or([0u8; 32]));
     convert_to_sk_with_expire(secret_key.as_bytes(), period)
 }
 
@@ -722,7 +728,7 @@ pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], Token
 }
 
 fn get_token_crypt_key() -> [u8; 32] {
-    let mut claims =GlobalClaims::instance();
+    let claims =GlobalClaims::instance();
     let mut claims =claims.lock().unwrap();
     claims.get_file_crypt_key()
 }
@@ -748,20 +754,7 @@ fn read_user_token_from_file(user_token_file: &Path) -> Result<UserContext, Toke
 
 
 
-pub(crate) fn save_secret_to_system_token_file(crypt_secrets: &HashMap<String, String>, sys_did: &str, admin: &str) {
-    let mut json_system_token = json!({});
-    json_system_token["admin_did"] = json!(admin);
-    json_system_token["exchange_secrets"] = json!(crypt_secrets);
-    let json_string = serde_json::to_string(&json_system_token).unwrap_or(String::from("{}"));
 
-    let system_token_file = get_path_in_sys_key_dir(&format!("authorized2system_{}.token", sys_did));
-    let crypt_key = get_token_crypt_key();
-    let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
-    if *VERBOSE_INFO {
-        println!("Save secret token to file: {}", json_string);
-    }
-    fs::write(system_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", system_token_file.display()))
-}
 
 
 pub(crate) fn convert_vec_to_key(vec: &Vec<u8>) -> [u8; 32] {
