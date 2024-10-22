@@ -445,13 +445,16 @@ impl SimpleAI {
         let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if self.ready_users.contains_key(&user_hash_id) {
-            let mut ready_data: serde_json::Value = self.ready_users.get(&user_hash_id).unwrap().clone();
+            //let mut ready_data: serde_json::Value = self.ready_users.get(&user_hash_id).unwrap().clone();
+            let mut ready_data = self.ready_users.get(&user_hash_id).cloned().unwrap_or_default();
+
             let mut try_count = ready_data["vcode_try_counts"].as_i64().unwrap_or(0) as i32;
             try_count -= 1;
             if try_count >= 0 {
                 let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
                 println!("claim: {}", ready_data["claim"]);
-                let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
+                let claim: IdClaim = serde_json::from_str(ready_data.get("claim").and_then(serde_json::Value::as_str).unwrap_or("{}")).unwrap_or_default();
+                //let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
                 let did = claim.gen_did();
                 let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
                 let upstream_did = self.get_upstream_did();
