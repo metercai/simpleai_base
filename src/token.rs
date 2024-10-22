@@ -451,12 +451,10 @@ impl SimpleAI {
                 let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
                 let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
                 let did = claim.gen_did();
-                println!("check_user_verify_code, result_certificate_string: {}", result_certificate_string);
                 let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
-                println!("check_user_verify_code, user_certificate: {}", user_certificate);
                 let upstream_did = self.get_upstream_did();
                 let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
-                println!("check_user_verify_code, user_certificate_text: {}", user_certificate_text);
+                println!("verify_code: ready user: {}, user_certificate_text: {}", did, user_certificate_text);
                 if user_certificate_text != "Unknown".to_string() {
                     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
                     let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();
@@ -466,17 +464,16 @@ impl SimpleAI {
                     {
                         let (certs_key, certs_value) = token_utils::parse_user_certs(&user_certificate_text);
                         self.push_certificate(&certs_key, &certs_value);
-
                         let mut request: serde_json::Value = json!({});
                         request["user_symbol"] = serde_json::to_value(&URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
                         request["user_vcode"] = serde_json::to_value(vcode).unwrap();
                         let user_copy_hash_id = ready_data["user_copy_hash_id"].as_str().unwrap_or("Unknown");
                         request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
+                        let _ = self.request_token_api(
+                            "confirm",
+                            &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
 
                         if did == user_certificate_text_array[1] {
-                            let _ = self.request_token_api(
-                                "confirm",
-                                &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
                             return "create".to_string();
                         } else {
                             return "recall".to_string();
