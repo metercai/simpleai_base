@@ -400,6 +400,8 @@ impl SimpleAI {
                 let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, &user_phrase);
                 ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
 
+                let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
+                println!("symbol_hash_base64: {}\n claim: {:?}", symbol_hash_base64, new_claim);
 
                 let mut request: serde_json::Value = json!({});
                 request["nickname"] = serde_json::to_value(nickname).unwrap_or(json!(""));
