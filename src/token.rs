@@ -445,17 +445,15 @@ impl SimpleAI {
         let symbol_hash = token_utils::get_symbol_hash_by_source(nickname, telephone);
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if self.ready_users.contains_key(&user_hash_id) {
-            //let mut ready_data: serde_json::Value = self.ready_users.get(&user_hash_id).unwrap().clone();
             let mut ready_data = self.ready_users.get(&user_hash_id).cloned().unwrap_or_default();
-
             let mut try_count = ready_data["vcode_try_counts"].as_i64().unwrap_or(0) as i32;
             try_count -= 1;
             if try_count >= 0 {
-                let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
+                let result_certificate_string = serde_json::to_string(&ready_data["user_certificate"]).unwrap_or("Unknown".to_string());
                 println!("claim: {}", ready_data["claim"]);
                 let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
                 let did = claim.gen_did();
-                let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
+                let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, &result_certificate_string);
                 let upstream_did = self.get_upstream_did();
                 let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
                 println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}", did, user_certificate_text, claim);
@@ -496,15 +494,15 @@ impl SimpleAI {
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if self.ready_users.contains_key(&user_hash_id) {
             let ready_data = self.ready_users.get(&user_hash_id).unwrap();
-            let old_phrase = ready_data["user_phrase"].as_str().unwrap_or("Unknown");
-            let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, old_phrase);
-            let claim: IdClaim = serde_json::from_str(ready_data["claim"].as_str().unwrap_or("{}")).unwrap_or(IdClaim::default());
+            let old_phrase = serde_json::to_string(&ready_data["user_phrase"]).unwrap_or("Unknown".to_string());
+            let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, &old_phrase);
+            let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
             let did = claim.gen_did();
-            let exchange_crypt_secret = ready_data["exchange_crypt_secret"].as_str().unwrap_or("Unknown");
-            let issue_crypt_secret = ready_data["issue_crypt_secret"].as_str().unwrap_or("Unknown");
+            let exchange_crypt_secret = serde_json::to_string(&ready_data["exchange_crypt_secret"]).unwrap_or("Unknown".to_string());
+            let issue_crypt_secret = serde_json::to_string(&ready_data["issue_crypt_secret"]).unwrap_or("Unknown".to_string());
             self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret.to_string());
             self.crypt_secrets.insert(issue_key!(did.clone()), issue_crypt_secret.to_string());
-            token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), old_phrase, phrase);
+            token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), &old_phrase, phrase);
             self.push_claim(&claim);
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
             let context = self.sign_user_context(&did, phrase);
@@ -524,9 +522,9 @@ impl SimpleAI {
             let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, phrase);
 
             let mut request: serde_json::Value = json!({});
-            request["old_user_copy_hash_id"] = serde_json::to_value(&old_user_copy_hash_id).unwrap();
-            request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
-            request["data"] = serde_json::to_value(&user_copy_to_cloud).unwrap();
+            request["old_user_copy_hash_id"] = serde_json::to_value(old_user_copy_hash_id).unwrap();
+            request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
+            request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
             let _ = self.request_token_api("submit_user_copy",
                                            &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
 
@@ -546,7 +544,7 @@ impl SimpleAI {
                 let mut request: serde_json::Value = json!({});
                 let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, phrase);
                 request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
-                request["user_symbol"] = serde_json::to_value(&URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
                 let user_copy_from_cloud = self.request_token_api("get_user_copy",
                                                                   &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
 
@@ -563,16 +561,15 @@ impl SimpleAI {
                             self.push_claim(&claim.clone());
                             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
 
-                            let context_string = String::from_utf8(token_utils::decrypt(URL_SAFE_NO_PAD.decode(
-                                user_copy_from_cloud_array[2]).unwrap().as_slice(), phrase.as_bytes(), 0))
-                                .expect("Unknown");
+                            let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
 
                             let _ = token_utils::save_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
                                 .unwrap_or(UserContext::default()));
 
-                            let certificate_string = String::from_utf8(token_utils::decrypt(URL_SAFE_NO_PAD.decode(
-                                user_copy_from_cloud_array[3]).unwrap().as_slice(), phrase.as_bytes(), 0))
-                                .expect("Unknown");
+                            let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+
                             let _ = certificate_string.replace(":", "|");
                             let certs_array: Vec<&str> = certificate_string.split(",").collect();
                             for cert in &certs_array {
