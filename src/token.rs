@@ -354,7 +354,7 @@ impl SimpleAI {
         let text = format!("{}|{}|{}", did,
                            self.crypt_secrets[&exchange_key!(self.did)], self.crypt_secrets[&exchange_key!(did)]);
         let text_hash = token_utils::calc_sha256(text.as_bytes()).to_base58();
-        format!("{}|{}", self.guest.clone(), text_hash[..16].to_string())
+        format!("{}|{}", did.clone(), text_hash[..16].to_string())
     }
 
     pub fn check_sstoken_and_get_did(&self, sstoken: String) -> String {
