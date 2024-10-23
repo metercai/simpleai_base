@@ -404,7 +404,6 @@ impl SimpleAI {
                 println!("symbol_hash_base64: {}\n claim: {:?}", symbol_hash_base64, new_claim);
 
                 let mut request: serde_json::Value = json!({});
-                request["nickname"] = serde_json::to_value(nickname).unwrap_or(json!(""));
                 request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
                 request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
 
@@ -498,11 +497,12 @@ impl SimpleAI {
         if self.ready_users.contains_key(&user_hash_id) {
             let ready_data = self.ready_users.get(&user_hash_id).unwrap();
             let old_phrase = ready_data["user_phrase"].as_str().unwrap_or("Unknown");
+            println!("set_phrase: _user_phrase: {}, old_phrase: {}", _user_phrase, old_phrase);
             let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, old_phrase);
             let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
             let did = claim.gen_did();
             let exchange_crypt_secret = ready_data["exchange_crypt_secret"].as_str().unwrap_or("Unknown");
-            let issue_crypt_secret = &ready_data["issue_crypt_secret"].as_str().unwrap_or("Unknown");
+            let issue_crypt_secret = ready_data["issue_crypt_secret"].as_str().unwrap_or("Unknown");
             self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret.to_string());
             self.crypt_secrets.insert(issue_key!(did.clone()), issue_crypt_secret.to_string());
             token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), old_phrase, phrase);
@@ -595,6 +595,39 @@ impl SimpleAI {
         }
     }
 
+    pub fn unbind_and_return_guest(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
+        let (user_did, claim) = {
+            let mut claims = self.claims.lock().unwrap();
+            let user_did = claims.reverse_lookup_did_by_symbol(&symbol_hash);
+            let claim = claims.get_claim_from_local(&user_did);
+            (user_did, claim)
+        };
+        let context = self.get_user_context(&user_did);
+
+        let pem_claim_string = token_utils::load_pem_and_claim_from_file("User", &claim.get_symbol_hash(), &user_did);
+        let context_json = serde_json::to_string(&context).unwrap_or("Unknown".to_string());
+        let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context_json.as_bytes(), phrase.as_bytes(), 0));
+        let certificates = token_utils::filter_user_certs(&user_did, "*", &self.certificates);
+        let certificates_str = certificates
+            .iter()
+            .map(|(key, value)| format!("{}:{}", key, value))
+            .collect::<Vec<String>>()
+            .join(",");
+        let _ = certificates_str.replace("|", ":");
+        let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
+        let user_copy_to_cloud = format!("{}|{}|{}", pem_claim_string, context_crypt, certificate_crypt);
+        let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, phrase);
+
+        let mut request: serde_json::Value = json!({});
+        request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+        request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
+        request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
+        let _ = self.request_token_api("unbind_node",
+                                       &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+
+        self.get_guest_user_context()
+    }
 
     pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
         if self.blacklist.contains(&did.to_string()) {
@@ -645,7 +678,7 @@ impl SimpleAI {
                 Ok(res) => {
                     match res.text().await {
                         Ok(text) => {
-                            println!("Token api response: {}", text);
+                            println!("[Upstream] response: {}", text);
                             text
                         },
                         Err(e) => {
@@ -665,7 +698,7 @@ impl SimpleAI {
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.upstream_did.clone();
         let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
-        println!("Requesting token api: {} with params: {}", api_name, params);
+        println!("[UpstreamClient] request api_{} with params: {}", api_name, params);
         TOKIO_RUNTIME.block_on(async {
             match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
                 .header("Sys-Did", self.did.to_string())
@@ -676,7 +709,7 @@ impl SimpleAI {
                 Ok(res) => {
                     match res.text().await {
                         Ok(text) => {
-                            println!("Token api response: {}", text);
+                            println!("[Upstream] response: {}", text);
                             text
                         },
                         Err(e) => {

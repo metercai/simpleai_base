@@ -331,7 +331,7 @@ pub(crate) fn create_or_renew_user_context_token(did: &str, sys_did: &str, nickn
     let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
     let context = match user_token_file.exists() {
         true => {
-            println!("Renew user context token: {}", did);
+            println!("[UserBase] Renew user context token: {}", did);
             let Ok(mut context_renew) = read_user_token_from_file(user_token_file.as_path())
                 else { todo!() };
             context_renew.set_sys_did(sys_did);
@@ -349,7 +349,7 @@ pub(crate) fn create_or_renew_user_context_token(did: &str, sys_did: &str, nickn
             context_renew
         }
         false => {
-            println!("Create user context token: {}", did);
+            println!("[UserBase] Create user context token: {}", did);
             let default_permissions = "standard".to_string();
             let default_private_paths = serde_json::to_string(
                 &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
@@ -561,10 +561,19 @@ pub(crate) fn save_user_pem(symbol_hash: &[u8; 32], pem: &str) {
 }
 
 pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, new_phrase: &str) {
-    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
+    let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
     let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
-    let old_phrase_bytes = hkdf_key_deadline(&old_phrase.as_bytes(), 0);
-    let new_phrase_bytes = hkdf_key_deadline(&new_phrase.as_bytes(), 0);
+    let id_hash = [0u8; 32];
+    let device_key = read_key_or_generate_key("Device", &id_hash, "None").unwrap_or(id_hash);
+    let old_phrase_text = format!("{}|{}|{}",
+                              URL_SAFE_NO_PAD.encode(device_key.as_slice()),
+                              old_phrase, user_phrase);
+    let new_phrase_text = format!("{}|{}|{}",
+                                  URL_SAFE_NO_PAD.encode(device_key.as_slice()),
+                                  new_phrase, user_phrase);
+
+    let old_phrase_bytes = hkdf_key_deadline(&old_phrase_text.as_bytes(), 0);
+    let new_phrase_bytes = hkdf_key_deadline(&new_phrase_text.as_bytes(), 0);
     match user_key_file.exists() {
         true => {
             let Ok((_, s_doc)) = SecretDocument::read_pem_file(user_key_file.clone()) else { todo!() };
@@ -575,7 +584,7 @@ pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, ne
                     pkey
                 },
                 Err(_e) => {
-                    println!("Read key file error: {}", _e);
+                    println!("[SimpleAI] Read key file error: {}", _e);
                     let pkey: [u8; 32] = [0; 32];
                     pkey
                 },
