@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{self, json};
 use base58::{ToBase58, FromBase58};
+use std::path::PathBuf;
+use std::fs;
 
 use x25519_dalek::PublicKey;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -19,6 +21,7 @@ use crate::env_data::EnvData;
 use crate::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::rathole::Rathole;
 use crate::systeminfo::SystemInfo;
+use directories_next::BaseDirs;
 
 
 pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
@@ -374,6 +377,14 @@ impl SimpleAI {
         String::from("Unknown")
     }
 
+    #[staticmethod]
+    pub fn get_path_in_user_dir(did: &str, path: &str) -> String {
+        let path_file = token_utils::get_path_in_user_dir(did, path);
+        match fs::canonicalize(&path_file) {
+            Ok(absolute_path) => absolute_path.to_str().unwrap().to_string(),
+            Err(e) => "Unknown".to_string(),
+        }
+    }
     pub fn get_guest_user_context(&mut self) -> UserContext {
         let guest_did = self.get_guest_did();
         self.get_user_context(&guest_did)
@@ -533,7 +544,7 @@ impl SimpleAI {
 
             context
         } else {
-            UserContext::default()
+            self.get_guest_user_context()
         }
     }
     pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
@@ -551,7 +562,8 @@ impl SimpleAI {
                 let user_copy_from_cloud = self.request_token_api("get_user_copy",
                                                                   &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
 
-                match user_copy_from_cloud != "Unknown".to_string()  {
+                match user_copy_from_cloud != "Unknown_user".to_string() &&
+                     user_copy_from_cloud != "Unknown_backup".to_string() {
                     true => {
                         let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
                         if user_copy_from_cloud_array.len() >= 4 {
@@ -584,11 +596,11 @@ impl SimpleAI {
                             token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
                             self.sign_user_context(&did, phrase)
                         } else {
-                            UserContext::default()
+                            self.get_guest_user_context()
                         }
                     },
                     false => {
-                        UserContext::default()
+                        self.get_guest_user_context()
                     }
                 }
             }
