@@ -380,6 +380,7 @@ impl SimpleAI {
     #[staticmethod]
     pub fn get_path_in_user_dir(did: &str, path: &str) -> String {
         let path_file = token_utils::get_path_in_user_dir(did, path);
+        println!("lib, get_path_in_user_dir: {}", path_file.to_string_lossy());
         match fs::canonicalize(&path_file) {
             Ok(absolute_path) => absolute_path.to_str().unwrap().to_string(),
             Err(e) => "Unknown".to_string(),
