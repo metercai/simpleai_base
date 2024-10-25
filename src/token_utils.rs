@@ -22,13 +22,13 @@ use aes_gcm::{
 use argon2::Argon2;
 
 use tracing::info;
-use crate::systeminfo::{SystemBaseInfo, SystemInfo};
+use crate::systeminfo::SystemBaseInfo;
 use lazy_static::lazy_static;
 
 
 use crate::error::TokenError;
 use crate::claims::{GlobalClaims, IdClaim, UserContext};
-use crate::{claims, token};
+use crate::claims;
 
 const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 

@@ -4,10 +4,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{self, json};
 use base58::{ToBase58, FromBase58};
-use std::path::PathBuf;
-use std::fs;
-
-use x25519_dalek::PublicKey;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use once_cell::sync::Lazy;
@@ -21,7 +17,6 @@ use crate::env_data::EnvData;
 use crate::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::rathole::Rathole;
 use crate::systeminfo::SystemInfo;
-use directories_next::BaseDirs;
 
 
 pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
@@ -165,7 +160,7 @@ impl SimpleAI {
 
         let sys_did = local_did.clone();
         let sysinfo_clone = sysinfo.clone();
-        let logging_handle = TOKIO_RUNTIME.spawn(async move {
+        let _logging_handle = TOKIO_RUNTIME.spawn(async move {
             SystemInfo::logging_launch_info(&sys_did, &sysinfo_clone).await
         });
 
@@ -244,7 +239,7 @@ impl SimpleAI {
                        -> (String, String) {
         let user_telephone = telephone.clone().unwrap_or("Unknown".to_string());
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &user_telephone);
-        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+        let (_user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
         let user_claim = {
             let user_claim = GlobalClaims::generate_did_claim("User", nickname, id_card, telephone, &phrase);
@@ -349,32 +344,46 @@ impl SimpleAI {
         self.guest.clone()
     }
 
-    pub fn get_guest_sstoken(&self) -> String {
-        self.get_user_sstoken(&self.guest)
+    pub fn get_guest_sstoken(&self, ua_hash: &str) -> String {
+        self.get_user_sstoken(&self.guest, ua_hash)
     }
 
-    pub fn get_user_sstoken(&self, did: &str) -> String {
-        let text = format!("{}|{}|{}", did,
-                           self.crypt_secrets[&exchange_key!(self.did)], self.crypt_secrets[&exchange_key!(did)]);
-        let text_hash = token_utils::calc_sha256(text.as_bytes()).to_base58();
-        format!("{}|{}", did.clone(), text_hash[..16].to_string())
+    pub fn get_user_sstoken(&self, did: &str, ua_hash: &str) -> String {
+        let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+        let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
+                           self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
+        let text_hash = token_utils::calc_sha256(text.as_bytes());
+        let did_bytes = did.from_base58().unwrap_or("Unknown".to_string().into_bytes());
+        let mut padded_did_bytes: [u8; 32] = [0; 32];
+        padded_did_bytes[32 - 21..].copy_from_slice(&did_bytes);
+        let result: [u8; 32] = text_hash.iter()
+            .zip(padded_did_bytes.iter())
+            .map(|(&a, &b)| a ^ b)
+            .collect::<Vec<u8>>()
+            .try_into()
+            .expect("Failed to convert Vec<u8> to [u8; 32]");
+        result.to_base58()
     }
 
-    pub fn check_sstoken_and_get_did(&self, sstoken: String) -> String {
-        let parts: Vec<&str> = sstoken.split('|').collect();
-        if parts.len() == 2 {
-            let did = parts[0].to_string();
-            let sig = parts[1].to_string();
-            if !self.crypt_secrets.contains_key(&exchange_key!(did)) {
-                return String::from("Unknown");
-            }
-            let text = format!("{}|{}|{}", did.clone(), self.crypt_secrets[&exchange_key!(self.did)], self.crypt_secrets[&exchange_key!(did)]);
-            let text_hash = token_utils::calc_sha256(text.as_bytes()).to_base58();
-            if sig == text_hash[..16] {
-                return did;
-            }
-        }
-        String::from("Unknown")
+    pub fn check_sstoken_and_get_did(&self, sstoken: String, ua_hash: &str) -> String {
+        let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+        let sstoken_bytes = sstoken.from_base58().unwrap_or("Unknown".to_string().into_bytes());
+        let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
+                           self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
+        let text_hash = token_utils::calc_sha256(text.as_bytes());
+        let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
+        padded_sstoken_bytes[..].copy_from_slice(&sstoken_bytes);
+        let result: [u8; 32] = text_hash.iter()
+            .zip(padded_sstoken_bytes.iter())
+            .map(|(&a, &b)| a ^ b)
+            .collect::<Vec<u8>>()
+            .try_into()
+            .expect("Failed to convert Vec<u8> to [u8; 32]");
+        let mut did_bytes: [u8; 21] = [0; 21];
+        did_bytes.copy_from_slice(&result[32 - 21..]);
+        did_bytes.to_base58()
     }
 
     #[staticmethod]

@@ -166,7 +166,9 @@ impl GlobalClaims {
                 request["user_symbol"] = serde_json::to_value("").unwrap();
                 request["user_did"] = serde_json::to_value(did).unwrap();
 
-                println!("get claim from global with did: {}", did);
+                if *token_utils::VERBOSE_INFO {
+                    println!("get claim from global with did: {}", did);
+                }
                 let result = token::TOKIO_RUNTIME.block_on(async {
                     match token::REQWEST_CLIENT.post(
                         format!("{}{}", token_utils::TOKEN_TM_URL, "get_use_claim"))

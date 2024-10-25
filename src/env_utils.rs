@@ -3,10 +3,10 @@ use std::fs::File;
 use std::io::{self, Read, Error, ErrorKind};
 use std::path::{Path, MAIN_SEPARATOR, PathBuf};
 use std::ffi::OsString;
-use std::{env, fs};
+use std::env;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 //use pnet::datalink::interfaces;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
