@@ -349,12 +349,12 @@ impl SimpleAI {
     }
 
     pub fn get_user_sstoken(&self, did: &str, ua_hash: &str) -> String {
-        let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-        let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
-                           self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
-        let text_hash = token_utils::calc_sha256(text.as_bytes());
         if IdClaim::validity(did) {
+            let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+            let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
+                               self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
+            let text_hash = token_utils::calc_sha256(text.as_bytes());
             let did_bytes = did.from_base58().unwrap_or("Unknown".to_string().into_bytes());
             let mut padded_did_bytes: [u8; 32] = [0; 32];
             padded_did_bytes[32 - 21..].copy_from_slice(&did_bytes);
