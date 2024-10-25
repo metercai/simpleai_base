@@ -352,9 +352,13 @@ impl SimpleAI {
         if IdClaim::validity(did) {
             let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-            let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
-                               self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
-            let text_hash = token_utils::calc_sha256(text.as_bytes());
+            let text1 = token_utils::calc_sha256(format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
+                                                         self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
+            let text2 = token_utils::hkdf_key_deadline(format!("{}",now_sec/2000000).as_bytes(), 0);
+            let mut text_bytes: [u8; 64] = [0; 64];
+            text_bytes[..32].copy_from_slice(&text1);
+            text_bytes[32..].copy_from_slice(&text2);
+            let text_hash = token_utils::hkdf_key_deadline(&text_bytes, 0);
             let did_bytes = did.from_base58().unwrap_or("Unknown".to_string().into_bytes());
             let mut padded_did_bytes: [u8; 32] = [0; 32];
             padded_did_bytes[32 - 21..].copy_from_slice(&did_bytes);
@@ -370,15 +374,19 @@ impl SimpleAI {
         }
     }
 
-    pub fn check_sstoken_and_get_did(&self, sstoken: String, ua_hash: &str) -> String {
+    pub fn check_sstoken_and_get_did(&self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
         padded_sstoken_bytes.copy_from_slice(&sstoken_bytes);
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-        let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
-                           self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
-        let text_hash = token_utils::calc_sha256(text.as_bytes());
+        let text1 = token_utils::calc_sha256(format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
+                           self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
+        let text2 = token_utils::hkdf_key_deadline(format!("{}",now_sec/2000000).as_bytes(), 0);
+        let mut text_bytes: [u8; 64] = [0; 64];
+        text_bytes[..32].copy_from_slice(&text1);
+        text_bytes[32..].copy_from_slice(&text2);
+        let text_hash = token_utils::hkdf_key_deadline(&text_bytes, 0);
         let result: [u8; 32] = text_hash.iter()
             .zip(padded_sstoken_bytes.iter())
             .map(|(&a, &b)| a ^ b)
@@ -392,9 +400,11 @@ impl SimpleAI {
         if padded.iter().all(|&x| x == 0) {
             did_bytes.to_base58()
         } else {
-            let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
-                               self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000 - 1);
-            let text_hash = token_utils::calc_sha256(text.as_bytes());
+            let text2 = token_utils::hkdf_key_deadline(format!("{}",now_sec/2000000 -1).as_bytes(), 0);
+            let mut text_bytes: [u8; 64] = [0; 64];
+            text_bytes[..32].copy_from_slice(&text1);
+            text_bytes[32..].copy_from_slice(&text2);
+            let text_hash = token_utils::hkdf_key_deadline(&text_bytes, 0);
             let result: [u8; 32] = text_hash.iter()
                 .zip(padded_sstoken_bytes.iter())
                 .map(|(&a, &b)| a ^ b)
