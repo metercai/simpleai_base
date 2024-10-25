@@ -354,16 +354,20 @@ impl SimpleAI {
         let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
                            self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
         let text_hash = token_utils::calc_sha256(text.as_bytes());
-        let did_bytes = did.from_base58().unwrap_or("Unknown".to_string().into_bytes());
-        let mut padded_did_bytes: [u8; 32] = [0; 32];
-        padded_did_bytes[32 - 21..].copy_from_slice(&did_bytes);
-        let result: [u8; 32] = text_hash.iter()
-            .zip(padded_did_bytes.iter())
-            .map(|(&a, &b)| a ^ b)
-            .collect::<Vec<u8>>()
-            .try_into()
-            .expect("Failed to convert Vec<u8> to [u8; 32]");
-        result.to_base58()
+        if IdClaim::validity(did) {
+            let did_bytes = did.from_base58().unwrap_or("Unknown".to_string().into_bytes());
+            let mut padded_did_bytes: [u8; 32] = [0; 32];
+            padded_did_bytes[32 - 21..].copy_from_slice(&did_bytes);
+            let result: [u8; 32] = text_hash.iter()
+                .zip(padded_did_bytes.iter())
+                .map(|(&a, &b)| a ^ b)
+                .collect::<Vec<u8>>()
+                .try_into()
+                .expect("Failed to convert Vec<u8> to [u8; 32]");
+            result.to_base58()
+        } else {
+            String::from("Unknown")
+        }
     }
 
     pub fn check_sstoken_and_get_did(&self, sstoken: String, ua_hash: &str) -> String {
@@ -387,7 +391,7 @@ impl SimpleAI {
         padded.copy_from_slice(&result[..32 - 21]);
         if padded.iter().all(|&x| x == 0) {
             did_bytes.to_base58()
-            } else {
+        } else {
             String::from("Unknown")
         }
     }
