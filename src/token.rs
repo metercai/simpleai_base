@@ -374,11 +374,11 @@ impl SimpleAI {
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
         let sstoken_bytes = sstoken.from_base58().unwrap_or("Unknown".to_string().into_bytes());
+        let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
+        padded_sstoken_bytes[..].copy_from_slice(&sstoken_bytes);
         let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
                            self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
         let text_hash = token_utils::calc_sha256(text.as_bytes());
-        let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
-        padded_sstoken_bytes[..].copy_from_slice(&sstoken_bytes);
         let result: [u8; 32] = text_hash.iter()
             .zip(padded_sstoken_bytes.iter())
             .map(|(&a, &b)| a ^ b)
@@ -392,7 +392,22 @@ impl SimpleAI {
         if padded.iter().all(|&x| x == 0) {
             did_bytes.to_base58()
         } else {
-            String::from("Unknown")
+            let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
+                               self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000 - 1);
+            let text_hash = token_utils::calc_sha256(text.as_bytes());
+            let result: [u8; 32] = text_hash.iter()
+                .zip(padded_sstoken_bytes.iter())
+                .map(|(&a, &b)| a ^ b)
+                .collect::<Vec<u8>>()
+                .try_into()
+                .expect("Failed to convert Vec<u8> to [u8; 32]");
+            did_bytes.copy_from_slice(&result[32 - 21..]);
+            padded.copy_from_slice(&result[..32 - 21]);
+            if padded.iter().all(|&x| x == 0) {
+                did_bytes.to_base58()
+            } else {
+                String::from("Unknown")
+            }
         }
     }
 
