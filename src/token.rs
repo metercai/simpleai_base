@@ -361,7 +361,8 @@ impl SimpleAI {
             let text_hash = token_utils::hkdf_key_deadline(&text_bytes, 0);
             let did_bytes = did.from_base58().unwrap_or("Unknown".to_string().into_bytes());
             let mut padded_did_bytes: [u8; 32] = [0; 32];
-            padded_did_bytes[32 - 21..].copy_from_slice(&did_bytes);
+            padded_did_bytes[..11].copy_from_slice(&did_bytes[10..]);
+            padded_did_bytes[11..].copy_from_slice(&did_bytes);
             let result: [u8; 32] = text_hash.iter()
                 .zip(padded_did_bytes.iter())
                 .map(|(&a, &b)| a ^ b)
@@ -395,9 +396,10 @@ impl SimpleAI {
             .expect("Failed to convert Vec<u8> to [u8; 32]");
         let mut did_bytes: [u8; 21] = [0; 21];
         let mut padded: [u8; 11] = [0; 11];
-        did_bytes.copy_from_slice(&result[32 - 21..]);
-        padded.copy_from_slice(&result[..32 - 21]);
-        if padded.iter().all(|&x| x == 0) {
+        padded.copy_from_slice(&result[..11]);
+        did_bytes.copy_from_slice(&result[11..]);
+        let did_bytes_slice = &did_bytes[10..];
+        if padded.iter().zip(did_bytes_slice.iter()).all(|(a, b)| a == b) {
             did_bytes.to_base58()
         } else {
             let text2 = token_utils::hkdf_key_deadline(format!("{}",now_sec/2000000 -1).as_bytes(), 0);
@@ -411,9 +413,10 @@ impl SimpleAI {
                 .collect::<Vec<u8>>()
                 .try_into()
                 .expect("Failed to convert Vec<u8> to [u8; 32]");
-            did_bytes.copy_from_slice(&result[32 - 21..]);
-            padded.copy_from_slice(&result[..32 - 21]);
-            if padded.iter().all(|&x| x == 0) {
+            padded.copy_from_slice(&result[..11]);
+            did_bytes.copy_from_slice(&result[11..]);
+            let did_bytes_slice = &did_bytes[10..];
+            if padded.iter().zip(did_bytes_slice.iter()).all(|(a, b)| a == b) {
                 did_bytes.to_base58()
             } else {
                 String::from("Unknown")
