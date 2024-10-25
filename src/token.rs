@@ -371,11 +371,11 @@ impl SimpleAI {
     }
 
     pub fn check_sstoken_and_get_did(&self, sstoken: String, ua_hash: &str) -> String {
+        let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
+        let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
+        padded_sstoken_bytes.copy_from_slice(&sstoken_bytes);
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-        let sstoken_bytes = sstoken.from_base58().unwrap_or("Unknown".to_string().into_bytes());
-        let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
-        padded_sstoken_bytes[..].copy_from_slice(&sstoken_bytes);
         let text = format!("{}|{}|{}|{}", self.crypt_secrets[&exchange_key!(self.did)],
                            self.crypt_secrets[&exchange_key!(self.device)], ua_hash, now_sec/2000000);
         let text_hash = token_utils::calc_sha256(text.as_bytes());
