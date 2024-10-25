@@ -382,8 +382,14 @@ impl SimpleAI {
             .try_into()
             .expect("Failed to convert Vec<u8> to [u8; 32]");
         let mut did_bytes: [u8; 21] = [0; 21];
+        let mut padded: [u8; 11] = [0; 11];
         did_bytes.copy_from_slice(&result[32 - 21..]);
-        did_bytes.to_base58()
+        padded.copy_from_slice(&result[..32 - 21]);
+        if padded.iter().all(|&x| x == 0) {
+            did_bytes.to_base58()
+            } else {
+            String::from("Unknown")
+        }
     }
 
     #[staticmethod]
