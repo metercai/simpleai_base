@@ -128,15 +128,16 @@ impl GlobalClaims {
         claim
     }
 
-    pub(crate) fn generate_did_claim(id_type: &str, nickname: &str, id_card: Option<String>, telephone: Option<String>, phrase: &str)
+    pub(crate) fn generate_did_claim(id_type: &str, nickname: &str, telephone: Option<String>, id_card: Option<String>,  phrase: &str)
                                      -> IdClaim {
+        let nickname = nickname.chars().take(24).collect::<String>();
         let id_card = id_card.unwrap_or("-".to_string());
         let telephone = telephone.unwrap_or("-".to_string());
         let id_card_hash = token_utils::calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
         let telephone_hash = token_utils::calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
         let face_image_hash = token_utils::calc_sha256(format!("{}:face_image:-", nickname).as_bytes());
         let file_hash_hash = token_utils::calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
-        let claim = IdClaim::new(id_type, &phrase, nickname, telephone_hash, id_card_hash, face_image_hash, file_hash_hash);
+        let claim = IdClaim::new(id_type, &phrase, &nickname, telephone_hash, id_card_hash, face_image_hash, file_hash_hash);
         claim
     }
 
@@ -268,7 +269,9 @@ pub struct IdClaim {
 #[pymethods]
 impl IdClaim {
     #[new]
-    pub fn new(id_type: &str, phrase: &str, nickname: &str, telephone_hash: [u8; 32], id_card_hash: [u8; 32], face_image_hash: [u8; 32], file_hash_hash: [u8; 32]) -> Self{
+    pub fn new(id_type: &str, phrase: &str, nickname: &str, telephone_hash: [u8; 32], id_card_hash: [u8; 32],
+               face_image_hash: [u8; 32], file_hash_hash: [u8; 32]) -> Self{
+        let nickname = nickname.chars().take(24).collect::<String>();
         let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
         let id_card_base64 = URL_SAFE_NO_PAD.encode(id_card_hash);
         let face_image_base64 = URL_SAFE_NO_PAD.encode(face_image_hash);
@@ -301,6 +304,14 @@ impl IdClaim {
             face_image_hash: face_image_base64,
             file_hash_hash: file_hash_base64,
         }
+    }
+
+    pub(crate) fn update_timestamp(&mut self, timestamp: u64, phrase: &str) -> Self {
+        self.timestamp = timestamp;
+        let text_sig = self.get_format_text();
+        let symbol_hash = self.get_symbol_hash();
+        self.signature = URL_SAFE_NO_PAD.encode(token_utils::get_signature(&text_sig, "User", &symbol_hash, phrase));
+        self.clone()
     }
 
     fn get_format_text(&self) -> String {
@@ -370,7 +381,7 @@ impl Default for IdClaim {
     fn default() -> Self {
         IdClaim {
             nickname: "Default".to_string(),
-            id_type: "Default_User".to_string(),
+            id_type: "User".to_string(),
             verify_key: "Default_verify_key".to_string(),
             fingerprint: "Default_fingerprint".to_string(),
             telephone_hash: "Default_telephone_hash".to_string(),

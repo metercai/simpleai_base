@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::env;
+use std::io::Write;
 use std::time::SystemTime;
 use serde_json::{json, Value};
 use directories_next::BaseDirs;
@@ -39,7 +40,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 };
 
 pub(crate) static TOKEN_TM_URL: &str = "https://v2.token.tm/api_";
-pub(crate) static TOKEN_TM_DID: &str = "2nMGHiVunD2QaTnJYHD5aQLFnHnBh";
+pub(crate) static TOKEN_TM_DID: &str = "5wSkZmabk4vvrHRF9NXzkU5ztxq1U";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
@@ -61,12 +62,14 @@ pub(crate) fn load_pem_and_claim_from_file(id_type: &str, symbol_hash: &[u8; 32]
     format!("{}|{}", pem_string, claim_string)
 }
 
+#[macro_export]
 macro_rules! exchange_key {
     ($did:expr) => {
         format!("{}_exchange", $did)
     };
 }
 
+#[macro_export]
 macro_rules! issue_key {
     ($did:expr) => {
         format!("{}_issue", $did)
@@ -153,7 +156,7 @@ pub(crate) fn save_user_certificates_to_file(sys_did: &str, certificates: &HashM
 }
 
 pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashMap<String, String>) {
-    let token_file = get_path_in_sys_key_dir(&format!("user_certs_{}.token", sys_did));
+    let token_file = get_path_in_sys_key_dir(&format!("issued_certs_{}.token", sys_did));
     let crypt_key = get_token_crypt_key();
     let token_raw_data = match token_file.exists() {
         true => {
@@ -689,7 +692,10 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str) -> Result<[u8; 32],
                     pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
                     pkey
                 },
-                Err(_e) => generate_new_key_and_save_pem(file_path, &phrase_bytes),
+                Err(_e) => {
+                    println!("read_key error and generate new key: {}", file_path.display());
+                    generate_new_key_and_save_pem(file_path, &phrase_bytes)
+                },
             };
             priv_key
         }
@@ -712,6 +718,37 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
     PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
         .encrypt(csprng, &phrase).unwrap()
         .write_pem_file(file_path, pem_label, LineEnding::default()).unwrap();
+    secret_key
+}
+
+fn save_key_to_pem(symbol_hash: &[u8; 32], key: &[u8; 32], phrase: &str) -> [u8; 32] {
+    let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
+    let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+    if let Some(parent_dir) = user_key_file.parent() {
+        if !parent_dir.exists() {
+            fs::create_dir_all(parent_dir).unwrap();
+        }
+    }
+    let id_hash = [0u8; 32];
+    let device_key = read_key_or_generate_key("Device", &id_hash, "None").unwrap_or(id_hash);
+    let phrase_text = format!("{}|{}|{}",
+                              URL_SAFE_NO_PAD.encode(device_key.as_slice()),
+                              phrase, user_phrase);
+    let phrase_bytes = hkdf_key_deadline(&phrase_text.as_bytes(), 0);
+
+    let pem_label = "SIMPLE_AI_KEY";
+    let csprng = OsRng {};
+    let secret_key = SigningKey::from_bytes(key).to_bytes();
+
+    let encrypted_key_info = PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
+        .encrypt(csprng, &phrase_bytes)
+        .unwrap();
+    let pem_content = encrypted_key_info.to_pem(pem_label, LineEnding::default()).unwrap();
+    let mut file = fs::File::create(&user_key_file).unwrap();
+    file.write_all(pem_content.as_bytes()).unwrap();
+    file.sync_all().unwrap();
+
+    println!("load and save private key({:?}) to file:{}", secret_key.as_slice(), user_key_file.display());
     secret_key
 }
 
@@ -783,6 +820,59 @@ pub fn filter_files(work_paths: &Path, filters: &[&str], suffixes: &[&str]) -> V
     }
     result
 }
+
+pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, user_did: &str, phrase: &str) -> Vec<u8>  {
+    let telephone_bytes = match telephone.parse::<u64>() {
+        Ok(number) => number,
+        Err(_) => {
+            println!("Failed to parse phone number as integer");
+            0
+        }
+    }.to_le_bytes();
+    let timestamp_bytes = timestamp.to_le_bytes();
+    let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
+    let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
+    let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
+    let user_key = read_key_or_generate_key("User", &symbol_hash, phrase).unwrap_or(symbol_hash);
+    let nickname_bytes = nickname.as_bytes().get(..16).unwrap_or(nickname.as_bytes());
+    let length = nickname_bytes.len() + telephone_bytes.len() + timestamp_bytes.len() + user_key.len();
+    let mut result = Vec::with_capacity(length);
+    result.extend_from_slice(&telephone_bytes);
+    result.extend_from_slice(&timestamp_bytes);
+    result.extend_from_slice(&user_key);
+    result.extend_from_slice(nickname_bytes);
+    let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_did.as_bytes())).unwrap();
+    let encrypted_identity = encrypt(&result, &secret_key, 0);
+    let vcode = &calc_sha256(&encrypted_identity)[..2];
+    let mut encrypted = Vec::with_capacity(vcode.len() + encrypted_identity.len());
+    encrypted.extend_from_slice(&vcode);
+    encrypted.extend_from_slice(&encrypted_identity);
+    encrypted
+}
+
+pub(crate) fn import_identity(user_did: &str, encrypted_identity: &Vec<u8>, phrase: &str) -> IdClaim  {
+    let vcode = &encrypted_identity[..2];
+    if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
+        let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_did.as_bytes())).unwrap();
+        let identity_bytes = decrypt(&encrypted_identity[2..], &secret_key, 0);
+        let telephone = u64::from_le_bytes(identity_bytes[..8].try_into().unwrap()).to_string();
+        let timestamp = u64::from_le_bytes(identity_bytes[8..16].try_into().unwrap());
+        let mut user_key = [0u8; 32];
+        user_key.copy_from_slice(&identity_bytes[16..48]);
+        let nickname = std::str::from_utf8(&identity_bytes[48..]).unwrap();
+        let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
+        let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
+        let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
+        save_key_to_pem(&symbol_hash, &user_key, &phrase);
+        let mut user_claim = GlobalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
+        user_claim.update_timestamp(timestamp, phrase);
+        user_claim
+    } else {
+        println!("import_identity: Invalid vcode");
+        IdClaim::default()
+    }
+}
+
 
 
 fn transfer_private_data(aes_key_old: &[u8; 32], aes_key_new: &[u8; 32], private_paths: &Vec<String>) {
