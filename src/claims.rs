@@ -178,23 +178,32 @@ impl GlobalClaims {
                         .body(serde_json::to_string(&request).unwrap())
                         .send().await {
                         Ok(res) => {
+                            let status_code = res.status();
                             match res.text().await {
-                                Ok(text) => text,
+                                Ok(text) => {
+                                    if *token_utils::VERBOSE_INFO {
+                                        println!("[Upstream] response: {}", text);
+                                    }
+                                    if status_code.is_success() { text } else { "Unknown".to_string() }
+                                },
                                 Err(e) => {
-                                    println!("Failed to register system to  token.tm: {}", e);
-                                    serde_json::to_string(&IdClaim::default()).unwrap()
+                                    println!("Failed to read response body: {}", e);
+                                    "Unknown".to_string()
                                 }
                             }
                         },
                         Err(e) => {
-                            println!("Failed to register system to  token.tm: {}", e);
-                            serde_json::to_string(&IdClaim::default()).unwrap()
+                            println!("Failed to request token api: {}", e);
+                            "Unknown".to_string()
                         }
                     }
                 });
+                let claim = if result != "Unknown" {
+                    serde_json::from_str(&result).unwrap_or(IdClaim::default())
+                } else {
+                    IdClaim::default()
+                };
 
-
-                let claim = serde_json::from_str(&result).unwrap_or(IdClaim::default());
                 self.push_claim(claim.clone());
                 claim
             }
@@ -283,7 +292,9 @@ impl IdClaim {
         let symbol_hash = token_utils::calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
         let verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_verify_key(id_type, &symbol_hash, phrase));
         let crypt_secret = token_utils::get_specific_secret_key("exchange", id_type, &symbol_hash, phrase);
-        println!("IdClaim new() get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(crypt_secret));
+        if *token_utils::VERBOSE_INFO {
+            println!("IdClaim new() get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(crypt_secret));
+        }
         let crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_crypt_key(crypt_secret));
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();

@@ -81,7 +81,6 @@ pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>
     if !crypt_secrets.contains_key(&exchange_key!(did)) {
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
             "exchange",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
-        println!("init_user_crypt_secret get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(claim.get_symbol_hash()), crypt_secret);
         crypt_secrets.insert(exchange_key!(did), crypt_secret.clone());
     }
     if !crypt_secrets.contains_key(&issue_key!(did)) {
@@ -101,7 +100,7 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
             match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("read user_certificates file error: {}",e);
+                    println!("[UserBase] read user_certificates file error: {}",e);
                     return
                 },
             }
@@ -163,7 +162,7 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
             match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("read user_certificates file error: {}",e);
+                    println!("[UserBase] read user issued certificates file error: {}",e);
                     return
                 },
             }
@@ -268,7 +267,7 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
             let token_raw_data = match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("read authorized2system file error: {}",e);
+                    println!("[UserBase] read authorized2system file error: {}",e);
                     return String::from("");
                 },
             };
@@ -587,7 +586,7 @@ pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, ne
                     pkey
                 },
                 Err(_e) => {
-                    println!("[SimpleAI] Read key file error: {}", _e);
+                    println!("[UserBase] Read key file error: {}", _e);
                     let pkey: [u8; 32] = [0; 32];
                     pkey
                 },
@@ -599,7 +598,7 @@ pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, ne
                 .write_pem_file(user_key_file.clone(), pem_label, LineEnding::default()).unwrap();
         }
         false => {
-            println!("File not found: {}", user_key_file.display());
+            println!("[UserBase] User key file not found: {}", user_key_file.display());
         }
     }
 }
@@ -693,7 +692,7 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str) -> Result<[u8; 32],
                     pkey
                 },
                 Err(_e) => {
-                    println!("read_key error and generate new key: {}", file_path.display());
+                    println!("[UserBase] Read key file error and generate new key: {}", file_path.display());
                     generate_new_key_and_save_pem(file_path, &phrase_bytes)
                 },
             };
@@ -748,7 +747,6 @@ fn save_key_to_pem(symbol_hash: &[u8; 32], key: &[u8; 32], phrase: &str) -> [u8;
     file.write_all(pem_content.as_bytes()).unwrap();
     file.sync_all().unwrap();
 
-    println!("load and save private key({:?}) to file:{}", secret_key.as_slice(), user_key_file.display());
     secret_key
 }
 
@@ -868,7 +866,7 @@ pub(crate) fn import_identity(user_did: &str, encrypted_identity: &Vec<u8>, phra
         user_claim.update_timestamp(timestamp, phrase);
         user_claim
     } else {
-        println!("import_identity: Invalid vcode");
+        println!("[UserBase] import_identity: Invalid vcode");
         IdClaim::default()
     }
 }

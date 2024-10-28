@@ -28,7 +28,11 @@ pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
 });
 
 pub static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::new()
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(3)) // 连接超时时间
+        .timeout(Duration::from_secs(5)) // 总超时时间
+        .build()
+        .expect("Failed to build reqwest client")
 });
 
 
@@ -73,7 +77,6 @@ impl SimpleAI {
         //    Arc::new(Mutex::new(token_db.open_tree("certificates").unwrap()))
         //};
 
-        println!("init system variables");
         let zeroed_key: [u8; 32] = [0; 32];
         let root_dir = sys_base_info.root_dir.clone();
         let disk_uuid = sys_base_info.disk_uuid.clone();
@@ -93,9 +96,6 @@ impl SimpleAI {
 
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length) = {
-            if *token_utils::VERBOSE_INFO {
-                println!("init system/device/guest did and claim.");
-            }
             let mut claims = claims.lock().unwrap();
             let mut local_did = claims.reverse_lookup_did_by_nickname("System", &system_name);
             let mut device_did = claims.reverse_lookup_did_by_nickname("Device", &device_name);
@@ -132,10 +132,12 @@ impl SimpleAI {
             };
             claims.set_system_device_did(&local_did, &device_did);
             let claims_local_length = claims.local_len();
+            if *token_utils::VERBOSE_INFO {
+                println!("init system/device/guest did and claim ok.");
+            }
             (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length)
         };
 
-        println!("init system crypt_secrets");
         let mut crypt_secrets = HashMap::new();
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
         let mut certificates = HashMap::new();
@@ -150,11 +152,9 @@ impl SimpleAI {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
         }
 
-        println!("init system issued_certs");
         let mut issued_certs = HashMap::new();
         let _ = token_utils::load_token_of_issued_certs(&local_did, &mut issued_certs);
 
-        println!("waitting for sysinfo");
         let sysinfo = TOKIO_RUNTIME.block_on(async {
             sysinfo_handle.await.expect("Sysinfo Task panicked")
         });
@@ -165,12 +165,17 @@ impl SimpleAI {
             SystemInfo::logging_launch_info(&sys_did, &sysinfo_clone).await
         });
 
-        println!("waitting for register");
-        let upstream_did_json = SimpleAI::request_token_api_register(&local_claim, &device_claim);
-        let upstream_did = serde_json::from_str(&upstream_did_json).unwrap_or("").to_string();
-        println!("upstream_did: {}", upstream_did);
+        let upstream_did = if admin != token_utils::TOKEN_TM_DID {
+            let upstream_did_json = SimpleAI::request_token_api_register(&local_claim, &device_claim);
+            serde_json::from_str(&upstream_did_json).unwrap_or("").to_string()
+        } else {
+            token_utils::TOKEN_TM_DID.to_string()
+        };
+        let upstream_did = if upstream_did != "Unknown" { upstream_did } else { "".to_string() };
+
 
         if *token_utils::VERBOSE_INFO {
+            println!("upstream_did: {}", upstream_did);
             println!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
         }
 
@@ -492,8 +497,9 @@ impl SimpleAI {
                 ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
 
                 let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
-                println!("symbol_hash_base64: {}\n claim: {:?}", symbol_hash_base64, new_claim);
-
+                if *token_utils::VERBOSE_INFO {
+                    println!("symbol_hash_base64: {}\n claim: {:?}", symbol_hash_base64, new_claim);
+                }
                 let mut request: serde_json::Value = json!({});
                 request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
                 request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
@@ -547,8 +553,10 @@ impl SimpleAI {
                 let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
                 let upstream_did = self.get_upstream_did();
                 let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
-                println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}\n symbol_hash_b64: {}",
-                         did, user_certificate_text, claim, URL_SAFE_NO_PAD.encode(symbol_hash));
+                if *token_utils::VERBOSE_INFO {
+                    println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}\n symbol_hash_b64: {}",
+                             did, user_certificate_text, claim, URL_SAFE_NO_PAD.encode(symbol_hash));
+                }
                 if user_certificate_text != "Unknown".to_string() {
                     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
                     let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();
@@ -559,7 +567,6 @@ impl SimpleAI {
                         let (certs_key, certs_value) = token_utils::parse_user_certs(&user_certificate_text);
                         self.push_certificate(&certs_key, &certs_value);
                         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(claim.get_symbol_hash());
-                        println!("symbol_hash_base64: {}", symbol_hash_base64);
                         let mut request: serde_json::Value = json!({});
                         request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
                         request["user_vcode"] = serde_json::to_value(vcode).unwrap();
@@ -590,7 +597,6 @@ impl SimpleAI {
         if self.ready_users.contains_key(&user_hash_id) {
             let ready_data = self.ready_users.get(&user_hash_id).unwrap();
             let old_phrase = ready_data["user_phrase"].as_str().unwrap_or("Unknown");
-            println!("set_phrase: _user_phrase: {}, old_phrase: {}", _user_phrase, old_phrase);
             let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, old_phrase);
             let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
             let did = claim.gen_did();
@@ -646,7 +652,8 @@ impl SimpleAI {
                     let user_copy_from_cloud = self.request_token_api("get_user_copy",
                                                                       &serde_json::to_string(&request).unwrap_or("{}".to_string()), );
 
-                    match user_copy_from_cloud != "Unknown_user".to_string() &&
+                    match user_copy_from_cloud != "Unknown".to_string() &&
+                        user_copy_from_cloud != "Unknown_user".to_string() &&
                         user_copy_from_cloud != "Unknown_backup".to_string() {
                         true => {
                             let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
@@ -785,10 +792,13 @@ impl SimpleAI {
                 .send()
                 .await{
                 Ok(res) => {
+                    let status_code = res.status();
                     match res.text().await {
                         Ok(text) => {
-                            println!("[Upstream] response: {}", text);
-                            text
+                            if *token_utils::VERBOSE_INFO {
+                                println!("[Upstream] response: {}", text);
+                            }
+                            if status_code.is_success() { text } else { "Unknown".to_string() }
                         },
                         Err(e) => {
                             println!("Failed to read response body: {}", e);
@@ -807,7 +817,9 @@ impl SimpleAI {
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.upstream_did.clone();
         let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
-        println!("[UpstreamClient] request api_{} with params: {}", api_name, params);
+        if *token_utils::VERBOSE_INFO {
+            println!("[UpstreamClient] request api_{} with params: {}", api_name, params);
+        }
         TOKIO_RUNTIME.block_on(async {
             match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
                 .header("Sys-Did", self.did.to_string())
@@ -816,10 +828,13 @@ impl SimpleAI {
                 .send()
                 .await{
                 Ok(res) => {
+                    let status_code = res.status();
                     match res.text().await {
                         Ok(text) => {
-                            println!("[Upstream] response: {}", text);
-                            text
+                            if *token_utils::VERBOSE_INFO {
+                                println!("[Upstream] response: {}", text);
+                            }
+                            if status_code.is_success() { text } else { "Unknown".to_string() }
                         },
                         Err(e) => {
                             println!("Failed to read response body: {}", e);
