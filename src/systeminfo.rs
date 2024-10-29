@@ -192,7 +192,7 @@ impl SystemInfo {
         sysinfo.pyhash = pyhash;
         sysinfo.uihash = uihash;
 
-        println!("sysinfo is finished");
+        //println!("sysinfo is finished");
         sysinfo
     }
 
