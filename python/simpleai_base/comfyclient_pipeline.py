@@ -102,7 +102,7 @@ def get_images(ws, prompt, callback=None):
 
 def images_upload(images):
     result = {}
-    if images is None:
+    if images is None or len(images) == 0:
         return result
     for k,np_image in images.items():
         pil_image = Image.fromarray(np_image)
@@ -113,7 +113,7 @@ def images_upload(images):
             data = {'overwrite': 'true', 'type': 'input'}
             response = httpx.post("http://{}/upload/image".format(server_address), files=files, data=data)
         result.update({k: response.json()["name"]})
-    print(f'[ComfyClient] The ComfyTask:upload_input_images has finished: {len(result)}')
+        print(f'[ComfyClient] The ComfyTask:upload_input_image, {k}: {result[k]}')
     return result
 
 
@@ -139,8 +139,9 @@ def process_flow(flow_name, params, images, callback=None):
                 ws = websocket.WebSocket()
                 ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
 
-    images_map = images_upload(images)
-    params.update_params(images_map)
+    if images and len(images)>0:
+        images_map = images_upload(images)
+        params.update_params(images_map)
     print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
     for k,v in params.get_params().items():
         print(f'    {k} = {v}')
