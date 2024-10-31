@@ -5,6 +5,7 @@ import torch
 import gc
 import ldm_patched.modules.model_management as model_management
 from . import comfyclient_pipeline, utils
+from simpleai_base.simpleai_base import get_entry_point as inherited_get_entry_point
 
 comfyd_process = None
 comfyd_active = False
@@ -145,3 +146,10 @@ def args_mapping(args_fooocus):
     if not utils.echo_off:
         print(f'[Comfyd] args_fooocus: {args_fooocus}\nargs_comfy: {args_comfy}')
     return args_comfy
+
+def get_entry_point():
+    global comfyd_process
+    if comfyd_process:
+        inherited_get_entry_point(comfyd_process.pid)
+    else:
+        return None

@@ -32,10 +32,13 @@ fn sha256(input: &[u8]) -> String {
 }
 
 #[pyfunction]
-fn file_hash_size(path: String) -> (String, u64) {
-    let Ok((hash, size)) = env_utils::get_file_hash_size(Path::new(&path))
-        else { return ("".to_string(), 0) };
-    (hash, size)
+fn get_entry_point(point_id: u32) -> String {
+    token_utils::gen_entry_point_of_service(point_id)
+}
+
+#[pyfunction]
+fn check_entry_point(entry_point: String) -> bool {
+    token_utils::check_entry_point_of_service(&entry_point)
 }
 
 
@@ -43,7 +46,8 @@ fn file_hash_size(path: String) -> (String, u64) {
 fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
     m.add_function(wrap_pyfunction!(sha256, m)?)?;
-    m.add_function(wrap_pyfunction!(file_hash_size, m)?)?;
+    m.add_function(wrap_pyfunction!(get_entry_point, m)?)?;
+    m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
     m.add_class::<UserContext>()?;

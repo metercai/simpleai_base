@@ -632,8 +632,31 @@ pub fn sha256_prefix(input: &[u8], len: usize) -> String {
     }
 }
 
+pub(crate) fn gen_entry_point_of_service(point_id: u32) -> String {
+    let service_id = match point_id {
+        0 => std::process::id().to_string(),
+        _ => point_id.to_string()
+    };
+    let sysinfo = &SYSTEM_BASE_INFO;
+    let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+    let salt = calc_sha256(format!("{}/{}:{}", sysinfo.host_name , sysinfo.root_dir, now_sec/300).as_bytes());
+    derive_key(&service_id.as_bytes(), &salt).unwrap_or([0u8; 32]).to_base58()
+}
 
-
+pub(crate) fn check_entry_point_of_service(entry_point: &str) -> bool {
+    let service_id = std::process::id().to_string();
+    let sysinfo = &SYSTEM_BASE_INFO;
+    let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+    let salt = calc_sha256(format!("{}/{}:{}", sysinfo.host_name , sysinfo.root_dir, now_sec/300).as_bytes());
+    let entry_point_real =  derive_key(&service_id.as_bytes(), &salt).unwrap_or([0u8; 32]).to_base58();
+    if entry_point_real != entry_point {
+        let salt = calc_sha256(format!("{}/{}:{}", sysinfo.host_name , sysinfo.root_dir, now_sec/300 - 1).as_bytes());
+        let entry_point_real =  derive_key(&service_id.as_bytes(), &salt).unwrap_or([0u8; 32]).to_base58();
+        entry_point_real == entry_point
+    } else { true  }
+}
 
 fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let sysinfo = &SYSTEM_BASE_INFO;
