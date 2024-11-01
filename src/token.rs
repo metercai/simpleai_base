@@ -172,12 +172,12 @@ impl SimpleAI {
             token_utils::TOKEN_TM_DID.to_string()
         };
         let upstream_did = if upstream_did != "Unknown" { upstream_did } else { "".to_string() };
-
-
         if *token_utils::VERBOSE_INFO {
             println!("upstream_did: {}", upstream_did);
             println!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
         }
+
+        let admin = if guest_did == admin { "".to_string() } else { admin };
 
         Self {
             sys_name,
@@ -747,7 +747,7 @@ impl SimpleAI {
         context.set_sig(&sig);
         match token_utils::save_user_token_to_file(&context) {
             Ok(_) => {
-                if self.admin.is_empty() {
+                if self.admin.is_empty() && did != self.guest {
                     self.admin = did.to_string();
                     token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
                 }
