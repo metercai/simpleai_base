@@ -160,15 +160,15 @@ def images_upload(images):
             with BytesIO() as output:
                 pil_image.save(output, format="PNG")
                 output.seek(0)
-                files = {'image': (f'upload_image_{images.get_image_hash(k)}.png', output)}
+                files = {'image': (f'upload_image_{images.get_image_hash(k)[:32]}.png', output)}
                 data = {'overwrite': 'true', 'type': 'input'}
                 response = httpx.post("http://{}/upload/image".format(server_address), files=files, data=data)
             filename2 = response.json()["name"]
             images.set_image_filename(k, filename2)
             result.update({k: filename2})
+            print(f'[ComfyClient] The ComfyTask:upload_input_image, {k}: {result[k]}')
         else:
             result.update({k: filename})
-        print(f'[ComfyClient] The ComfyTask:upload_input_image, {k}: {result[k]}')
     return result
 
 
