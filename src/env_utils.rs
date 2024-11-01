@@ -121,6 +121,32 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
     real_port
 }
 
+pub(crate) async fn get_random_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
+
+    let real_port = {
+        let mut rng = SmallRng::from_entropy();
+        loop {
+            let random_port = rng.gen_range((port-100)..=port);
+            let addr = format!("{}:{}", ip, random_port);
+            match TcpListener::bind(addr) {
+                Ok(_) => return random_port,
+                Err(_) => {
+                    time::sleep(Duration::from_millis(10)).await;
+                    continue
+                },
+            }
+        };
+    };
+
+
+    if *VERBOSE_INFO {
+        println!("get_port_availability, out, port: {}", real_port);
+    }
+    //println!("get_port_availability, out, port: {real_port}");
+    //print!(".");
+    real_port
+}
+
 pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let path_py = vec!["", "modules", "extras", "ldm_patched/modules", "enhanced", "enhanced/libs", "comfy", "comfy/comfy"];
     let path_ui = vec!["language/cn.json", "simplesdxl_log.md", "webui.py", "enhanced/attached/welcome.png"];

@@ -150,7 +150,6 @@ def args_mapping(args_fooocus):
 def get_entry_point():
     global comfyd_process
     if comfyd_process:
-        print("[Comfyd] comfyd process pid: {comfyd_process.pid}")
         return inherited_get_entry_point(comfyd_process.pid)
     else:
         return None
