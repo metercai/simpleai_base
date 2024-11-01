@@ -5,6 +5,7 @@ import uuid
 import random
 import httpx
 import time
+import torch
 import numpy as np
 import ldm_patched.modules.model_management as model_management
 from io import BytesIO
@@ -20,7 +21,6 @@ class ComfyInputImage:
     def __init__(self, key_list):
         if not isinstance(key_list, list):
             raise ValueError("key_list must be a list")
-
         self.map = {}
         for key in key_list:
             self.map[key] = self.default_image
@@ -30,6 +30,8 @@ class ComfyInputImage:
         return self.map.get(key, None)
     def set_image(self, key, image):
         self.map[key] = image
+        if isinstance(image, torch.Tensor):
+            image = image.cpu().numpy()
         image_hash = hashlib.sha256(image.tobytes()).hexdigest()
         self.map[f'{key}|hash'] = image_hash
 
@@ -131,8 +133,9 @@ def get_images(ws, prompt, callback=None):
                 current_total_steps = message["data"]["max"]
         else:
             if current_type == 'progress':
-                if prompt[current_node]['class_type'] in ['KSampler', 'SamplerCustomAdvanced', 'TiledKSampler',
-                                                          'UltimateSDUpscale'] and callback is not None:
+                if prompt[current_node]['class_type'] in \
+                        ['KSampler', 'KSamplerAdvanced', 'SamplerCustomAdvanced', 'TiledKSampler','UltimateSDUpscale'] \
+                        and callback is not None:
                     if current_step == last_step:
                         preview_image.append(out[8:])
                     else:
