@@ -1,6 +1,6 @@
 import os
 import json
-import websocket 
+import websocket
 import uuid
 import random
 import httpx
@@ -9,8 +9,50 @@ import numpy as np
 import ldm_patched.modules.model_management as model_management
 from io import BytesIO
 from PIL import Image
-
+import hashlib
 from . import utils
+
+
+class ComfyInputImage:
+    default_image = np.zeros((1024, 1024, 3), dtype=np.uint8)
+    default_image_hash = hashlib.sha256(default_image.tobytes()).hexdigest()
+
+    def __init__(self, key_list):
+        if not isinstance(key_list, list):
+            raise ValueError("key_list must be a list")
+
+        self.map = {}
+        for key in key_list:
+            self.map[key] = self.default_image
+            self.map[f'{key}|hash'] = self.default_image_hash
+
+    def get(self, key):
+        return self.map.get(key, None)
+    def set_image(self, key, image):
+        self.map[key] = image
+        image_hash = hashlib.sha256(image.tobytes()).hexdigest()
+        self.map[f'{key}|hash'] = image_hash
+
+    def set_image_filename(self, key, filename):
+        image_hash = self.map[f'{key}|hash']
+        self.map[f'{image_hash}|file'] = filename
+
+    def get_image_hash(self, key):
+        return self.map[f'{key}|hash']
+
+    def get_image_filename(self, key):
+        image_hash = self.map[f'{key}|hash']
+        file_key = f'{image_hash}|file'
+        return self.map.get(file_key, None)
+
+    def exists(self, key):
+        return key in self.map
+
+    def get_key_list(self):
+        return [k for k in self.map.keys() if not k.endswith('|hash') and not k.endswith('|file')]
+
+    def len(self):
+        return len(self.get_key_list())
 
 def upload_mask(mask):
     with BytesIO() as output:
@@ -20,6 +62,7 @@ def upload_mask(mask):
         data = {'overwrite': 'true', 'type': 'example_type'}
         response = httpx.post("http://{}/upload/mask".format(server_address), files=files, data=data)
     return response.json()
+
 
 def queue_prompt(prompt):
     p = {"prompt": prompt, "client_id": client_id}
@@ -32,6 +75,7 @@ def queue_prompt(prompt):
         print(f"httpx.RequestError: {e}")
         return None
 
+
 def get_image(filename, subfolder, folder_type):
     params = httpx.QueryParams({
         "filename": filename,
@@ -42,10 +86,12 @@ def get_image(filename, subfolder, folder_type):
         response = client.get(f"http://{server_address}/view", params=params)
         return response.read()
 
+
 def get_history(prompt_id):
     with httpx.Client() as client:
         response = client.get("http://{}/history/{}".format(server_address, prompt_id))
         return json.loads(response.read())
+
 
 def get_images(ws, prompt, callback=None):
     prompt_id = queue_prompt(prompt)['prompt_id']
@@ -69,7 +115,7 @@ def get_images(ws, prompt, callback=None):
         if isinstance(out, str):
             message = json.loads(out)
             current_type = message['type']
-            #print(f'current_message={message}')
+            # print(f'current_message={message}')
             if message['type'] == 'executing':
                 data = message['data']
                 if data['node'] is None and data['prompt_id'] == prompt_id:
@@ -81,7 +127,8 @@ def get_images(ws, prompt, callback=None):
                 current_total_steps = message["data"]["max"]
         else:
             if current_type == 'progress':
-                if prompt[current_node]['class_type'] in ['KSampler', 'SamplerCustomAdvanced', 'TiledKSampler', 'UltimateSDUpscale'] and callback is not None:
+                if prompt[current_node]['class_type'] in ['KSampler', 'SamplerCustomAdvanced', 'TiledKSampler',
+                                                          'UltimateSDUpscale'] and callback is not None:
                     if current_step == last_step:
                         preview_image.append(out[8:])
                     else:
@@ -94,25 +141,33 @@ def get_images(ws, prompt, callback=None):
                     images_output = output_images.get(prompt[current_node]['_meta']['title'], [])
                     images_output.append(out[8:])
                     output_images[prompt[current_node]['_meta']['title']] = images_output[0]
-            continue  
+            continue
 
     output_images = {k: np.array(Image.open(BytesIO(v))) for k, v in output_images.items()}
     print(f'[ComfyClient] The ComfyTask:{prompt_id} has finished: {len(output_images)}')
     return output_images
 
+
 def images_upload(images):
     result = {}
-    if images is None or len(images) == 0:
+    if images is None or images.len() == 0:
         return result
-    for k,np_image in images.items():
-        pil_image = Image.fromarray(np_image)
-        with BytesIO() as output:
-            pil_image.save(output, format="PNG")
-            output.seek(0)
-            files = {'image': (f'image_{client_id}_{random.randint(1000, 9999)}.png', output)}
-            data = {'overwrite': 'true', 'type': 'input'}
-            response = httpx.post("http://{}/upload/image".format(server_address), files=files, data=data)
-        result.update({k: response.json()["name"]})
+    for k in images.get_key_list():
+        filename = images.get_image_filename
+        if filename is None:
+            np_image = images.get(k)
+            pil_image = Image.fromarray(np_image)
+            with BytesIO() as output:
+                pil_image.save(output, format="PNG")
+                output.seek(0)
+                files = {'image': (f'upload_image_{images.get_image_hash(k)}.png', output)}
+                data = {'overwrite': 'true', 'type': 'input'}
+                response = httpx.post("http://{}/upload/image".format(server_address), files=files, data=data)
+            filename2 = response.json()["name"]
+            images.set_image_filename(k, filename2)
+            result.update({k: filename2})
+        else:
+            result.update({k: filename})
         print(f'[ComfyClient] The ComfyTask:upload_input_image, {k}: {result[k]}')
     return result
 
@@ -139,18 +194,18 @@ def process_flow(flow_name, params, images, callback=None):
                 ws = websocket.WebSocket()
                 ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
 
-    if images and len(images)>0:
-        images_map = images_upload(images)
-        params.update_params(images_map)
+
+    images_map = images_upload(images)
+    params.update_params(images_map)
     print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
-    for k,v in params.get_params().items():
+    for k, v in params.get_params().items():
         print(f'    {k} = {v}')
     try:
         prompt_str = params.convert2comfy(flow_name)
         if not utils.echo_off:
             print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
         images = get_images(ws, prompt_str, callback=callback)
-        #ws.close()
+        # ws.close()
     except websocket.WebSocketException as e:
         print(f'[ComfyClient] The connect has been closed, restart and try again: {e}')
         ws = None
@@ -163,6 +218,7 @@ def process_flow(flow_name, params, images, callback=None):
         print(f'[ComfyClient] The ComfyTask:{flow_name} has no output images.')
     return imgs
 
+
 def interrupt():
     try:
         with httpx.Client() as client:
@@ -172,8 +228,9 @@ def interrupt():
         print(f"httpx.RequestError: {e}")
         return
 
+
 def free(all=False):
-    p = {"unload_models": all==True, "free_memory": True}
+    p = {"unload_models": all == True, "free_memory": True}
     data = json.dumps(p).encode('utf-8')
     try:
         with httpx.Client() as client:
@@ -188,5 +245,5 @@ WORKFLOW_DIR = 'workflows'
 COMFYUI_ENDPOINT_IP = '127.0.0.1'
 COMFYUI_ENDPOINT_PORT = '8187'
 server_address = f'{COMFYUI_ENDPOINT_IP}:{COMFYUI_ENDPOINT_PORT}'
-client_id = str(uuid.uuid4())  
+client_id = str(uuid.uuid4())
 ws = None
