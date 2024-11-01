@@ -31,7 +31,8 @@ class ComfyInputImage:
     def set_image(self, key, image):
         if isinstance(image, torch.Tensor):
             image = image.cpu().numpy()
-        self.map[key] = image
+        image = image.squeeze()
+        self.map[key] = (image * 255).astype(np.uint8)
         image_hash = hashlib.sha256(image.tobytes()).hexdigest()
         self.map[f'{key}|hash'] = image_hash
 
