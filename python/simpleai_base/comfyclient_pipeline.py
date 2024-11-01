@@ -60,7 +60,7 @@ def upload_mask(mask):
         output.seek(0)
         files = {'mask': ('mask.jpg', output)}
         data = {'overwrite': 'true', 'type': 'example_type'}
-        response = httpx.post("http://{}/upload/mask".format(server_address), files=files, data=data)
+        response = httpx.post("http://{}/upload/mask".format(server_address()), files=files, data=data)
     return response.json()
 
 
@@ -69,7 +69,7 @@ def queue_prompt(prompt):
     data = json.dumps(p).encode('utf-8')
     try:
         with httpx.Client() as client:
-            response = client.post("http://{}/prompt".format(server_address), data=data)
+            response = client.post("http://{}/prompt".format(server_address()), data=data)
             if response.status_code == 200:
                 return json.loads(response.read())
             else:
@@ -87,13 +87,13 @@ def get_image(filename, subfolder, folder_type):
         "type": folder_type
     })
     with httpx.Client() as client:
-        response = client.get(f"http://{server_address}/view", params=params)
+        response = client.get(f"http://{server_address()}/view", params=params)
         return response.read()
 
 
 def get_history(prompt_id):
     with httpx.Client() as client:
-        response = client.get("http://{}/history/{}".format(server_address, prompt_id))
+        response = client.get("http://{}/history/{}".format(server_address(), prompt_id))
         return json.loads(response.read())
 
 
@@ -114,7 +114,7 @@ def get_images(ws, prompt, callback=None):
         except ConnectionResetError as e:
             print(f'[ComfyClient] The connect was exception, restart and try again: {e}')
             ws = websocket.WebSocket()
-            ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+            ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
             out = ws.recv()
         if isinstance(out, str):
             message = json.loads(out)
@@ -166,7 +166,7 @@ def images_upload(images):
                 output.seek(0)
                 files = {'image': (f'upload_image_{images.get_image_hash(k)[:32]}.png', output)}
                 data = {'overwrite': 'true', 'type': 'input'}
-                response = httpx.post("http://{}/upload/image".format(server_address), files=files, data=data)
+                response = httpx.post("http://{}/upload/image".format(server_address()), files=files, data=data)
             filename2 = response.json()["name"]
             images.set_image_filename(k, filename2)
             result.update({k: filename2})
@@ -185,18 +185,18 @@ def process_flow(flow_name, params, images, callback=None):
             ws.close()
         try:
             ws = websocket.WebSocket()
-            ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+            ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
         except ConnectionRefusedError as e:
             print(f'[ComfyClient] The connect_to_server has failed, sleep and try again: {e}')
             time.sleep(8)
             try:
                 ws = websocket.WebSocket()
-                ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+                ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
             except ConnectionRefusedError as e:
                 print(f'[ComfyClient] The connect_to_server has failed, restart and try again: {e}')
                 time.sleep(12)
                 ws = websocket.WebSocket()
-                ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
+                ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
 
 
     images_map = images_upload(images)
@@ -226,7 +226,7 @@ def process_flow(flow_name, params, images, callback=None):
 def interrupt():
     try:
         with httpx.Client() as client:
-            response = client.post("http://{}/interrupt".format(server_address))
+            response = client.post("http://{}/interrupt".format(server_address()))
             return
     except httpx.RequestError as e:
         print(f"httpx.RequestError: {e}")
@@ -238,7 +238,7 @@ def free(all=False):
     data = json.dumps(p).encode('utf-8')
     try:
         with httpx.Client() as client:
-            response = client.post("http://{}/free".format(server_address), data=data)
+            response = client.post("http://{}/free".format(server_address()), data=data)
             return
     except httpx.RequestError as e:
         print(f"httpx.RequestError: {e}")
@@ -248,6 +248,6 @@ def free(all=False):
 WORKFLOW_DIR = 'workflows'
 COMFYUI_ENDPOINT_IP = '127.0.0.1'
 COMFYUI_ENDPOINT_PORT = '8187'
-server_address = f'{COMFYUI_ENDPOINT_IP}:{COMFYUI_ENDPOINT_PORT}'
+server_address = lambda: f'{COMFYUI_ENDPOINT_IP}:{COMFYUI_ENDPOINT_PORT}'
 client_id = str(uuid.uuid4())
 ws = None

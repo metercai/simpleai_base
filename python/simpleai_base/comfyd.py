@@ -45,7 +45,6 @@ def start(args_patch=[[]]):
         if not utils.echo_off:
             print(f'[Comfyd] args_comfyd was patched: {args_comfyd}, patch:{comfyd_args}')
         arguments = [arg for sublist in args_comfyd for arg in sublist]
-        comfyclient_pipeline.COMFYUI_ENDPOINT_PORT = [arg[1] for arg in args_comfyd if arg[0] == "--port"][0]
         process_env = os.environ.copy()
         process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
         model_management.unload_all_models()
@@ -56,7 +55,11 @@ def start(args_patch=[[]]):
         if 'comfyd_process' not in globals():
             globals()['comfyd_process'] = None
         comfyd_process = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
+        comfyclient_pipeline.COMFYUI_ENDPOINT_PORT = [arg[1] for arg in args_comfyd if arg[0] == "--port"][0]
         comfyclient_pipeline.ws = None
+        if not utils.echo_off:
+            print(f'[Comfyd] Reset COMFYUI_ENDPOINT_PORT({comfyclient_pipeline.COMFYUI_ENDPOINT_PORT}) and ws=None')
+
     else:
         print("[Comfyd] Comfyd is active!")
     return
