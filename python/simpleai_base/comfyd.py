@@ -11,6 +11,7 @@ comfyd_process = None
 comfyd_active = False
 comfyd_args = [[]]
 
+
 def is_running():
     global comfyd_process
     if 'comfyd_process' not in globals():
@@ -23,10 +24,11 @@ def is_running():
     print("[Comfyd] comfyd process status code: {process_code}")
     return False
 
+
 def start(args_patch=[[]]):
     global comfyd_process, comfyd_args
     if not is_running():
-        backend_script = os.path.join(os.getcwd(),'comfy/main.py')
+        backend_script = os.path.join(os.getcwd(), 'comfy/main.py')
         args_comfyd = [["--preview-method", "auto"], ["--port", "8187"], ["--disable-auto-launch"]]
         if len(args_patch) > 0 and len(args_patch[0]) > 0:
             comfyd_args += args_patch
@@ -34,7 +36,7 @@ def start(args_patch=[[]]):
             found = False
             for i, sublist in enumerate(args_comfyd):
                 if sublist[0] == patch[0]:
-                    if len(sublist)>1:
+                    if len(sublist) > 1:
                         args_comfyd[i][1] = patch[1]
                     found = True
                     break
@@ -43,6 +45,7 @@ def start(args_patch=[[]]):
         if not utils.echo_off:
             print(f'[Comfyd] args_comfyd was patched: {args_comfyd}, patch:{comfyd_args}')
         arguments = [arg for sublist in args_comfyd for arg in sublist]
+        comfyclient_pipeline.COMFYUI_ENDPOINT_PORT = [arg[1] for arg in arguments if arg[0] == "--port"][0]
         process_env = os.environ.copy()
         process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
         model_management.unload_all_models()
@@ -52,11 +55,12 @@ def start(args_patch=[[]]):
             print(f'[Comfyd] Ready to start with arguments: {arguments}, env: {process_env}')
         if 'comfyd_process' not in globals():
             globals()['comfyd_process'] = None
-        comfyd_process  = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
+        comfyd_process = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
         comfyclient_pipeline.ws = None
     else:
         print("[Comfyd] Comfyd is active!")
     return
+
 
 def active(flag=False):
     global comfyd_active
@@ -67,6 +71,7 @@ def active(flag=False):
         stop()
     return
 
+
 def finished():
     global comfyd_process
     if 'comfyd_process' not in globals():
@@ -74,7 +79,7 @@ def finished():
     if comfyd_process is None:
         return
     if comfyd_active:
-        #free()
+        # free()
         gc.collect()
         print("[Comfyd] Task finished !")
         return
@@ -82,6 +87,7 @@ def finished():
     free()
     gc.collect()
     print("[Comfyd] Comfyd stopped!")
+
 
 def stop():
     global comfyd_process
@@ -103,6 +109,7 @@ def stop():
     gc.collect()
     print("[Comfyd] Comfyd stopped!")
 
+
 def free(all=False):
     global comfyd_process
     if 'comfyd_process' not in globals():
@@ -111,6 +118,7 @@ def free(all=False):
         return
     comfyclient_pipeline.free(all)
     return
+
 
 def interrupt():
     global comfyd_process
@@ -121,10 +129,11 @@ def interrupt():
     comfyclient_pipeline.interrupt()
     return
 
+
 def args_mapping(args_fooocus):
     args_comfy = []
     if "--gpu-device-id" in args_fooocus:
-        args_comfy += [["--cuda-device", args_fooocus[args_fooocus.index("--gpu-device-id")+1]]]
+        args_comfy += [["--cuda-device", args_fooocus[args_fooocus.index("--gpu-device-id") + 1]]]
     if "--async-cuda-allocation" in args_fooocus:
         args_comfy += [["--cuda-malloc"]]
     if "--disable-async-cuda-allocation" in args_fooocus:
@@ -146,6 +155,7 @@ def args_mapping(args_fooocus):
     if not utils.echo_off:
         print(f'[Comfyd] args_fooocus: {args_fooocus}\nargs_comfy: {args_comfy}')
     return args_comfy
+
 
 def get_entry_point():
     global comfyd_process
