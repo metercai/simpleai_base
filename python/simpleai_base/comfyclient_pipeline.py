@@ -153,7 +153,7 @@ def images_upload(images):
     if images is None or images.len() == 0:
         return result
     for k in images.get_key_list():
-        filename = images.get_image_filename
+        filename = images.get_image_filename(k)
         if filename is None:
             np_image = images.get(k)
             pil_image = Image.fromarray(np_image)
