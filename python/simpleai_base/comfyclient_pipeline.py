@@ -70,7 +70,11 @@ def queue_prompt(prompt):
     try:
         with httpx.Client() as client:
             response = client.post("http://{}/prompt".format(server_address), data=data)
-            return json.loads(response.read())
+            if response.status_code == 200:
+                return json.loads(response.read())
+            else:
+                print(f"Error: {response.status_code} {response.text}")
+                return None
     except httpx.RequestError as e:
         print(f"httpx.RequestError: {e}")
         return None
