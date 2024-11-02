@@ -29,12 +29,12 @@ class ComfyInputImage:
     def get(self, key):
         return self.map.get(key, None)
     def set_image(self, key, image):
-        if isinstance(image, torch.Tensor):
-            image = image.cpu().numpy()
-        image = image.squeeze()
-        self.map[key] = (image * 255).astype(np.uint8)
-        image_hash = hashlib.sha256(image.tobytes()).hexdigest()
-        self.map[f'{key}|hash'] = image_hash
+        if isinstance(image, np.ndarray):
+            self.map[key] = image
+            image_hash = hashlib.sha256(image.tobytes()).hexdigest()
+            self.map[f'{key}|hash'] = image_hash
+        else:
+            raise ValueError("image must be a np.ndarray")
 
     def set_image_filename(self, key, filename):
         image_hash = self.map[f'{key}|hash']
