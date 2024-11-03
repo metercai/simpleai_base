@@ -100,16 +100,17 @@ def get_history(prompt_id):
         return json.loads(response.read())
 
 
-def get_images(ws, prompt, callback=None):
+def get_images(ws, prompt, callback=None, total_steps=None):
     prompt_id = queue_prompt(prompt)['prompt_id']
     print('[ComfyClient] Request and get ComfyTask_id:{}'.format(prompt_id))
     output_images = {}
     current_node = ''
-    last_node = None
-    preview_image = []
-    last_step = None
-    current_step = None
+    total_steps_known = total_steps
+    preview_image = None
+    current_step = 0
+    last_step = 0
     current_total_steps = None
+    finished_steps = 0
     while True:
         model_management.throw_exception_if_processing_interrupted()
         try:
@@ -132,19 +133,21 @@ def get_images(ws, prompt, callback=None):
             elif message['type'] == 'progress':
                 current_step = message["data"]["value"]
                 current_total_steps = message["data"]["max"]
+                if total_steps is None:
+                    total_steps_known = current_total_steps
+                print(f'current_step:{current_step}, current_total_steps:{current_total_steps}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
+
         else:
             if current_type == 'progress':
                 if prompt[current_node]['class_type'] in \
                         ['KSampler', 'KSamplerAdvanced', 'SamplerCustomAdvanced', 'TiledKSampler','UltimateSDUpscale'] \
                         and callback is not None:
-                    if current_step == last_step:
-                        preview_image.append(out[8:])
-                    else:
-                        if last_step is not None:
-                            callback(last_step, current_total_steps, Image.open(BytesIO(preview_image[0])))
-                        preview_image = []
-                        preview_image.append(out[8:])
-                        last_step = current_step
+                    preview_image = out[8:]
+                    if current_step != last_step:
+                        finished_steps += 1
+                        print(f'current_step:{current_step}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
+                        callback(finished_steps, total_steps_known, Image.open(BytesIO(preview_image)))
+                    last_step = current_step
                 if prompt[current_node]['class_type'] == 'SaveImageWebsocket':
                     images_output = output_images.get(prompt[current_node]['_meta']['title'], [])
                     images_output.append(out[8:])
@@ -180,7 +183,7 @@ def images_upload(images):
     return result
 
 
-def process_flow(flow_name, params, images, callback=None):
+def process_flow(flow_name, params, images, callback=None, total_steps=None):
     global ws
 
     if ws is None or ws.status != 101:
@@ -212,7 +215,7 @@ def process_flow(flow_name, params, images, callback=None):
         prompt_str = params.convert2comfy(flow_name)
         if not utils.echo_off:
             print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
-        images = get_images(ws, prompt_str, callback=callback)
+        images = get_images(ws, prompt_str, callback=callback, total_steps=total_steps)
         # ws.close()
     except websocket.WebSocketException as e:
         print(f'[ComfyClient] The connect has been closed, restart and try again: {e}')
