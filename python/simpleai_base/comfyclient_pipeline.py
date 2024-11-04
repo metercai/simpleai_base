@@ -135,7 +135,7 @@ def get_images(ws, prompt, callback=None, total_steps=None):
                 current_total_steps = message["data"]["max"]
                 if total_steps is None:
                     total_steps_known = current_total_steps
-                print(f'current_step:{current_step}, current_total_steps:{current_total_steps}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
+                #print(f'current_step:{current_step}, current_total_steps:{current_total_steps}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
 
         else:
             if current_type == 'progress':
@@ -145,7 +145,7 @@ def get_images(ws, prompt, callback=None, total_steps=None):
                     preview_image = out[8:]
                     if current_step != last_step:
                         finished_steps += 1
-                        print(f'current_step:{current_step}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
+                        #print(f'current_step:{current_step}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
                         callback(finished_steps, total_steps_known, Image.open(BytesIO(preview_image)))
                     last_step = current_step
                 if prompt[current_node]['class_type'] == 'SaveImageWebsocket':
