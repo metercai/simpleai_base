@@ -385,8 +385,10 @@ impl SimpleAI {
         self.guest.clone()
     }
 
-    pub fn get_entry_point(&self, entry_point_id: &str) -> String {
-        token_utils::gen_entry_point_of_service(entry_point_id)
+    pub fn get_entry_point(&self, user_did: &str, entry_point_id: &str) -> String {
+        if user_did==self.admin {
+            token_utils::gen_entry_point_of_service(entry_point_id)
+        } else { "".to_string() }
     }
     pub fn get_guest_sstoken(&self, ua_hash: &str) -> String {
         self.get_user_sstoken(&self.guest, ua_hash)
