@@ -1,6 +1,8 @@
 use std::path::Path;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base58::{ToBase58, FromBase58};
+
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
@@ -32,9 +34,15 @@ fn sha256(input: &[u8]) -> String {
 }
 
 #[pyfunction]
-fn get_entry_point(point_id: u32) -> String {
-    token_utils::gen_entry_point_of_service(point_id)
+fn to_base58(input: &[u8]) -> String {
+    input.to_base58()
 }
+
+#[pyfunction]
+fn from_base58(input: &str) -> Vec<u8> {
+    input.from_base58().unwrap_or("Unknown".to_string().into_bytes())
+}
+
 
 #[pyfunction]
 fn check_entry_point(entry_point: String) -> bool {
@@ -46,7 +54,8 @@ fn check_entry_point(entry_point: String) -> bool {
 fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
     m.add_function(wrap_pyfunction!(sha256, m)?)?;
-    m.add_function(wrap_pyfunction!(get_entry_point, m)?)?;
+    m.add_function(wrap_pyfunction!(to_base58, m)?)?;
+    m.add_function(wrap_pyfunction!(from_base58, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
