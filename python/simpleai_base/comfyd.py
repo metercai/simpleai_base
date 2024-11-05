@@ -5,7 +5,7 @@ import torch
 import gc
 import ldm_patched.modules.model_management as model_management
 from . import comfyclient_pipeline, utils
-from simpleai_base.simpleai_base import sha256, to_base58
+from simpleai_base.simpleai_base import gen_entry_point_id
 
 comfyd_process = None
 comfyd_active = False
@@ -163,6 +163,6 @@ def args_mapping(args_fooocus):
 def get_entry_point_id():
     global comfyd_process
     if comfyd_process:
-        return to_base58(sha256(f'{comfyd_process.pid}'.encode('utf-8')))
+        return gen_entry_point_id(comfyd_process.pid)
     else:
         return None

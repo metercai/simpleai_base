@@ -9,6 +9,7 @@ use crate::token::SimpleAI;
 use crate::claims::{IdClaim, UserContext};
 use crate::systeminfo::SystemInfo;
 use crate::params_mapper::ComfyTaskParams;
+use crate::token_utils::calc_sha256;
 
 mod claims;
 mod env_utils;
@@ -29,18 +30,14 @@ fn init_local(nickname: String) -> PyResult<SimpleAI> {
 }
 
 #[pyfunction]
-fn sha256(input: &[u8]) -> String {
+fn sha256_base64(input: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(env_utils::calc_sha256(input))
 }
 
-#[pyfunction]
-fn to_base58(input: &[u8]) -> String {
-    input.to_base58()
-}
 
 #[pyfunction]
-fn from_base58(input: &str) -> Vec<u8> {
-    input.from_base58().unwrap_or("Unknown".to_string().into_bytes())
+fn gen_entry_point_id(pid: u32) -> String {
+    calc_sha256(pid.to_string().as_bytes()).to_base58()
 }
 
 
@@ -53,9 +50,8 @@ fn check_entry_point(entry_point: String) -> bool {
 #[pymodule]
 fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
-    m.add_function(wrap_pyfunction!(sha256, m)?)?;
-    m.add_function(wrap_pyfunction!(to_base58, m)?)?;
-    m.add_function(wrap_pyfunction!(from_base58, m)?)?;
+    m.add_function(wrap_pyfunction!(sha256_base64, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
