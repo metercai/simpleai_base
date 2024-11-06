@@ -30,8 +30,8 @@ fn init_local(nickname: String) -> PyResult<SimpleAI> {
 }
 
 #[pyfunction]
-fn sha256_base64(input: &[u8]) -> String {
-    URL_SAFE_NO_PAD.encode(env_utils::calc_sha256(input))
+fn cert_verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
+    token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
 }
 
 
@@ -50,7 +50,7 @@ fn check_entry_point(entry_point: String) -> bool {
 #[pymodule]
 fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
-    m.add_function(wrap_pyfunction!(sha256_base64, m)?)?;
+    m.add_function(wrap_pyfunction!(cert_verify_by_claim, m)?)?;
     m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_class::<SimpleAI>()?;

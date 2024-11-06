@@ -276,10 +276,6 @@ pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
     Ok((file_hash, file_size))
 }
 
-pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
-    let sysinfo = &SYSTEM_BASE_INFO;
-    let root_dirs = PathBuf::from(sysinfo.root_dir.clone());
-    root_dirs.join(catalog).join(filename)
-}
+
 
 

@@ -131,7 +131,7 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
                         let mut claims_guard = claims.lock().unwrap();
                         claims_guard.get_claim_from_global(did)
                     };
-                    if verify_signature(&text, sig_base64, &claim.get_verify_key()) {
+                    if verify_signature(&text, sig_base64, &claim.get_cert_verify_key()) {
                         certificates.insert(key.clone(), secrets_str.to_string());
                     }
                 }
@@ -192,7 +192,7 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
                         let mut claims_guard = claims.lock().unwrap();
                         claims_guard.get_claim_from_global(did)
                     };
-                    if verify_signature(&text, sig_base64, &claim.get_verify_key()) {
+                    if verify_signature(&text, sig_base64, &claim.get_cert_verify_key()) {
                         issued_certs.insert(key.clone(), secrets_str.to_string());
                     }
                 }
@@ -395,6 +395,13 @@ pub(crate) fn get_path_in_user_dir(did: &str, filename: &str) -> PathBuf {
     home_dirs.join(".simpleai.vip").join(did).join(filename)
 }
 
+pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
+    let sysinfo = &SYSTEM_BASE_INFO;
+    let root_dirs = PathBuf::from(sysinfo.root_dir.clone());
+    root_dirs.join(catalog).join(filename)
+}
+
+
 pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {
     let sysinfo = &SYSTEM_BASE_INFO;
     match key_type {
@@ -420,6 +427,12 @@ pub(crate) fn exists_key_file(key_type: &str, symbol_hash: &[u8; 32]) -> bool {
 
 pub(crate) fn get_verify_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
     let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, symbol_hash, phrase).unwrap_or([0u8; 32]));
+    let verifying_key: VerifyingKey = signing_key.verifying_key();
+    *verifying_key.as_bytes()
+}
+
+pub(crate) fn get_cert_verify_key(cert_secret: &[u8; 32]) -> [u8; 32] {
+    let signing_key = SigningKey::from_bytes(cert_secret);
     let verifying_key: VerifyingKey = signing_key.verifying_key();
     *verifying_key.as_bytes()
 }
@@ -458,8 +471,14 @@ pub(crate) fn get_diffie_hellman_key(did_key: [u8; 32], secret_key: [u8; 32]) ->
     let shared_key = secret_key.diffie_hellman(&PublicKey::from(did_key));
     *shared_key.as_bytes()
 }
+
 pub(crate) fn get_signature(text: &str, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Vec<u8> {
-    let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, symbol_hash, phrase).unwrap_or([0u8; 32]));
+    get_signature_by_key(text,&read_key_or_generate_key(key_type, symbol_hash, phrase).unwrap_or([0u8; 32]))
+
+}
+
+pub(crate) fn get_signature_by_key(text: &str, signing_key: &[u8; 32]) -> Vec<u8> {
+    let signing_key = SigningKey::from_bytes(signing_key);
     let signature = signing_key.sign(text.as_bytes());
     Vec::from(signature.to_bytes())
 }

@@ -41,13 +41,19 @@ pub static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 pub struct SimpleAI {
     pub sys_name: String,
     pub did: String,
-    pub authorized: HashMap<String, UserContext>,   // 用户绑定授权的缓存，来自user_{did}.token
+    // 用户绑定授权的缓存，来自user_{did}.token
+    pub authorized: HashMap<String, UserContext>,
     pub sysinfo: SystemInfo,
-    claims: Arc<Mutex<GlobalClaims>>,       // 留存本地的身份自证
-    crypt_secrets: HashMap<String, String>, // 专项密钥，源自pk.pem的派生，专项用途，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}
-    certificates: HashMap<String, String>,  // 授权给本系统的他证, key={issue_did}|{for_did}|{用途}，value={encrypted_key}|{memo}|{time}|{sig}
-    issued_certs: HashMap<String, String>,  // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=
-                                            // encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
+    // 留存本地的身份自证, 用根密钥签
+    claims: Arc<Mutex<GlobalClaims>>,
+    // 专项密钥，源自pk.pem的派生，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}, 用途=['exchange', 'issue']
+    crypt_secrets: HashMap<String, String>,
+    // 授权给本系统的他证, key={issue_did}|{for_did}|{用途}，value={encrypted_key}|{memo}|{time}|{sig},
+    // encrypted_key由for_did交换派生密钥加密, sig由证书密钥签，用途=['Member']
+    certificates: HashMap<String, String>,
+    // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
+    // encrypted_key由for_did交换派生密钥加密, sig由证书密钥签, 整体由接受系统did的交换派生密钥加密
+    issued_certs: HashMap<String, String>,
     admin: String,
     device: String,
     guest: String,
@@ -308,25 +314,37 @@ impl SimpleAI {
 
     }
 
-    pub fn sign_and_issue_cert(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str, phrase: &str)
+    pub fn get_register_cert(&self, for_did: &str) -> String {
+        self.get_member_cert(token_utils::TOKEN_TM_DID, for_did)
+    }
+
+    pub fn get_member_cert(&self, issue_did: &str, for_did: &str) -> String {
+        if !issue_did.is_empty() && !for_did.is_empty() &&
+            IdClaim::validity(issue_did) && IdClaim::validity(for_did) {
+            let cert_key = format!("{}|{}|{}", issue_did, for_did, "Member");
+            self.certificates.get(&cert_key).unwrap_or(&"Unknown".to_string()).clone()
+        } else { "Unknown".to_string()  }
+    }
+
+    pub fn sign_and_issue_cert(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
                                -> (String, String) {
         let issuer_did = match self.admin.is_empty() {
             true => self.did.clone(),
             false => self.admin.clone(),
         };
-        self.sign_and_issue_cert_by_did(&issuer_did, item, for_did, for_sys_did, memo, phrase)
+        self.sign_and_issue_cert_by_did(&issuer_did, item, for_did, for_sys_did, memo)
     }
 
-    pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str, phrase: &str)
+    pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
                                       -> (String, String) {
-        let issuer_key = token_utils::convert_base64_to_key(self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&"Unknown".to_string()));
-        let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&issuer_key)).unwrap_or([0u8; 32]);
+        let cert_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&"Unknown".to_string()));
+        let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
         let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
         let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
         let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
-        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&cert_text, issuer_did, phrase));
+        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
         (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
     }
 
@@ -352,6 +370,12 @@ impl SimpleAI {
         let claim = self.get_claim(did);
         token_utils::get_signature(text, &claim.id_type, &claim.get_symbol_hash(), phrase)
     }
+
+    pub fn sign_by_issuer_key(&mut self, text: &str, issuer_key: &str) -> Vec<u8> {
+        let issuer_key = token_utils::convert_base64_to_key(issuer_key);
+        token_utils::get_signature_by_key(text, &issuer_key)
+    }
+
     pub fn verify(&mut self, text: &str, signature: &str) -> bool {
         self.verify_by_did(text, signature, &self.did.clone())
     }
@@ -359,6 +383,21 @@ impl SimpleAI {
     pub fn verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
         let claim = self.get_claim(did);
         token_utils::verify_signature(text, signature_str, &claim.get_verify_key())
+    }
+
+    pub fn cert_verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
+        let claim = self.get_claim(did);
+        token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
+    }
+
+    #[staticmethod]
+    pub fn verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
+        token_utils::verify_signature(text, signature_str, &claim.get_verify_key())
+    }
+
+    #[staticmethod]
+    pub fn cert_verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
+        token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
     }
 
     pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
@@ -471,10 +510,43 @@ impl SimpleAI {
     }
 
     #[staticmethod]
-    pub fn get_path_in_user_dir(did: &str, path: &str) -> String {
-        let path_file = token_utils::get_path_in_user_dir(did, path);
+    pub fn get_path_in_user_dir(did: &str, catalog: &str) -> String {
+        let path_file = token_utils::get_path_in_user_dir(did, catalog);
         path_file.to_string_lossy().to_string()
     }
+
+    #[staticmethod]
+    pub fn get_path_in_root_dir(did: &str, catalog: &str) -> String {
+        let path_file = token_utils::get_path_in_root_dir(did, catalog);
+        path_file.to_string_lossy().to_string()
+    }
+    #[staticmethod]
+    pub fn get_private_paths_list(did: &str, catalog: &str) -> Vec<String> {
+        let catalog_paths = token_utils::get_path_in_user_dir(did, catalog);
+        let filters = &[];
+        let suffixes = &[".json"];
+        token_utils::filter_files(&catalog_paths, filters, suffixes)
+    }
+
+    #[staticmethod]
+    pub fn get_private_paths_datas(user_context: &UserContext, catalog: &str, filename: &str) -> String {
+        let file_paths = token_utils::get_path_in_user_dir(&user_context.get_did(), catalog).join(filename);
+        match file_paths.exists() {
+            true => {
+                let crypt_key = user_context.get_crypt_key();
+                match fs::read(file_paths) {
+                    Ok(raw_data) => {
+                        let data = token_utils::decrypt(&raw_data, &crypt_key, 0);
+                        let private_datas = serde_json::from_slice(&data).unwrap_or(serde_json::json!({}));
+                        private_datas.to_string()
+                    },
+                    Err(_) => "Unknowns".to_string(),
+                }
+            }
+            false => "Unknowns".to_string(),
+        }
+    }
+
     pub fn get_guest_user_context(&mut self) -> UserContext {
         let guest_did = self.get_guest_did();
         self.get_user_context(&guest_did)
@@ -520,27 +592,6 @@ impl SimpleAI {
                 false
             }
         }
-    }
-
-    pub fn get_user_context(&mut self, did: &str) -> UserContext {
-        if !self.blacklist.contains(&did.to_string()) {
-            self.authorized.get(did).cloned().unwrap_or_else(|| {
-                let context = token_utils::get_user_token_from_file(did).unwrap_or(
-                    UserContext::default()
-                );
-                if !context.is_default() && context.get_sys_did() == self.did &&
-                    self.verify_by_did(&context.get_text(), &context.get_sig(), did) {
-                    self.authorized.insert(did.to_string(), context.clone());
-                    context
-                } else {
-                    if context.is_default() && did == &self.guest {
-                        self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
-                    } else {
-                        UserContext::default()
-                    }
-                }
-            })
-        } else { UserContext::default()  }
     }
 
     pub fn check_user_verify_code(&mut self, nickname: &str, telephone: &str, vcode: &str)-> String {
@@ -593,6 +644,27 @@ impl SimpleAI {
             }
         }
         "error:0".to_string()
+    }
+
+    pub fn get_user_context(&mut self, did: &str) -> UserContext {
+        if !self.blacklist.contains(&did.to_string()) {
+            self.authorized.get(did).cloned().unwrap_or_else(|| {
+                let context = token_utils::get_user_token_from_file(did).unwrap_or(
+                    UserContext::default()
+                );
+                if !context.is_default() && context.get_sys_did() == self.did &&
+                    self.verify_by_did(&context.get_text(), &context.get_sig(), did) {
+                    self.authorized.insert(did.to_string(), context.clone());
+                    context
+                } else {
+                    if context.is_default() && did == &self.guest {
+                        self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
+                    } else {
+                        UserContext::default()
+                    }
+                }
+            })
+        } else { UserContext::default()  }
     }
 
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use serde_derive::{Serialize, Deserialize};
 use pyo3::prelude::*;
-use crate::env_utils;
+use crate::token_utils;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
@@ -145,7 +145,12 @@ impl ComfyTaskParams {
     }
 
     pub fn convert2comfy(&self, flow_name: String) -> String {
-        let flow_file = env_utils::get_path_in_root_dir("workflows", &format!("{}_api.json", flow_name));
+        let filename = format!("{}_api.json", flow_name);
+        let flow_file = token_utils::get_path_in_user_dir("workflows", &filename);
+        let flow_file = match flow_file.exists() {
+            true => flow_file,
+            false => token_utils::get_path_in_root_dir("workflows", &filename)
+        };
         let workflow = match fs::read_to_string(flow_file) {
             Ok(json_str) => json_str,
             Err(e) => {

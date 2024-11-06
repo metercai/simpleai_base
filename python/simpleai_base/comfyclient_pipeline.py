@@ -11,6 +11,7 @@ import ldm_patched.modules.model_management as model_management
 from io import BytesIO
 from PIL import Image
 import hashlib
+import shared
 from . import utils
 
 
@@ -67,8 +68,8 @@ def upload_mask(mask):
     return response.json()
 
 
-def queue_prompt(prompt):
-    p = {"prompt": prompt, "client_id": client_id}
+def queue_prompt(user_did, prompt, user_cert):
+    p = {"prompt": prompt, "client_id": user_did, "user_cert": user_cert}
     data = json.dumps(p).encode('utf-8')
     try:
         with httpx.Client() as client:
@@ -100,8 +101,8 @@ def get_history(prompt_id):
         return json.loads(response.read())
 
 
-def get_images(ws, prompt, callback=None, total_steps=None):
-    prompt_id = queue_prompt(prompt)['prompt_id']
+def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=None):
+    prompt_id = queue_prompt(user_did, prompt, user_cert)['prompt_id']
     print('[ComfyClient] Request and get ComfyTask_id:{}'.format(prompt_id))
     output_images = {}
     current_node = ''
@@ -118,7 +119,7 @@ def get_images(ws, prompt, callback=None, total_steps=None):
         except ConnectionResetError as e:
             print(f'[ComfyClient] The connect was exception, restart and try again: {e}')
             ws = websocket.WebSocket()
-            ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
+            ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
             out = ws.recv()
         if isinstance(out, str):
             message = json.loads(out)
@@ -135,8 +136,6 @@ def get_images(ws, prompt, callback=None, total_steps=None):
                 current_total_steps = message["data"]["max"]
                 if total_steps is None:
                     total_steps_known = current_total_steps
-                #print(f'current_step:{current_step}, current_total_steps:{current_total_steps}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
-
         else:
             if current_type == 'progress':
                 if prompt[current_node]['class_type'] in \
@@ -145,7 +144,6 @@ def get_images(ws, prompt, callback=None, total_steps=None):
                     preview_image = out[8:]
                     if current_step != last_step:
                         finished_steps += 1
-                        #print(f'current_step:{current_step}, last_step:{last_step}, finished_steps:{finished_steps}, total_steps_known:{total_steps_known}')
                         callback(finished_steps, total_steps_known, Image.open(BytesIO(preview_image)))
                     last_step = current_step
                 if prompt[current_node]['class_type'] == 'SaveImageWebsocket':
@@ -183,7 +181,7 @@ def images_upload(images):
     return result
 
 
-def process_flow(flow_name, params, images, callback=None, total_steps=None):
+def process_flow(user_did, flow_name, params, images, callback=None, total_steps=None, user_cert=None):
     global ws
 
     if ws is None or ws.status != 101:
@@ -192,18 +190,18 @@ def process_flow(flow_name, params, images, callback=None, total_steps=None):
             ws.close()
         try:
             ws = websocket.WebSocket()
-            ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
+            ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
         except ConnectionRefusedError as e:
             print(f'[ComfyClient] The connect_to_server has failed, sleep and try again: {e}')
             time.sleep(8)
             try:
                 ws = websocket.WebSocket()
-                ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
+                ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
             except ConnectionRefusedError as e:
                 print(f'[ComfyClient] The connect_to_server has failed, restart and try again: {e}')
                 time.sleep(12)
                 ws = websocket.WebSocket()
-                ws.connect("ws://{}/ws?clientId={}".format(server_address(), client_id))
+                ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
 
 
     images_map = images_upload(images)
@@ -215,7 +213,7 @@ def process_flow(flow_name, params, images, callback=None, total_steps=None):
         prompt_str = params.convert2comfy(flow_name)
         if not utils.echo_off:
             print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
-        images = get_images(ws, prompt_str, callback=callback, total_steps=total_steps)
+        images = get_images(user_did, ws, prompt_str, callback=callback, total_steps=total_steps, user_cert=user_cert)
         # ws.close()
     except websocket.WebSocketException as e:
         print(f'[ComfyClient] The connect has been closed, restart and try again: {e}')

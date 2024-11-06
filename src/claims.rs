@@ -263,8 +263,9 @@ impl GlobalClaims {
 pub struct IdClaim {
     pub id_type: String,
     pub nickname: String,
-    pub verify_key: String,   // 验签公钥
-    pub crypt_key: String,    // 交换公钥
+    pub verify_key: String,         // 验签公钥
+    pub cert_verify_key: String,    // 证书公钥
+    pub crypt_key: String,          // 交换公钥
     pub fingerprint: String,
     pub timestamp: u64,
     pub signature: String,
@@ -292,20 +293,24 @@ impl IdClaim {
         let symbol_hash = token_utils::calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
         let verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_verify_key(id_type, &symbol_hash, phrase));
         let crypt_secret = token_utils::get_specific_secret_key("exchange", id_type, &symbol_hash, phrase);
+        let cert_secret = token_utils::get_specific_secret_key("issue", id_type, &symbol_hash, phrase);
         if *token_utils::VERBOSE_INFO {
             println!("IdClaim new() get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(crypt_secret));
+            println!("IdClaim new() get {} issue_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(cert_secret));
         }
         let crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_crypt_key(crypt_secret));
+        let cert_verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_cert_verify_key(&cert_secret));
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-        let text_sig = format!("nickname:{},verify_key:{},crypt_key:{},fingerprint:{},timestamp:{}",
-                               nickname, verify_key, crypt_key, fingerprint, now_sec);
+        let text_sig = format!("nickname:{},verify_key:{},cert_verify_key:{},crypt_key:{},fingerprint:{},timestamp:{}",
+                               nickname, verify_key, cert_verify_key, crypt_key, fingerprint, now_sec);
         let signature = URL_SAFE_NO_PAD.encode(token_utils::get_signature(&text_sig, id_type, &symbol_hash, phrase));
 
         Self{
             id_type: id_type.to_string(),
             nickname: nickname.to_string(),
             verify_key,
+            cert_verify_key,
             crypt_key,
             fingerprint,
             timestamp: now_sec,
@@ -326,8 +331,8 @@ impl IdClaim {
     }
 
     fn get_format_text(&self) -> String {
-        format!("nickname:{},verify_key:{},crypt_key:{},fingerprint:{},timestamp:{}",
-                self.nickname, self.verify_key, self.crypt_key, self.fingerprint, self.timestamp)
+        format!("nickname:{},verify_key:{},cert_verify_key:{},crypt_key:{},fingerprint:{},timestamp:{}",
+                self.nickname, self.verify_key, self.cert_verify_key, self.crypt_key, self.fingerprint, self.timestamp)
     }
     pub fn gen_did(&self) -> String {
         let did_claim_str = self.get_format_text();
@@ -363,6 +368,10 @@ impl IdClaim {
         token_utils::convert_base64_to_key(&self.verify_key)
     }
 
+    pub(crate) fn get_cert_verify_key(&self) -> [u8; 32] {
+        token_utils::convert_base64_to_key(&self.cert_verify_key)
+    }
+
     pub(crate) fn get_crypt_key(&self) -> [u8; 32] {
         token_utils::convert_base64_to_key(&self.crypt_key)
     }
@@ -394,6 +403,7 @@ impl Default for IdClaim {
             nickname: "Default".to_string(),
             id_type: "User".to_string(),
             verify_key: "Default_verify_key".to_string(),
+            cert_verify_key: "Default_cert_verify_key".to_string(),
             fingerprint: "Default_fingerprint".to_string(),
             telephone_hash: "Default_telephone_hash".to_string(),
             id_card_hash: "Default_id_card_hash".to_string(),
