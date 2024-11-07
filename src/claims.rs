@@ -213,7 +213,7 @@ impl GlobalClaims {
 
     }
 
-    fn load_claim_from_local(did: &str) -> IdClaim {
+    pub(crate) fn load_claim_from_local(did: &str) -> IdClaim {
         let user_did_file_path = token_utils::get_path_in_sys_key_dir(
             format!("user_{}.did", did).as_str());
         let sys_did_file_path = token_utils::get_path_in_sys_key_dir(

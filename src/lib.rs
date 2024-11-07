@@ -6,7 +6,7 @@ use base58::{ToBase58, FromBase58};
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
-use crate::claims::{IdClaim, UserContext};
+use crate::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::systeminfo::SystemInfo;
 use crate::params_mapper::ComfyTaskParams;
 use crate::token_utils::calc_sha256;
@@ -30,7 +30,8 @@ fn init_local(nickname: String) -> PyResult<SimpleAI> {
 }
 
 #[pyfunction]
-fn cert_verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
+fn cert_verify_by_did(text: &str, signature_str: &str, did: &str) -> bool {
+    let claim = GlobalClaims::load_claim_from_local(did);
     token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
 }
 
@@ -50,7 +51,7 @@ fn check_entry_point(entry_point: String) -> bool {
 #[pymodule]
 fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
-    m.add_function(wrap_pyfunction!(cert_verify_by_claim, m)?)?;
+    m.add_function(wrap_pyfunction!(cert_verify_by_did, m)?)?;
     m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_class::<SimpleAI>()?;
