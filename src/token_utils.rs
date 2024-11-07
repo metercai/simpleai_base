@@ -392,7 +392,7 @@ pub(crate) fn get_path_in_user_dir(did: &str, filename: &str) -> PathBuf {
         Some(dirs) => dirs.home_dir().to_path_buf(),
         None => PathBuf::from(sysinfo.root_dir.clone()),
     };
-    home_dirs.join(".simpleai.vip").join(did).join(filename)
+    home_dirs.join(".simpleai.vip").join("user").join(did).join(filename)
 }
 
 pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
