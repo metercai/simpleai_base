@@ -552,11 +552,12 @@ impl SimpleAI {
         self.get_user_context(&guest_did)
     }
 
-    pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> bool {
+    pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> String {
         let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-        match token_utils::exists_key_file("User", &symbol_hash) {
-            true => true,
+        let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
+        match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
+            true => "local".to_string(),
             false => {
                 let new_claim = GlobalClaims::generate_did_claim
                     ("User", &nickname, Some(telephone.to_string()), None, &user_phrase);
@@ -575,7 +576,7 @@ impl SimpleAI {
 
                 let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
                 if *token_utils::VERBOSE_INFO {
-                    println!("symbol_hash_base64: {}\n claim: {:?}", symbol_hash_base64, new_claim);
+                    println!("create new did and claim: symbol_hash_base64={}\n claim={:?}", symbol_hash_base64, new_claim);
                 }
                 let mut request: serde_json::Value = json!({});
                 request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
@@ -585,11 +586,16 @@ impl SimpleAI {
                     "apply",
                     &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
                 let user_certificate: String = serde_json::from_str(&user_certificate_json).unwrap();
-                if user_certificate != "Unknown".to_string()  {
+                let parts: Vec<&str> = user_certificate.split('_').collect();
+                let result = parts[0].to_string();
+                if result != "Unknown".to_string()  {
                     ready_data["user_certificate"] = serde_json::to_value(user_certificate.clone()).unwrap_or(json!(""));
+                    self.ready_users.insert(user_hash_id.clone(), ready_data);
+                    "remote".to_string()
+                } else {
+                    self.ready_users.insert(user_hash_id.clone(), ready_data);
+                    "unknown".to_string()
                 }
-                self.ready_users.insert(user_hash_id.clone(), ready_data);
-                false
             }
         }
     }
@@ -607,13 +613,13 @@ impl SimpleAI {
                 let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
                 let did = claim.gen_did();
                 let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
-                let upstream_did = self.get_upstream_did();
-                let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
-                if *token_utils::VERBOSE_INFO {
-                    println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}\n symbol_hash_b64: {}",
+                if user_certificate.len() > 32 {
+                    let upstream_did = self.get_upstream_did();
+                    let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
+                    if *token_utils::VERBOSE_INFO {
+                        println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}\n symbol_hash_b64: {}",
                              did, user_certificate_text, claim, URL_SAFE_NO_PAD.encode(symbol_hash));
-                }
-                if user_certificate_text != "Unknown".to_string() {
+                    }
                     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
                     let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();
                     if user_certificate_text_array.len() >= 7
@@ -716,18 +722,16 @@ impl SimpleAI {
         let nickname = nickname.chars().take(24).collect::<String>();
         if Self::is_valid_telephone(telephone) {
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
-            match token_utils::exists_key_file("User", &symbol_hash) {
-                true => {
-                    let did = self.reverse_lookup_did_by_symbol(symbol_hash);
-                    self.sign_user_context(&did, phrase)
-                },
+            let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
+            match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
+                true => self.sign_user_context(&user_did, phrase),
                 false => {
                     let mut request: serde_json::Value = json!({});
                     let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
                     request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
                     request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
-                    let user_copy_from_cloud = self.request_token_api("get_user_copy",
-                                                                      &serde_json::to_string(&request).unwrap_or("{}".to_string()), );
+                    let user_copy_from_cloud =
+                        self.request_token_api("get_user_copy", &serde_json::to_string(&request).unwrap_or("{}".to_string()), );
 
                     match user_copy_from_cloud != "Unknown".to_string() &&
                         user_copy_from_cloud != "Unknown_user".to_string() &&
