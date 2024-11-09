@@ -557,7 +557,13 @@ impl SimpleAI {
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
-            true => "local".to_string(),
+            true => {
+                if token_utils::is_original_user_key(&symbol_hash) {
+                    "immature".to_string()
+                } else {
+                    "local".to_string()
+                }
+            },
             false => {
                 let new_claim = GlobalClaims::generate_did_claim
                     ("User", &nickname, Some(telephone.to_string()), None, &user_phrase);
