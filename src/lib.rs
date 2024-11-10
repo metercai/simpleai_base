@@ -32,7 +32,7 @@ fn init_local(nickname: String) -> PyResult<SimpleAI> {
 #[pyfunction]
 fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp
-    let parts: Vec<&str> = cert_str.split('_').collect();
+    let parts: Vec<&str> = cert_str.split('|').collect();
     if parts.len() != 4 {
         return false;
     }
