@@ -599,7 +599,7 @@ impl SimpleAI {
                     "apply",
                     &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
                 let user_certificate: String = serde_json::from_str(&user_certificate_json).unwrap();
-                println!("[UserBase] Apply user copy or verify new user: symbol({}), cert({})", symbol_hash_base64, user_certificate);
+                println!("[UserBase] Apply user copy or verify new user: symbol({}), ready_cert({})", symbol_hash_base64, user_certificate);
                 let parts: Vec<&str> = user_certificate.split('_').collect();
                 let result = parts[0].to_string();
                 if result != "Unknown".to_string()  {
@@ -630,17 +630,13 @@ impl SimpleAI {
                 if user_certificate.len() > 32 {
                     let upstream_did = self.get_upstream_did();
                     let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
-                    if *token_utils::VERBOSE_INFO {
-                        println!("verify_code: ready user: {}, user_certificate_text: {}\n claim: {:?}\n symbol_hash_b64: {}",
-                             did, user_certificate_text, claim, URL_SAFE_NO_PAD.encode(symbol_hash));
-                    }
+                    println!("[UserBase] Identity verified: symbol({}), did({}), cert({})", URL_SAFE_NO_PAD.encode(symbol_hash), did, user_certificate_text);
                     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
                     let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();
                     if user_certificate_text_array.len() >= 7
                         && IdClaim::validity(user_certificate_text_array[0])
                         && IdClaim::validity(user_certificate_text_array[1])
                     {
-                        println!("[UserBase] Identity verify_code is ok: {}", did);
                         let (certs_key, certs_value) = token_utils::parse_user_certs(&user_certificate_text);
                         self.push_certificate(&certs_key, &certs_value);
                         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(claim.get_symbol_hash());
@@ -651,7 +647,7 @@ impl SimpleAI {
                         let result = self.request_token_api(
                             "confirm",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        println!("[UserBase] Identity confirm result: {}", result);
+                        println!("[UserBase] Identity confirm to root, the result: {}", result);
                         if did == user_certificate_text_array[1] {
                             return "create".to_string();
                         } else {
