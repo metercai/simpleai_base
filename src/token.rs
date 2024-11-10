@@ -583,7 +583,7 @@ impl SimpleAI {
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
-                if token_utils::is_original_user_key(&symbol_hash) || user_did != "Unknown" {
+                if token_utils::is_original_user_key(&symbol_hash)  {
                     "immature".to_string()
                 } else {
                     "local".to_string()

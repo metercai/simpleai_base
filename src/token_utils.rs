@@ -734,8 +734,8 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool) -> [u8
                     pkey
                 },
                 Err(_e) => {
-                    println!("[UserBase] Read key file error and generate new key: {}", file_path.display());
                     if regen {
+                        println!("[UserBase] Read key file error and generate new key: {}", file_path.display());
                         generate_new_key_and_save_pem(file_path, &phrase_bytes)
                     } else {
                         [0; 32]
