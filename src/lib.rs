@@ -30,9 +30,19 @@ fn init_local(nickname: String) -> PyResult<SimpleAI> {
 }
 
 #[pyfunction]
-fn cert_verify_by_did(text: &str, signature_str: &str, did: &str) -> bool {
+fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
+    // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp
+    let parts: Vec<&str> = cert_str.split('_').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    let encrypt_item_key = parts[0].to_string();
+    let memo_base64 = parts[1].to_string();
+    let timestamp = parts[2].to_string();
+    let signature_str = parts[3].to_string();
+    let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, did, "Member", encrypt_item_key, memo_base64, timestamp);
     let claim = GlobalClaims::load_claim_from_local(did);
-    token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
+    token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
 }
 
 

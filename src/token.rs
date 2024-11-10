@@ -271,6 +271,7 @@ impl SimpleAI {
         let identity = self.export_user(&nickname, &user_telephone, &phrase);
         let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_did));
         fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+        println!("[UserBase] Create user and save identity_file: {}", identity_file.display());
 
         (user_did, phrase)
     }
@@ -288,6 +289,8 @@ impl SimpleAI {
         if self.crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
+        println!("[UserBase] Import user: {}", user_did);
+
         user_did
     }
 
@@ -300,6 +303,8 @@ impl SimpleAI {
             let claim = claims.get_claim_from_local(&user_did);
             (user_did, claim)
         };
+        println!("[UserBase] Export user: {}", user_did);
+
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, &user_did, phrase))
     }
 
@@ -345,6 +350,8 @@ impl SimpleAI {
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
+        println!("[UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", issuer_did, item, for_did, for_sys_did);
+
         (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
     }
 
@@ -556,9 +563,9 @@ impl SimpleAI {
         let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
-        match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
+        match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
-                if token_utils::is_original_user_key(&symbol_hash) {
+                if token_utils::is_original_user_key(&symbol_hash) || user_did != "Unknown" {
                     "immature".to_string()
                 } else {
                     "local".to_string()
@@ -592,6 +599,7 @@ impl SimpleAI {
                     "apply",
                     &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
                 let user_certificate: String = serde_json::from_str(&user_certificate_json).unwrap();
+                println!("[UserBase] Apply user copy or verify new user: symbol({}), cert({})", symbol_hash_base64, user_certificate);
                 let parts: Vec<&str> = user_certificate.split('_').collect();
                 let result = parts[0].to_string();
                 if result != "Unknown".to_string()  {
@@ -632,6 +640,7 @@ impl SimpleAI {
                         && IdClaim::validity(user_certificate_text_array[0])
                         && IdClaim::validity(user_certificate_text_array[1])
                     {
+                        println!("[UserBase] Identity verify_code is ok: {}", did);
                         let (certs_key, certs_value) = token_utils::parse_user_certs(&user_certificate_text);
                         self.push_certificate(&certs_key, &certs_value);
                         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(claim.get_symbol_hash());
@@ -639,10 +648,10 @@ impl SimpleAI {
                         request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
                         request["user_vcode"] = serde_json::to_value(vcode).unwrap();
                         request["user_copy_hash_id"] = ready_data["user_copy_hash_id"].clone();
-                        let _ = self.request_token_api(
+                        let result = self.request_token_api(
                             "confirm",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-
+                        println!("[UserBase] Identity confirm result: {}", result);
                         if did == user_certificate_text_array[1] {
                             return "create".to_string();
                         } else {
@@ -716,9 +725,9 @@ impl SimpleAI {
             request["old_user_copy_hash_id"] = serde_json::to_value(old_user_copy_hash_id).unwrap();
             request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
             request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
-            let _ = self.request_token_api("submit_user_copy",
+            let result = self.request_token_api("submit_user_copy",
                                            &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-
+            println!("[UserBase] Set phrase and upload encrypted_user_copy: {}, {}", did, result);
             context
         } else {
             self.get_guest_user_context()
@@ -817,9 +826,9 @@ impl SimpleAI {
         request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
         request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
         request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
-        let _ = self.request_token_api("unbind_node",
+        let result = self.request_token_api("unbind_node",
                                        &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-
+        println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
         self.get_guest_user_context()
     }
 
@@ -837,6 +846,7 @@ impl SimpleAI {
                 if self.admin.is_empty() && did != self.guest {
                     self.admin = did.to_string();
                     token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
+                    println!("[UserBase] Set admin_did/设置系统管理身份 = {}", self.admin);
                 }
                 self.authorized.insert(did.to_string(), context.clone());
                 context
