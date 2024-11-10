@@ -324,35 +324,53 @@ impl SimpleAI {
     }
 
     pub fn get_member_cert(&self, issue_did: &str, for_did: &str) -> String {
+        self.get_user_cert(token_utils::TOKEN_TM_DID, for_did, "Member")
+    }
+
+    pub fn get_user_cert(&self, issue_did: &str, for_did: &str, item: &str) -> String {
         if !issue_did.is_empty() && !for_did.is_empty() &&
             IdClaim::validity(issue_did) && IdClaim::validity(for_did) {
-            let cert_key = format!("{}|{}|{}", issue_did, for_did, "Member");
+            let cert_key = format!("{}|{}|{}", issue_did, for_did, item);
             self.certificates.get(&cert_key).unwrap_or(&"Unknown".to_string()).clone()
         } else { "Unknown".to_string()  }
     }
 
-    pub fn sign_and_issue_cert(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
+    pub fn sign_and_issue_cert_by_admin(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
                                -> (String, String) {
-        let issuer_did = match self.admin.is_empty() {
-            true => self.did.clone(),
-            false => self.admin.clone(),
-        };
-        self.sign_and_issue_cert_by_did(&issuer_did, item, for_did, for_sys_did, memo)
+        self.sign_and_issue_cert_by_did(&self.admin.clone(), item, for_did, for_sys_did, memo)
+    }
+
+    pub fn sign_and_issue_cert_by_system(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
+                               -> (String, String) {
+        self.sign_and_issue_cert_by_did(&self.did.clone(), item, for_did, for_sys_did, memo)
     }
 
     pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
                                       -> (String, String) {
-        let cert_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&"Unknown".to_string()));
-        let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
-        let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
-        let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
-        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-        let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
-        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-        println!("[UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", issuer_did, item, for_did, for_sys_did);
-
-        (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
+        if !issuer_did.is_empty() && !for_did.is_empty() && !for_sys_did.is_empty() && !item.is_empty() && !memo.is_empty() &&
+            IdClaim::validity(issuer_did) && IdClaim::validity(for_did) && IdClaim::validity(for_sys_did) &&
+            item.len() < 32 && memo.len() < 256 {
+            let unknown = "Unknown".to_string();
+            let cert_secret_base64 = self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&unknown);
+            if cert_secret_base64 != "Unknown" {
+                let cert_secret = token_utils::convert_base64_to_key(cert_secret_base64);
+                if cert_secret != [0u8; 32] {
+                    let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
+                    if item_key != [0u8; 32] {
+                        let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
+                        let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
+                        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+                        let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
+                        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
+                        println!("[UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", issuer_did, item, for_did, for_sys_did);
+                        return (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
+                    }
+                }
+            }
+        }
+        println!("[UserBase] Sign and issue a cert by did: invalid params");
+        ("Unknown".to_string(), "Unknown".to_string())
     }
 
     #[staticmethod]
