@@ -10,6 +10,8 @@ use base64::Engine;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 use tracing_subscriber::EnvFilter;
+use qrcode::{QrCode, Version, EcLevel};
+use qrcode::render::svg;
 
 use pyo3::prelude::*;
 
@@ -226,9 +228,6 @@ impl SimpleAI {
     }
     pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
     pub fn get_sys_did(&self) -> String { self.did.clone() }
-
-    pub fn get_admin_did(&self) -> String { self.admin.clone() }
-
     pub fn get_upstream_did(&self) -> String { self.upstream_did.clone() }
 
     pub fn get_sysinfo(&self) -> SystemInfo {
@@ -242,12 +241,20 @@ impl SimpleAI {
         self.guest.clone()
     }
 
+    pub fn get_admin_did(&self) -> String {
+        self.admin.clone()
+    }
+
     pub fn is_guest(&self, did: &str) -> bool {
         did == self.guest.as_str()
     }
 
     pub fn is_admin(&self, did: &str) -> bool {
         did == self.admin.as_str()
+    }
+
+    pub fn absent_admin(&self) -> bool {
+        self.admin.is_empty()
     }
 
     pub fn push_claim(&mut self, claim: &IdClaim) {
@@ -326,6 +333,35 @@ impl SimpleAI {
         println!("[UserBase] Export user: {}", user_did);
 
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, &user_did, phrase))
+    }
+
+    #[staticmethod]
+    pub fn export_user_qrcode_svg(user_did: &str) -> String {
+        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_did));
+        match identity_file.exists() {
+            true => {
+                let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
+                let encrypted_identity = URL_SAFE_NO_PAD.decode(identity).unwrap();
+                let did_bytes = user_did.from_base58().unwrap();
+                let mut encrypted_identity_qr = Vec::with_capacity(encrypted_identity.len() + did_bytes.len());
+                encrypted_identity_qr.extend_from_slice(&did_bytes);
+                encrypted_identity_qr.extend_from_slice(&encrypted_identity);
+                let code = QrCode::with_version(encrypted_identity_qr, Version::Micro(5), EcLevel::M).unwrap();
+                let image = code.render()
+                    .min_dimensions(300, 300)
+                    .dark_color(svg::Color("#800000"))
+                    .light_color(svg::Color("#ffff80"))
+                    .build();
+                image
+            }
+            false => "Unknown".to_string()
+        }
+    }
+
+    #[staticmethod]
+    pub fn get_user_info_from_identity_qr(encrypted_identity: &str) -> (String, String, String) {
+        let identity = URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap();
+        token_utils::get_user_info_from_identity_qr(&identity)
     }
 
     pub fn push_certificate(&mut self, cert_key: &str, cert: &str) {
@@ -732,6 +768,12 @@ impl SimpleAI {
             token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), old_phrase, phrase);
             self.push_claim(&claim);
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+
+            let identity = self.export_user(&nickname, &telephone, &phrase);
+            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", did));
+            fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+            println!("[UserBase] Create user and save identity_file: {}", identity_file.display());
+
             let context = self.sign_user_context(&did, phrase);
 
             let pem_claim_string = token_utils::load_pem_and_claim_from_file("User", &claim.get_symbol_hash(), &did);

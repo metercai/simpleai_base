@@ -889,15 +889,18 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, u
     let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
     let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
     let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, true);
-    let nickname_bytes = nickname.as_bytes().get(..16).unwrap_or(nickname.as_bytes());
-    let length = nickname_bytes.len() + telephone_bytes.len() + timestamp_bytes.len() + user_key.len();
-    let mut result = Vec::with_capacity(length);
-    result.extend_from_slice(&telephone_bytes);
-    result.extend_from_slice(&timestamp_bytes);
-    result.extend_from_slice(&user_key);
-    result.extend_from_slice(nickname_bytes);
+    let nickname_bytes = nickname.as_bytes().get(..24).unwrap_or(nickname.as_bytes());
     let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_did.as_bytes())).unwrap();
-    let encrypted_identity = encrypt(&result, &secret_key, 0);
+    let mut identity_secret = Vec::with_capacity(timestamp_bytes.len() + user_key.len());
+    identity_secret.extend_from_slice(&timestamp_bytes);
+    identity_secret.extend_from_slice(&user_key);
+    let encrypted_secret  = encrypt(&identity_secret, &secret_key, 0);
+    println!("encrypted_identity: len={}", encrypted_secret.len());
+    let length = telephone_bytes.len() + encrypted_secret.len() + nickname_bytes.len();
+    let mut encrypted_identity = Vec::with_capacity(length);
+    encrypted_identity.extend_from_slice(&telephone_bytes);
+    encrypted_identity.extend_from_slice(&encrypted_secret);
+    encrypted_identity.extend_from_slice(nickname_bytes);
     let vcode = &calc_sha256(&encrypted_identity)[..2];
     let mut encrypted = Vec::with_capacity(vcode.len() + encrypted_identity.len());
     encrypted.extend_from_slice(&vcode);
@@ -908,13 +911,14 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, u
 pub(crate) fn import_identity(user_did: &str, encrypted_identity: &Vec<u8>, phrase: &str) -> IdClaim  {
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
+        let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap()).to_string();
         let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_did.as_bytes())).unwrap();
-        let identity_bytes = decrypt(&encrypted_identity[2..], &secret_key, 0);
-        let telephone = u64::from_le_bytes(identity_bytes[..8].try_into().unwrap()).to_string();
-        let timestamp = u64::from_le_bytes(identity_bytes[8..16].try_into().unwrap());
+        let identity_bytes = decrypt(&encrypted_identity[10..50], &secret_key, 0);
+        let nickname = std::str::from_utf8(&encrypted_identity[50..]).unwrap();
+        let timestamp = u64::from_le_bytes(identity_bytes[..8].try_into().unwrap());
         let mut user_key = [0u8; 32];
-        user_key.copy_from_slice(&identity_bytes[16..48]);
-        let nickname = std::str::from_utf8(&identity_bytes[48..]).unwrap();
+        user_key.copy_from_slice(&identity_bytes[8..]);
+
         let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
         let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
         let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
@@ -923,11 +927,24 @@ pub(crate) fn import_identity(user_did: &str, encrypted_identity: &Vec<u8>, phra
         user_claim.update_timestamp(timestamp, phrase);
         user_claim
     } else {
-        println!("[UserBase] import_identity: Invalid vcode");
+        println!("[UserBase] import_identity: Invalid identity string");
         IdClaim::default()
     }
 }
 
+pub(crate) fn get_user_info_from_identity_qr(encrypted_identity: &Vec<u8>) -> (String, String, String) {
+    let did_bytes = &encrypted_identity[..21];
+    let user_did = did_bytes.to_base58();
+    let encrypted_identity = &encrypted_identity[21..];
+    let vcode = &encrypted_identity[..2];
+    if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
+        let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap()).to_string();
+        let nickname = std::str::from_utf8(&encrypted_identity[50..]).unwrap().to_string();
+        (user_did, nickname, telephone)
+    } else {
+        ("Unknown".to_string(), "Unknown".to_string(), "Unknown".to_string())
+    }
+}
 
 
 fn transfer_private_data(aes_key_old: &[u8; 32], aes_key_new: &[u8; 32], private_paths: &Vec<String>) {
