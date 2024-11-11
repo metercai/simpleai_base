@@ -41,7 +41,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let timestamp = parts[2].to_string();
     let signature_str = parts[3].to_string();
     let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, did, "Member", encrypt_item_key, memo_base64, timestamp);
-    let claim = GlobalClaims::load_claim_from_local(did);
+    let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
     println!("text_cert: {}, signature: {}, did: {}, verify_key: {:?}", text, signature_str, claim.gen_did(), claim.get_cert_verify_key());
     token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
 }
