@@ -9,6 +9,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
+use tracing_subscriber::EnvFilter;
 
 use pyo3::prelude::*;
 
@@ -72,6 +73,10 @@ impl SimpleAI {
     pub fn new(
         sys_name: String,
     ) -> Self {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+
         let sys_base_info = token_utils::SYSTEM_BASE_INFO.clone();
         let sysinfo_handle = TOKIO_RUNTIME.spawn(async move {
             SystemInfo::generate().await
