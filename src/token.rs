@@ -235,6 +235,21 @@ impl SimpleAI {
         self.sysinfo.clone()
     }
 
+    pub fn get_device_did(&self) -> String {
+        self.device.clone()
+    }
+    pub fn get_guest_did(&self) -> String {
+        self.guest.clone()
+    }
+
+    pub fn is_guest(&self, did: &str) -> bool {
+        did == self.guest.as_str()
+    }
+
+    pub fn is_admin(&self, did: &str) -> bool {
+        did == self.admin.as_str()
+    }
+
     pub fn push_claim(&mut self, claim: &IdClaim) {
         let mut claims = self.claims.lock().unwrap();
         claims.push_claim(claim.clone());
@@ -446,13 +461,6 @@ impl SimpleAI {
         String::from_utf8_lossy(text.as_slice()).to_string()
     }
 
-    pub fn get_device_did(&self) -> String {
-        self.device.clone()
-    }
-
-    pub fn get_guest_did(&self) -> String {
-        self.guest.clone()
-    }
 
     pub fn get_entry_point(&self, user_did: &str, entry_point_id: &str) -> String {
         if user_did==self.admin {

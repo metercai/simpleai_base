@@ -133,9 +133,9 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
                     };
                     if verify_signature(&text, sig_base64, &claim.get_cert_verify_key()) {
                         certificates.insert(key.clone(), secrets_str.to_string());
-                        debug!("Valid signature for user certificate at loading: {}, {}, {}, {:?}", text, sig_base64, claim.gen_did(), claim.get_cert_verify_key());
+                        debug!("Valid signature for user certificate at loading: {}, {}, {}", text, sig_base64, claim.gen_did());
                     } else {
-                        debug!("Invalid signature for user certificate at loading: {}, {} {}, {:?}", text, sig_base64, claim.gen_did(), claim.get_cert_verify_key());
+                        debug!("Invalid signature for user certificate at loading: {}, {} {}", text, sig_base64, claim.gen_did());
                     }
                 }
             }
@@ -197,9 +197,9 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
                     };
                     if verify_signature(&text, sig_base64, &claim.get_cert_verify_key()) {
                         issued_certs.insert(key.clone(), secrets_str.to_string());
-                        debug!("Valid signature for issuer certificate at loading: {}, {}", text, sig_base64);
+                        debug!("Valid signature for issuer certificate at loading: {}, {}, {}", text, sig_base64, claim.gen_did());
                     } else {
-                        debug!("Invalid signature for issuer certificate at loading: {}, {}", text, sig_base64);
+                        debug!("Invalid signature for issuer certificate at loading: {}, {}, {}", text, sig_base64, claim.gen_did());
                     }
                 }
             }
