@@ -348,10 +348,12 @@ impl SimpleAI {
                 let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                 let encrypted_identity = URL_SAFE_NO_PAD.decode(identity).unwrap();
                 let did_bytes = user_did.from_base58().unwrap();
+                let length = encrypted_identity.len() + did_bytes.len();
+                println!("[UserBase] encrypted_identity: len={}", length);
                 let mut encrypted_identity_qr = Vec::with_capacity(encrypted_identity.len() + did_bytes.len());
                 encrypted_identity_qr.extend_from_slice(&did_bytes);
                 encrypted_identity_qr.extend_from_slice(&encrypted_identity);
-                let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(4), EcLevel::L).unwrap();
+                let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(6), EcLevel::L).unwrap();
                 let image = code.render()
                     .min_dimensions(300, 300)
                     .dark_color(svg::Color("#800000"))
