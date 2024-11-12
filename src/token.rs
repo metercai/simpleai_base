@@ -352,10 +352,12 @@ impl SimpleAI {
                 let mut encrypted_identity_qr = Vec::with_capacity(encrypted_identity.len() + did_bytes.len());
                 encrypted_identity_qr.extend_from_slice(&did_bytes);
                 encrypted_identity_qr.extend_from_slice(&encrypted_identity);
+                let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
                 println!("[UserBase] encrypted_identity: len={}, {:?}", encrypted_identity_qr.len(), encrypted_identity_qr);
-                let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(8), EcLevel::L).unwrap();
+                println!("[UserBase] encrypted_identity_base64: len={}, {:?}", encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
+                let code = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(10), EcLevel::L).unwrap();
                 let image = code.render()
-                    .min_dimensions(360, 360)
+                    .min_dimensions(600, 600)
                     .dark_color(svg::Color("#800000"))
                     .light_color(svg::Color("#ffff80"))
                     .build();
