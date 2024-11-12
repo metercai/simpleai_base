@@ -353,7 +353,7 @@ impl SimpleAI {
                 encrypted_identity_qr.extend_from_slice(&did_bytes);
                 encrypted_identity_qr.extend_from_slice(&encrypted_identity);
                 println!("[UserBase] encrypted_identity: len={}, {:?}", encrypted_identity_qr.len(), encrypted_identity_qr);
-                let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(6), EcLevel::L).unwrap();
+                let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(8), EcLevel::L).unwrap();
                 let image = code.render()
                     .min_dimensions(360, 360)
                     .dark_color(svg::Color("#800000"))
