@@ -40,7 +40,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 };
 
 pub(crate) static TOKEN_TM_URL: &str = "https://v2.token.tm/api_";
-pub(crate) static TOKEN_TM_DID: &str = "7zMTk2WnrTwcRjp7GFvdZrjspvmbH";
+pub(crate) static TOKEN_TM_DID: &str = "BoQ5vH1XxyGaMcVXB2CAYQQATjzxh";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
@@ -895,7 +895,6 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, u
     identity_secret.extend_from_slice(&timestamp_bytes);
     identity_secret.extend_from_slice(&user_key);
     let encrypted_secret  = encrypt(&identity_secret, &secret_key, 0);
-    println!("encrypted_identity: len={}", encrypted_secret.len());
     let length = telephone_bytes.len() + encrypted_secret.len() + nickname_bytes.len();
     let mut encrypted_identity = Vec::with_capacity(length);
     encrypted_identity.extend_from_slice(&telephone_bytes);
@@ -913,8 +912,8 @@ pub(crate) fn import_identity(user_did: &str, encrypted_identity: &Vec<u8>, phra
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap()).to_string();
         let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_did.as_bytes())).unwrap();
-        let identity_bytes = decrypt(&encrypted_identity[10..50], &secret_key, 0);
-        let nickname = std::str::from_utf8(&encrypted_identity[50..]).unwrap();
+        let identity_bytes = decrypt(&encrypted_identity[10..78], &secret_key, 0);
+        let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap();
         let timestamp = u64::from_le_bytes(identity_bytes[..8].try_into().unwrap());
         let mut user_key = [0u8; 32];
         user_key.copy_from_slice(&identity_bytes[8..]);
