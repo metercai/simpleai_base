@@ -975,3 +975,16 @@ pub(crate) fn decrypt_issue_cert_with_vcode(vcode: &str, issue_cert: &str) -> St
     key[28..].copy_from_slice(&vcode_bytes[..4]);
     String::from_utf8_lossy(decrypt(&result_certificate[28..], &key, 0).as_slice()).to_string()
 }
+
+pub(crate) fn is_valid_telephone(telephone: &str) -> bool {
+    if telephone.len() < 8 || telephone.len() > 15 {
+        return false;
+    }
+    if !telephone.chars().all(|c| c.is_digit(10)) {
+        return false;
+    }
+    if telephone.chars().next() == Some('0') {
+        return false;
+    }
+    true
+}

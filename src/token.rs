@@ -280,6 +280,9 @@ impl SimpleAI {
                        -> (String, String) {
         let nickname = nickname.chars().take(24).collect::<String>();
         let user_telephone = telephone.to_string();
+        if !token_utils::is_valid_telephone(telephone) {
+            return ("unknown".to_string(), "unknown".to_string());
+        }
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &user_telephone);
         let (_user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
@@ -627,7 +630,11 @@ impl SimpleAI {
     }
 
     pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> String {
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(nickname, telephone);
+        let nickname = nickname.chars().take(24).collect::<String>();
+        if !token_utils::is_valid_telephone(telephone) {
+            return "unknown".to_string();
+        }
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
@@ -651,7 +658,7 @@ impl SimpleAI {
                 ready_data["exchange_crypt_secret"] = serde_json::to_value(exchange_crypt_secret).unwrap_or(json!(""));
                 ready_data["issue_crypt_secret"] = serde_json::to_value(issue_crypt_secret).unwrap_or(json!(""));
                 ready_data["vcode_try_counts"] = json!(3);
-                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(nickname, telephone, &user_phrase);
+                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
                 ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
 
                 let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
