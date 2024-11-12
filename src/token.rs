@@ -9,6 +9,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
+use tracing::{error, warn, info, debug, trace};
 use tracing_subscriber::EnvFilter;
 use qrcode::{QrCode, Version, EcLevel};
 use qrcode::render::svg;
@@ -272,6 +273,7 @@ impl SimpleAI {
         if self.admin == token_utils::TOKEN_TM_DID {
             claims.get_claim_from_local(for_did)
         } else {
+            debug!("get_claim_from_global: {}, admin={},{}", for_did, self.admin, token_utils::TOKEN_TM_DID);
             claims.get_claim_from_global(for_did)
         }
     }
@@ -662,9 +664,8 @@ impl SimpleAI {
                 ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
 
                 let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
-                if *token_utils::VERBOSE_INFO {
-                    println!("create new did and claim: symbol_hash_base64={}\n claim={:?}", symbol_hash_base64, new_claim);
-                }
+                debug!("create new did and claim: symbol_hash_base64={}\n claim={:?}", symbol_hash_base64, new_claim);
+
                 let mut request: serde_json::Value = json!({});
                 request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
                 request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
@@ -779,7 +780,7 @@ impl SimpleAI {
             let identity = self.export_user(&nickname, &telephone, &phrase);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", did));
             fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-            println!("[UserBase] Create user and save identity_file: {}", identity_file.display());
+            println!("[UserBase] Create user and save identity_file: {}", did);
 
             let context = self.sign_user_context(&did, phrase);
 
@@ -922,13 +923,13 @@ impl SimpleAI {
                 if self.admin.is_empty() && did != self.guest {
                     self.admin = did.to_string();
                     token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
-                    println!("[UserBase] Set admin_did/设置系统管理身份 = {}", self.admin);
+                    println!("[UserBase] Set admin_did/设置系统管理 = {}", self.admin);
                 }
                 self.authorized.insert(did.to_string(), context.clone());
                 context
             },
             Err(e) => {
-                println!("Failed to save user token: {}", e);
+                debug!("Failed to save user token: {}", e);
                 UserContext::default()
             }
         }
@@ -968,19 +969,17 @@ impl SimpleAI {
                     let status_code = res.status();
                     match res.text().await {
                         Ok(text) => {
-                            if *token_utils::VERBOSE_INFO {
-                                println!("[Upstream] response: {}", text);
-                            }
+                            debug!("[Upstream] response: {}", text);
                             if status_code.is_success() { text } else { "Unknown".to_string() }
                         },
                         Err(e) => {
-                            println!("Failed to read response body: {}", e);
+                            debug!("Failed to read response body: {}", e);
                             "Unknown".to_string()
                         }
                     }
                 },
                 Err(e) => {
-                    println!("Failed to request token api: {}", e);
+                    debug!("Failed to request token api: {}", e);
                     "Unknown".to_string()
                 }
             }
@@ -990,9 +989,7 @@ impl SimpleAI {
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.upstream_did.clone();
         let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
-        if *token_utils::VERBOSE_INFO {
-            println!("[UpstreamClient] request api_{} with params: {}", api_name, params);
-        }
+        debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
         TOKIO_RUNTIME.block_on(async {
             match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
                 .header("Sys-Did", self.did.to_string())
@@ -1004,19 +1001,17 @@ impl SimpleAI {
                     let status_code = res.status();
                     match res.text().await {
                         Ok(text) => {
-                            if *token_utils::VERBOSE_INFO {
-                                println!("[Upstream] response: {}", text);
-                            }
+                            debug!("[Upstream] response: {}", text);
                             if status_code.is_success() { text } else { "Unknown".to_string() }
                         },
                         Err(e) => {
-                            println!("Failed to read response body: {}", e);
+                            debug!("Failed to read response body: {}", e);
                             "Unknown".to_string()
                         }
                     }
                 },
                 Err(e) => {
-                    println!("Failed to request token api: {}", e);
+                    debug!("Failed to request token api: {}", e);
                     "Unknown".to_string()
                 }
             }

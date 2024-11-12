@@ -46,6 +46,15 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
 }
 
+#[pyfunction]
+fn export_user_qrcode_svg(user_did: &str) -> String {
+    SimpleAI::export_user_qrcode_svg(user_did)
+}
+
+#[pyfunction]
+fn get_user_info_from_identity_qr(encrypted_identity: &str) -> (String, String, String) {
+    SimpleAI::get_user_info_from_identity_qr(encrypted_identity)
+}
 
 #[pyfunction]
 fn gen_entry_point_id(pid: u32) -> String {
@@ -65,6 +74,8 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cert_verify_by_did, m)?)?;
     m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
+    m.add_function(wrap_pyfunction!(export_user_qrcode_svg, m)?)?;
+    m.add_function(wrap_pyfunction!(get_user_info_from_identity_qr, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
     m.add_class::<UserContext>()?;
