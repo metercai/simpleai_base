@@ -938,7 +938,7 @@ pub(crate) fn get_user_info_from_identity_qr(encrypted_identity: &Vec<u8>) -> (S
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap()).to_string();
-        let nickname = std::str::from_utf8(&encrypted_identity[50..]).unwrap().to_string();
+        let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap().to_string();
         (user_did, nickname, telephone)
     } else {
         ("Unknown".to_string(), "Unknown".to_string(), "Unknown".to_string())
