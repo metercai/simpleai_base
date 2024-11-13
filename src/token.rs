@@ -14,6 +14,7 @@ use tracing_subscriber::EnvFilter;
 use qrcode::{QrCode, Version, EcLevel};
 use qrcode::render::svg;
 
+
 use pyo3::prelude::*;
 
 use crate::token_utils;
@@ -101,9 +102,7 @@ impl SimpleAI {
         let system_name = format!("{}@{}", sys_name, sys_hash_id);
         let device_name = format!("{}@{}", host_name, device_hash_id);
         let guest_name = format!("guest@{}", sys_hash_id);
-        if *token_utils::VERBOSE_INFO {
-            println!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
-        }
+        debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, "Unknown");
         let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
@@ -146,9 +145,7 @@ impl SimpleAI {
             };
             claims.set_system_device_did(&local_did, &device_did);
             let claims_local_length = claims.local_len();
-            if *token_utils::VERBOSE_INFO {
-                println!("init system/device/guest did and claim ok.");
-            }
+            debug!("init system/device/guest did and claim ok.");
             (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length)
         };
 
@@ -174,9 +171,11 @@ impl SimpleAI {
         });
 
         let sys_did = local_did.clone();
+        let dev_did = device_did.clone();
         let sysinfo_clone = sysinfo.clone();
         let _logging_handle = TOKIO_RUNTIME.spawn(async move {
-            SystemInfo::logging_launch_info(&sys_did, &sysinfo_clone).await
+            SystemInfo::logging_launch_info(&sys_did, &sysinfo_clone).await;
+            submit_uncompleted_request_files(&sys_did, &dev_did).await
         });
 
         let upstream_did = if admin != token_utils::TOKEN_TM_DID {
@@ -186,10 +185,9 @@ impl SimpleAI {
             token_utils::TOKEN_TM_DID.to_string()
         };
         let upstream_did = if upstream_did != "Unknown" { upstream_did } else { "".to_string() };
-        if *token_utils::VERBOSE_INFO {
-            println!("upstream_did: {}", upstream_did);
-            println!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
-        }
+        debug!("upstream_did: {}", upstream_did);
+        debug!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
+
 
         let admin = if guest_did == admin { "".to_string() } else { admin };
 
@@ -348,7 +346,6 @@ impl SimpleAI {
                 let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                 let encrypted_identity = URL_SAFE_NO_PAD.decode(identity).unwrap();
                 let did_bytes = user_did.from_base58().unwrap();
-                let length = encrypted_identity.len() + did_bytes.len();
                 let mut encrypted_identity_qr = Vec::with_capacity(encrypted_identity.len() + did_bytes.len());
                 encrypted_identity_qr.extend_from_slice(&did_bytes);
                 encrypted_identity_qr.extend_from_slice(&encrypted_identity);
@@ -388,7 +385,7 @@ impl SimpleAI {
     }
 
     pub fn get_member_cert(&self, issue_did: &str, for_did: &str) -> String {
-        self.get_user_cert(token_utils::TOKEN_TM_DID, for_did, "Member")
+        self.get_user_cert(issue_did, for_did, "Member")
     }
 
     pub fn get_user_cert(&self, issue_did: &str, for_did: &str, item: &str) -> String {
@@ -452,7 +449,7 @@ impl SimpleAI {
 
 
     pub fn sign(&mut self, text: &str) -> Vec<u8> {
-        self.sign_by_did(text, &self.did.clone(),"no need")
+        self.sign_by_did(text, &self.did.clone(),"not required")
     }
 
     pub fn sign_by_did(&mut self, text: &str, did: &str, phrase: &str) -> Vec<u8> {
@@ -641,7 +638,6 @@ impl SimpleAI {
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-        let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
                 if token_utils::is_original_user_key(&symbol_hash)  {
@@ -726,10 +722,14 @@ impl SimpleAI {
                             "confirm",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
                         println!("[UserBase] Identity confirm to root, the result: {}", result);
-                        if did == user_certificate_text_array[1] {
-                            return "create".to_string();
+                        if result == "Confirmed_ok" {
+                            if did == user_certificate_text_array[1] {
+                                return "create".to_string();
+                            } else {
+                                return "recall".to_string();
+                            }
                         } else {
-                            return "recall".to_string();
+                            return "error in confirming".to_string();
                         }
                     }
                 }
@@ -805,9 +805,14 @@ impl SimpleAI {
             request["old_user_copy_hash_id"] = serde_json::to_value(old_user_copy_hash_id).unwrap();
             request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
             request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
-            let result = self.request_token_api("submit_user_copy",
-                                           &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-            println!("[UserBase] Set phrase and upload encrypted_user_copy: {}, {}", did, result);
+            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+            let result = self.request_token_api("submit_user_copy", &params);
+            if result != "Backup_ok" {
+                let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
+                let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", did));
+                fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
+            }
+            println!("[UserBase] Set phrase and upload encrypted_user_copy: {}, {}", did, params);
             context
         } else {
             self.get_guest_user_context()
@@ -906,8 +911,13 @@ impl SimpleAI {
         request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
         request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
         request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
-        let result = self.request_token_api("unbind_node",
-                                       &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+        let result = self.request_token_api("unbind_node", &params);
+        if result != "Unbind_ok" {
+            let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
+            let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
+            fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
+        }
         println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
         self.get_guest_user_context()
     }
@@ -960,64 +970,17 @@ impl SimpleAI {
         request["system_claim"] = serde_json::to_value(&sys_claim).unwrap_or(json!(""));
         request["device_claim"] = serde_json::to_value(&dev_claim).unwrap_or(json!(""));
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-
         TOKIO_RUNTIME.block_on(async {
-            match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, "register"))
-                .header("Sys-Did", sys_did)
-                .header("Dev-Did", device_did)
-                .body(params.clone())
-                .send()
-                .await{
-                Ok(res) => {
-                    let status_code = res.status();
-                    match res.text().await {
-                        Ok(text) => {
-                            debug!("[Upstream] response: {}", text);
-                            if status_code.is_success() { text } else { "Unknown".to_string() }
-                        },
-                        Err(e) => {
-                            debug!("Failed to read response body: {}", e);
-                            "Unknown".to_string()
-                        }
-                    }
-                },
-                Err(e) => {
-                    debug!("Failed to request token api: {}", e);
-                    "Unknown".to_string()
-                }
-            }
+            request_token_api_async(&sys_did, &device_did, "register", &params).await
         })
     }
 
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
-        let upstream_did = self.upstream_did.clone();
-        let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
-        debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
         TOKIO_RUNTIME.block_on(async {
-            match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
-                .header("Sys-Did", self.did.to_string())
-                .header("Dev-Did", self.device.to_string())
-                .body(encoded_params.clone())
-                .send()
-                .await{
-                Ok(res) => {
-                    let status_code = res.status();
-                    match res.text().await {
-                        Ok(text) => {
-                            debug!("[Upstream] response: {}", text);
-                            if status_code.is_success() { text } else { "Unknown".to_string() }
-                        },
-                        Err(e) => {
-                            debug!("Failed to read response body: {}", e);
-                            "Unknown".to_string()
-                        }
-                    }
-                },
-                Err(e) => {
-                    debug!("Failed to request token api: {}", e);
-                    "Unknown".to_string()
-                }
-            }
+            let upstream_did = self.upstream_did.clone();
+            let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
+            debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
+            request_token_api_async(&self.did, &self.device, api_name, &encoded_params).await
         })
     }
 
@@ -1068,4 +1031,82 @@ impl SimpleAI {
         return EnvData::get_pyhash_key(&v1, &v2, &v3);
     }
 
+}
+
+async fn request_token_api_async(sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
+    let encoded_params = encoded_params.to_string();
+    match REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
+        .header("Sys-Did", sys_did.to_string())
+        .header("Dev-Did", dev_did.to_string())
+        .body(encoded_params)
+        .send()
+        .await{
+        Ok(res) => {
+            let status_code = res.status();
+            match res.text().await {
+                Ok(text) => {
+                    debug!("[Upstream] response: {}", text);
+                    if status_code.is_success() { text } else { "Unknown".to_string() }
+                },
+                Err(e) => {
+                    debug!("Failed to read response body: {}", e);
+                    "Unknown".to_string()
+                }
+            }
+        },
+        Err(e) => {
+            debug!("Failed to request token api: {}", e);
+            "Unknown".to_string()
+        }
+    }
+}
+
+async fn submit_uncompleted_request_files(sys_did: &str, dev_did: &str) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5)); // 设置检查周期
+
+    loop {
+        interval.tick().await; // 等待下一个周期
+        let user_copy_file = token_utils::get_path_in_sys_key_dir("user_copy_xxxxx.json");
+        let user_copy_path = match user_copy_file.parent() {
+            Some(parent) => {
+                if parent.exists() {
+                    parent
+                } else {
+                    fs::create_dir_all(parent).unwrap();
+                    parent
+                }
+            },
+            None => panic!("{}", format!("File path does not have a parent directory: {:?}", user_copy_file)),
+        };
+        // 遍历目录中的所有文件
+        if let Ok(mut entries) = tokio::fs::read_dir(user_copy_path).await {
+            while let Some(entry) = entries.next_entry().await.transpose() {
+                if let Ok(entry) = entry {
+                    let file_path = entry.path();
+                    if file_path.is_file() {
+                        if let Some(file_name) = file_path.file_name() {
+                            if let Some(file_name_str) = file_name.to_str() {
+                                if let Some(method) = extract_method_from_filename(file_name_str) {
+                                    if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
+                                        if request_token_api_async(sys_did, dev_did, &method, &content).await != "Unknown"  {
+                                            tokio::fs::remove_file(&file_path).await.expect("remove user copy file failed");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+fn extract_method_from_filename(file_name: &str) -> Option<String> {
+    let re = regex::Regex::new(r"^(.+?)_([a-zA-Z0-9]{29})_uncompleted\.json$").unwrap();
+    if let Some(captures) = re.captures(file_name) {
+        if let Some(method) = captures.get(1) {
+            return Some(method.as_str().to_string());
+        }
+    }
+    None
 }

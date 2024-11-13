@@ -30,7 +30,7 @@ impl GlobalClaims {
     fn new() -> Self {
         let mut claims = HashMap::new();
         let did_file_path = token_utils::get_path_in_sys_key_dir("user_xxxxx.did");
-        let root_path = match  did_file_path.parent() {
+        let root_path = match did_file_path.parent() {
             Some(parent) => {
                 if parent.exists() {
                     parent

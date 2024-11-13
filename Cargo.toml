@@ -47,3 +47,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sled = "0.34"
 libp2p = { version = "0.53.2", features = ["identify"] }
 qrcode = "0.14"
+regex = "1.11"
