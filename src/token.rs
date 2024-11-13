@@ -1088,8 +1088,10 @@ async fn submit_uncompleted_request_files(sys_did: &str, dev_did: &str) {
                             if let Some(file_name_str) = file_name.to_str() {
                                 if let Some(method) = extract_method_from_filename(file_name_str) {
                                     if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
+                                        debug!("submit uncompleted request file: method={}, {}", method, file_path.display());
                                         if request_token_api_async(sys_did, dev_did, &method, &content).await != "Unknown"  {
                                             tokio::fs::remove_file(&file_path).await.expect("remove user copy file failed");
+                                            debug!("remove the uncompleted request file: {}", file_path.display());
                                         }
                                     }
                                 }
