@@ -353,19 +353,16 @@ impl SimpleAI {
                 encrypted_identity_qr.extend_from_slice(&did_bytes);
                 encrypted_identity_qr.extend_from_slice(&encrypted_identity);
                 let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
-                let encrypted_identity_qr_base58 = encrypted_identity_qr.to_base58();
-                println!("[UserBase] encrypted_identity: len={}, {:?}", encrypted_identity_qr.len(), encrypted_identity_qr);
-                println!("[UserBase] encrypted_identity_base64: len={}, {:?}", encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
-                println!("[UserBase] encrypted_identity_base58: len={}, {:?}", encrypted_identity_qr_base58.len(), encrypted_identity_qr_base58);
-                let code = QrCode::with_version(encrypted_identity_qr_base58.as_bytes(), Version::Normal(6), EcLevel::L).unwrap();
+                debug!("encrypted_identity({})_qr_base64: {}", user_did, encrypted_identity_qr_base64);
+                let code = QrCode::with_version(encrypted_identity_qr_base64.as_bytes(), Version::Normal(7), EcLevel::L).unwrap();
                 let image = code.render()
-                    .min_dimensions(600, 600)
+                    .min_dimensions(400, 400)
                     .dark_color(svg::Color("#800000"))
                     .light_color(svg::Color("#ffff80"))
                     .build();
                 image
             }
-            false => "Unknown".to_string()
+            false => "".to_string()
         }
     }
 
