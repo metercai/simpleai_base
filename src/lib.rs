@@ -1,5 +1,4 @@
-use base64::Engine;
-use base58::{ToBase58, FromBase58};
+use base58::ToBase58;
 
 
 use pyo3::prelude::*;
@@ -40,7 +39,6 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let signature_str = parts[3].to_string();
     let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, did, "Member", encrypt_item_key, memo_base64, timestamp);
     let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
-    println!("text_cert: {}, signature: {}, did: {}, verify_key: {:?}", text, signature_str, claim.gen_did(), claim.get_cert_verify_key());
     token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
 }
 
@@ -50,8 +48,8 @@ fn export_user_qrcode_svg(user_did: &str) -> String {
 }
 
 #[pyfunction]
-fn get_user_info_from_identity_qr(encrypted_identity: &str) -> (String, String, String) {
-    SimpleAI::get_user_info_from_identity_qr(encrypted_identity)
+fn import_identity_qrcode(encrypted_identity: &str) -> (String, String, String) {
+    SimpleAI::import_identity_qrcode(encrypted_identity)
 }
 
 #[pyfunction]
@@ -73,7 +71,7 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_function(wrap_pyfunction!(export_user_qrcode_svg, m)?)?;
-    m.add_function(wrap_pyfunction!(get_user_info_from_identity_qr, m)?)?;
+    m.add_function(wrap_pyfunction!(import_identity_qrcode, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
     m.add_class::<UserContext>()?;

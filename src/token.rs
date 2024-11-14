@@ -284,7 +284,7 @@ impl SimpleAI {
             return ("unknown".to_string(), "unknown".to_string());
         }
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &user_telephone);
-        let (_user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
         let user_claim = {
             let user_claim = GlobalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase);
@@ -299,7 +299,7 @@ impl SimpleAI {
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
         let identity = self.export_user(&nickname, &user_telephone, &phrase);
-        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_did));
+        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
         println!("[UserBase] Create user and save identity_file: {}", identity_file.display());
 
@@ -340,33 +340,42 @@ impl SimpleAI {
 
     #[staticmethod]
     pub fn export_user_qrcode_svg(user_did: &str) -> String {
-        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_did));
-        match identity_file.exists() {
-            true => {
-                let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
-                let encrypted_identity = URL_SAFE_NO_PAD.decode(identity).unwrap();
-                let did_bytes = user_did.from_base58().unwrap();
-                let mut encrypted_identity_qr = Vec::with_capacity(encrypted_identity.len() + did_bytes.len());
-                encrypted_identity_qr.extend_from_slice(&did_bytes);
-                encrypted_identity_qr.extend_from_slice(&encrypted_identity);
-                let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
-                debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
-                let code = QrCode::with_version(encrypted_identity_qr_base64.as_bytes(), Version::Normal(8), EcLevel::L).unwrap();
-                let image = code.render()
-                    .min_dimensions(360, 360)
-                    .dark_color(svg::Color("#800000"))
-                    .light_color(svg::Color("#ffff80"))
-                    .build();
-                image
+        let claim = {
+            let claims = GlobalClaims::instance();
+            let mut claims = claims.lock().unwrap();
+            claims.get_claim_from_local(user_did)
+        };
+        if !claim.is_default() {
+            let user_symbol_hash = claim.get_symbol_hash();
+            let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+            match identity_file.exists() {
+                true => {
+                    let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
+                    let encrypted_identity = URL_SAFE_NO_PAD.decode(identity).unwrap();
+                    let did_bytes = user_did.from_base58().unwrap();
+                    let mut encrypted_identity_qr = Vec::with_capacity(encrypted_identity.len() + did_bytes.len());
+                    encrypted_identity_qr.extend_from_slice(&did_bytes);
+                    encrypted_identity_qr.extend_from_slice(&encrypted_identity);
+                    let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
+                    debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
+                    let code = QrCode::with_version(encrypted_identity_qr_base64.as_bytes(), Version::Normal(8), EcLevel::L).unwrap();
+                    let image = code.render()
+                        .min_dimensions(360, 360)
+                        .dark_color(svg::Color("#800000"))
+                        .light_color(svg::Color("#ffff80"))
+                        .build();
+                    image
+                }
+                false => "".to_string()
             }
-            false => "".to_string()
-        }
+        } else { "".to_string() }
     }
 
     #[staticmethod]
-    pub fn get_user_info_from_identity_qr(encrypted_identity: &str) -> (String, String, String) {
+    pub fn import_identity_qrcode(encrypted_identity: &str) -> (String, String, String) {
         let identity = URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap();
-        token_utils::get_user_info_from_identity_qr(&identity)
+        token_utils::import_identity_qrcode(&identity)
     }
 
     pub fn push_certificate(&mut self, cert_key: &str, cert: &str) {
@@ -647,42 +656,48 @@ impl SimpleAI {
                 }
             },
             false => {
-                let new_claim = GlobalClaims::generate_did_claim
-                    ("User", &nickname, Some(telephone.to_string()), None, &user_phrase);
-                let exchange_crypt_secret =  URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
-                    "exchange", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
-                let issue_crypt_secret = URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
-                    "issue", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
-                let mut ready_data: serde_json::Value = json!({});
-                ready_data["user_phrase"] =  serde_json::to_value(user_phrase.clone()).unwrap_or(json!(""));
-                ready_data["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
-                ready_data["exchange_crypt_secret"] = serde_json::to_value(exchange_crypt_secret).unwrap_or(json!(""));
-                ready_data["issue_crypt_secret"] = serde_json::to_value(issue_crypt_secret).unwrap_or(json!(""));
-                ready_data["vcode_try_counts"] = json!(3);
-                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
-                ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
+                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                match identity_file.exists() {
+                    true => "local".to_string(),
+                    false => {
+                        let new_claim = GlobalClaims::generate_did_claim
+                            ("User", &nickname, Some(telephone.to_string()), None, &user_phrase);
+                        let exchange_crypt_secret =  URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
+                            "exchange", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
+                        let issue_crypt_secret = URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
+                            "issue", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
+                        let mut ready_data: serde_json::Value = json!({});
+                        ready_data["user_phrase"] =  serde_json::to_value(user_phrase.clone()).unwrap_or(json!(""));
+                        ready_data["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
+                        ready_data["exchange_crypt_secret"] = serde_json::to_value(exchange_crypt_secret).unwrap_or(json!(""));
+                        ready_data["issue_crypt_secret"] = serde_json::to_value(issue_crypt_secret).unwrap_or(json!(""));
+                        ready_data["vcode_try_counts"] = json!(3);
+                        let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
+                        ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
 
-                let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
-                debug!("create new did and claim: symbol_hash_base64={}\n claim={:?}", symbol_hash_base64, new_claim);
+                        let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
+                        debug!("create new did and claim: symbol_hash_base64={}\n claim={:?}", symbol_hash_base64, new_claim);
 
-                let mut request: serde_json::Value = json!({});
-                request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
-                request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
+                        let mut request: serde_json::Value = json!({});
+                        request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
+                        request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
 
-                let user_certificate_json = self.request_token_api(
-                    "apply",
-                    &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                let user_certificate: String = serde_json::from_str(&user_certificate_json).unwrap();
-                println!("[UserBase] Apply user copy or verify new user: symbol({}), ready_cert({})", symbol_hash_base64, user_certificate);
-                let parts: Vec<&str> = user_certificate.split('_').collect();
-                let result = parts[0].to_string();
-                if result != "Unknown".to_string()  {
-                    ready_data["user_certificate"] = serde_json::to_value(user_certificate.clone()).unwrap_or(json!(""));
-                    self.ready_users.insert(user_hash_id.clone(), ready_data);
-                    "remote".to_string()
-                } else {
-                    self.ready_users.insert(user_hash_id.clone(), ready_data);
-                    "unknown".to_string()
+                        let user_certificate_json = self.request_token_api(
+                            "apply",
+                            &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+                        let user_certificate: String = serde_json::from_str(&user_certificate_json).unwrap();
+                        println!("[UserBase] Apply user copy or verify new user: symbol({}), ready_cert({})", symbol_hash_base64, user_certificate);
+                        let parts: Vec<&str> = user_certificate.split('_').collect();
+                        let result = parts[0].to_string();
+                        if result != "Unknown".to_string()  {
+                            ready_data["user_certificate"] = serde_json::to_value(user_certificate.clone()).unwrap_or(json!(""));
+                            self.ready_users.insert(user_hash_id.clone(), ready_data);
+                            "remote".to_string()
+                        } else {
+                            self.ready_users.insert(user_hash_id.clone(), ready_data);
+                            "unknown".to_string()
+                        }
+                    }
                 }
             }
         }
@@ -781,7 +796,7 @@ impl SimpleAI {
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
 
             let identity = self.export_user(&nickname, &telephone, &phrase);
-            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", did));
+            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
             fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
             println!("[UserBase] Create user and save identity_file: {}", did);
 
@@ -826,6 +841,7 @@ impl SimpleAI {
             match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
                 true => self.sign_user_context(&user_did, phrase),
                 false => {
+                    // 判断是否有user_identity文件，有则调用import_user导入
                     let mut request: serde_json::Value = json!({});
                     let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
                     request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();

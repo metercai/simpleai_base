@@ -122,29 +122,18 @@ pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
 }
 
 pub(crate) async fn get_random_port_availability(ip: Ipv4Addr, port: u16) -> u16 {
-
-    let real_port = {
-        let mut rng = SmallRng::from_entropy();
-        loop {
-            let random_port = rng.gen_range((port-100)..=port);
-            let addr = format!("{}:{}", ip, random_port);
-            match TcpListener::bind(addr) {
-                Ok(_) => return random_port,
-                Err(_) => {
-                    time::sleep(Duration::from_millis(10)).await;
-                    continue
-                },
-            }
-        };
+    let mut rng = SmallRng::from_entropy();
+    loop {
+        let random_port = rng.gen_range((port-100)..=port);
+        let addr = format!("{}:{}", ip, random_port);
+        match TcpListener::bind(addr) {
+            Ok(_) => return random_port,
+            Err(_) => {
+                time::sleep(Duration::from_millis(10)).await;
+                continue
+            },
+        }
     };
-
-
-    if *VERBOSE_INFO {
-        println!("get_port_availability, out, port: {}", real_port);
-    }
-    //println!("get_port_availability, out, port: {real_port}");
-    //print!(".");
-    real_port
 }
 
 pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
@@ -235,16 +224,6 @@ pub(crate) async fn get_mac_address(ip: IpAddr) -> String {
     //    }
     //}
     "Unknown".to_string()
-}
-
-
-pub fn calc_sha256(input: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    let result = hasher.finalize();
-    let mut output = [0u8; 32];
-    output.copy_from_slice(&result[..]);
-    output
 }
 
 

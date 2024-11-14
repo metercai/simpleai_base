@@ -804,7 +804,7 @@ fn save_key_to_pem(symbol_hash: &[u8; 32], key: &[u8; 32], phrase: &str) -> [u8;
 }
 
 pub(crate) fn is_original_user_key(symbol_hash: &[u8; 32]) -> bool {
-    let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
+    let (_user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
     let key = read_key_or_generate_key("User", symbol_hash, &user_phrase, false);
     key != [0u8; 32]
 }
@@ -931,7 +931,7 @@ pub(crate) fn import_identity(user_did: &str, encrypted_identity: &Vec<u8>, phra
     }
 }
 
-pub(crate) fn get_user_info_from_identity_qr(encrypted_identity: &Vec<u8>) -> (String, String, String) {
+pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, String, String) {
     let did_bytes = &encrypted_identity[..21];
     let user_did = did_bytes.to_base58();
     let encrypted_identity = &encrypted_identity[21..];
@@ -939,6 +939,11 @@ pub(crate) fn get_user_info_from_identity_qr(encrypted_identity: &Vec<u8>) -> (S
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8])).to_string();
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap_or("").to_string();
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &telephone);
+        let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
+        let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+        fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+        println!("[UserBase] Import from qrcode and save identity_file: {}", user_did);
         if telephone == "0" {
             (user_did, nickname, "".to_string())
         } else { (user_did, nickname, telephone) }
