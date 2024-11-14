@@ -876,7 +876,9 @@ pub fn filter_files(work_paths: &Path, filters: &[&str], suffixes: &[&str]) -> V
     result
 }
 
-pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, user_did: &str, phrase: &str) -> Vec<u8>  {
+pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, phrase: &str) -> Vec<u8>  {
+    let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &telephone);
+    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
     let telephone_bytes = match telephone.parse::<u64>() {
         Ok(number) => number,
         Err(_) => {
@@ -890,7 +892,7 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, u
     let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
     let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, true);
     let nickname_bytes = nickname.as_bytes().get(..24).unwrap_or(nickname.as_bytes());
-    let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_did.as_bytes())).unwrap();
+    let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
     let mut identity_secret = Vec::with_capacity(timestamp_bytes.len() + user_key.len());
     identity_secret.extend_from_slice(&timestamp_bytes);
     identity_secret.extend_from_slice(&user_key);
@@ -907,11 +909,11 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, u
     encrypted
 }
 
-pub(crate) fn import_identity(user_did: &str, encrypted_identity: &Vec<u8>, phrase: &str) -> IdClaim  {
+pub(crate) fn import_identity(user_hash_id: &str, encrypted_identity: &Vec<u8>, phrase: &str) -> IdClaim  {
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap()).to_string();
-        let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_did.as_bytes())).unwrap();
+        let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
         let identity_bytes = decrypt(&encrypted_identity[10..78], &secret_key, 0);
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap();
         let timestamp = u64::from_le_bytes(identity_bytes[..8].try_into().unwrap());

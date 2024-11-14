@@ -306,9 +306,9 @@ impl SimpleAI {
         (user_did, phrase)
     }
 
-    pub fn import_user(&mut self, user_did: &str, encrypted_identity: &str, phrase: &str) -> String {
+    pub fn import_user(&mut self, user_hash_id: &str, encrypted_identity: &str, phrase: &str) -> String {
         let user_claim = {
-            let user_claim = token_utils::import_identity(user_did, &URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap(), phrase);
+            let user_claim = token_utils::import_identity(user_hash_id, &URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap(), phrase);
             let mut claims = self.claims.lock().unwrap();
             claims.push_claim(user_claim.clone());
             user_claim
@@ -335,7 +335,7 @@ impl SimpleAI {
         };
         println!("[UserBase] Export user: {}", user_did);
 
-        URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, &user_did, phrase))
+        URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
     }
 
     #[staticmethod]
@@ -841,54 +841,64 @@ impl SimpleAI {
             match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
                 true => self.sign_user_context(&user_did, phrase),
                 false => {
-                    // 判断是否有user_identity文件，有则调用import_user导入
-                    let mut request: serde_json::Value = json!({});
-                    let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
-                    request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
-                    request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
-                    let user_copy_from_cloud =
-                        self.request_token_api("get_user_copy", &serde_json::to_string(&request).unwrap_or("{}".to_string()), );
-
-                    match user_copy_from_cloud != "Unknown".to_string() &&
-                        user_copy_from_cloud != "Unknown_user".to_string() &&
-                        user_copy_from_cloud != "Unknown_backup".to_string() {
+                    let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+                    let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                    match identity_file.exists() {
                         true => {
-                            let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
-                            if user_copy_from_cloud_array.len() >= 4 {
-                                let pem = user_copy_from_cloud_array[0];
-                                token_utils::save_user_pem(&symbol_hash, pem);
-                                let claim: IdClaim = serde_json::from_str(&user_copy_from_cloud_array[1]).unwrap_or(IdClaim::default());
-                                let did = claim.gen_did();
-                                // reset crypt_secret
-                                token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &claim, phrase);
-                                self.push_claim(&claim.clone());
-                                token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
-
-                                let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                    user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
-
-                                let _ = token_utils::save_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
-                                    .unwrap_or(UserContext::default()));
-
-                                let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                    user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
-
-                                let _ = certificate_string.replace(":", "|");
-                                let certs_array: Vec<&str> = certificate_string.split(",").collect();
-                                for cert in &certs_array {
-                                    let (certs_key, certs_value) = token_utils::parse_user_certs(cert);
-                                    if certs_key != "Unknown" {
-                                        self.certificates.insert(certs_key, certs_value);
-                                    }
-                                }
-                                token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
-                                self.sign_user_context(&did, phrase)
-                            } else {
-                                self.get_guest_user_context()
-                            }
-                        },
+                            let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
+                            let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
+                            self.sign_user_context(&user_did, phrase)
+                        }
                         false => {
-                            self.get_guest_user_context()
+                            let mut request: serde_json::Value = json!({});
+                            let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
+                            request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
+                            request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                            let user_copy_from_cloud =
+                                self.request_token_api("get_user_copy", &serde_json::to_string(&request).unwrap_or("{}".to_string()), );
+
+                            match user_copy_from_cloud != "Unknown".to_string() &&
+                                user_copy_from_cloud != "Unknown_user".to_string() &&
+                                user_copy_from_cloud != "Unknown_backup".to_string() {
+                                true => {
+                                    let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
+                                    if user_copy_from_cloud_array.len() >= 4 {
+                                        let pem = user_copy_from_cloud_array[0];
+                                        token_utils::save_user_pem(&symbol_hash, pem);
+                                        let claim: IdClaim = serde_json::from_str(&user_copy_from_cloud_array[1]).unwrap_or(IdClaim::default());
+                                        let did = claim.gen_did();
+                                        // reset crypt_secret
+                                        token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &claim, phrase);
+                                        self.push_claim(&claim.clone());
+                                        token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+
+                                        let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                            user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+
+                                        let _ = token_utils::save_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
+                                            .unwrap_or(UserContext::default()));
+
+                                        let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                            user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+
+                                        let _ = certificate_string.replace(":", "|");
+                                        let certs_array: Vec<&str> = certificate_string.split(",").collect();
+                                        for cert in &certs_array {
+                                            let (certs_key, certs_value) = token_utils::parse_user_certs(cert);
+                                            if certs_key != "Unknown" {
+                                                self.certificates.insert(certs_key, certs_value);
+                                            }
+                                        }
+                                        token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
+                                        self.sign_user_context(&did, phrase)
+                                    } else {
+                                        self.get_guest_user_context()
+                                    }
+                                },
+                                false => {
+                                    self.get_guest_user_context()
+                                }
+                            }
                         }
                     }
                 }
