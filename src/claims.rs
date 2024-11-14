@@ -12,6 +12,7 @@ use serde_derive::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use crate::{token, token_utils};
 
+use tracing::debug;
 use pyo3::prelude::*;
 
 lazy_static::lazy_static! {
@@ -54,9 +55,7 @@ impl GlobalClaims {
                                             match serde_json::from_str::<IdClaim>(&content) {
                                                 Ok(claim) => {
                                                     claims.insert(claim.gen_did(), claim.clone());
-                                                    if *token_utils::VERBOSE_INFO {
-                                                        println!("Load did: {}", claim.to_json_string());
-                                                    }
+                                                    debug!("Load did_claim({}): {}", claim.gen_did(), claim.to_json_string());
                                                 },
                                                 Err(e) => {
                                                     eprintln!("Failed to parse JSON: {}", e);

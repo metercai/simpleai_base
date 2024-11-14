@@ -99,9 +99,9 @@ impl SimpleAI {
 
         let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
         let (device_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
-        let system_name = format!("{}@{}", sys_name, sys_hash_id);
-        let device_name = format!("{}@{}", host_name, device_hash_id);
-        let guest_name = format!("guest@{}", sys_hash_id);
+        let system_name = format!("{}@{}", sys_name, sys_hash_id).chars().take(24).collect::<String>();
+        let device_name = format!("{}@{}", host_name, device_hash_id).chars().take(24).collect::<String>();
+        let guest_name = format!("guest@{}", sys_hash_id).chars().take(24).collect::<String>();
         debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, "Unknown");
