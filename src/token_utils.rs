@@ -40,7 +40,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 };
 
 pub(crate) static TOKEN_TM_URL: &str = "https://v2.token.tm/api_";
-pub(crate) static TOKEN_TM_DID: &str = "BoQ5vH1XxyGaMcVXB2CAYQQATjzxh";
+pub(crate) static TOKEN_TM_DID: &str = "B2Xn77BbvKJEUPE5QgfavbJJDaKAQ";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
@@ -408,27 +408,30 @@ pub(crate) fn get_user_token_from_file(did: &str, sys_did: &str) -> UserContext 
 pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> String {
     let did = context.get_did();
     let sys_did = context.get_sys_did();
+    let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", true));
+    let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
     let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
     match user_token_file.exists() {
         true => {
-            let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", true));
             let token_raw_data = match user_token_file.exists() {
                 true => {
                     match fs::read(user_token_file.clone()) {
                         Ok(data) => data,
                         Err(e) => {
-                            println!("[UserBase] read user token file error: {}",e);
+                            debug!("[UserBase] read user token file error: {}",e);
                             return "Err".to_string()
                         },
                     }
                 }
-                false => return "Err".to_string()
+                false => {
+                    debug!("[UserBase] user token file not exists: {}",user_token_file.display());
+                    return "Err".to_string()
+                }
             };
             let token_data = decrypt(&token_raw_data, &device_key, 0);
             let mut user_tokens: serde_json::Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
             if method == "add" {
                 let context_string = context.to_json_string();
-                let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
                 let context_raw_data = URL_SAFE_NO_PAD.encode(encrypt(context_string.as_bytes(), &sys_key, 0));
                 user_tokens[sys_did] = json!(context_raw_data);
             } else if method == "remove" {
@@ -442,7 +445,20 @@ pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> 
             fs::write(user_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", user_token_file.display()));
             "Ok".to_string()
         }
-        _ => {  "Err".to_string() }
+        false => {
+            let mut user_tokens: serde_json::Value = json!({});
+            if method == "add" {
+                let context_string = context.to_json_string();
+                let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
+                let context_raw_data = URL_SAFE_NO_PAD.encode(encrypt(context_string.as_bytes(), &sys_key, 0));
+                user_tokens[sys_did] = json!(context_raw_data);
+                let json_string = serde_json::to_string(&user_tokens).unwrap_or(String::from("{}"));
+                let token_raw_data = encrypt(json_string.as_bytes(), &device_key, 0);
+                debug!("Create new file for user token: {}", json_string);
+                fs::write(user_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", user_token_file.display()));
+                "Ok".to_string()
+            } else { "Err".to_string() }
+        }
     }
 }
 
@@ -929,9 +945,6 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
         }
     }.to_le_bytes();
     let timestamp_bytes = timestamp.to_le_bytes();
-    let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
-    let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
-    let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
     let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, true);
     let nickname_bytes = nickname.as_bytes().get(..24).unwrap_or(nickname.as_bytes());
     let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
