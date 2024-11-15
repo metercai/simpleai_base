@@ -667,6 +667,7 @@ impl SimpleAI {
                 match identity_file.exists() {
                     true => "local".to_string(),
                     false => {
+                        debug!("generate ready_data for new user: {} {}", nickname, telephone);
                         let new_claim = GlobalClaims::generate_did_claim
                             ("User", &nickname, Some(telephone.to_string()), None, &user_phrase);
                         let exchange_crypt_secret =  URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
@@ -1034,9 +1035,9 @@ impl SimpleAI {
     }
 
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
+        let upstream_did = self.upstream_did.clone();
+        let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
         TOKIO_RUNTIME.block_on(async {
-            let upstream_did = self.upstream_did.clone();
-            let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
             debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
             request_token_api_async(&self.did, &self.device, api_name, &encoded_params).await
         })
