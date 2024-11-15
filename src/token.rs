@@ -1111,7 +1111,9 @@ async fn request_token_api_async(sys_did: &str, dev_did: &str, api_name: &str, e
             match res.text().await {
                 Ok(text) => {
                     debug!("[Upstream] response: {}", text);
-                    if status_code.is_success() { text } else { "Unknown".to_string() }
+                    if status_code.is_success() {
+                        serde_json::to_string(&text).unwrap_or("".to_string())
+                    } else { "Unknown".to_string() }
                 },
                 Err(e) => {
                     debug!("Failed to read response body: {}", e);
