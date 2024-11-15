@@ -174,10 +174,8 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
     };
     let token_data = decrypt(&token_raw_data, &crypt_key, 0);
     let system_token: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
+    debug!("Load issued_certs token from file: {}", system_token);
 
-    if *VERBOSE_INFO {
-        println!("Load issued_certs token from file: {}", system_token);
-    }
     let claims = claims::GlobalClaims::instance();
     if let Some(Value::Object(user_certs)) = system_token.get("user_certs") {
         for (key, value) in user_certs {
@@ -215,9 +213,7 @@ pub(crate) fn save_issued_certs_to_file(sys_did: &str, issued_certs: &HashMap<St
     let system_token_file = get_path_in_sys_key_dir(&format!("issued_certs_{}.token", sys_did));
     let crypt_key = get_token_crypt_key();
     let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
-    if *VERBOSE_INFO {
-        println!("Save issued_certificates to file: {}", json_string);
-    }
+    debug!("Save issued_certificates to file: {}", json_string);
     fs::write(system_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", system_token_file.display()))
 }
 
@@ -334,14 +330,27 @@ pub(crate) fn load_did_blacklist_from_file() -> Vec<String>  {
     }
 }
 
-pub(crate) fn create_or_renew_user_context_token(did: &str, sys_did: &str, nickname: &str, id_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> UserContext {
-    let zeroed_key: [u8; 32] = [0u8; 32];
-    let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
-    let context = match user_token_file.exists() {
-        true => {
+pub(crate) fn get_or_create_user_context_token(did: &str, sys_did: &str, nickname: &str, id_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> UserContext {
+    let context = get_user_token_from_file(did, sys_did);
+    if context.is_default() {
+        println!("[UserBase] Create user context token: {}", did);
+        let default_permissions = "standard".to_string();
+        let default_private_paths = serde_json::to_string(
+            &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
+        let mut context_default = UserContext::new(did, sys_did, nickname, &default_permissions, &default_private_paths);
+        let secret_key = get_random_secret_key(id_type, symbol_hash, phrase);
+        let default_expire = 0; //90*24*3600;
+        context_default.set_auth_sk_with_secret(&URL_SAFE_NO_PAD.encode(secret_key), default_expire);
+        let crypt_key = get_specific_secret_key("context", id_type, symbol_hash, phrase);
+        let aes_key_encrypted = URL_SAFE_NO_PAD.encode(encrypt(&context_default.get_crypt_key(), &crypt_key, 0));
+        context_default.set_aes_key_encrypted(&aes_key_encrypted);
+        context_default
+    } else {
+        context
+    }
+    /*
             println!("[UserBase] Renew user context token: {}", did);
-            let Ok(mut context_renew) = read_user_token_from_file(user_token_file.as_path())
-                else { todo!() };
+            let mut context_renew = get_user_token_from_file(did, sys_did);
             context_renew.set_sys_did(sys_did);
             let crypt_key = get_specific_secret_key("context", id_type, symbol_hash, phrase);
             let aes_key_old_vec = decrypt(&URL_SAFE_NO_PAD.decode(
@@ -355,41 +364,86 @@ pub(crate) fn create_or_renew_user_context_token(did: &str, sys_did: &str, nickn
             let aes_key_encrypted = URL_SAFE_NO_PAD.encode(encrypt(&context_renew.get_crypt_key(), &crypt_key, 0));
             context_renew.set_aes_key_encrypted(&aes_key_encrypted);
             context_renew
-        }
-        false => {
-            println!("[UserBase] Create user context token: {}", did);
-            let default_permissions = "standard".to_string();
-            let default_private_paths = serde_json::to_string(
-                &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
-            let mut context_default = UserContext::new(did, sys_did, nickname, &default_permissions, &default_private_paths);
-            let secret_key = get_random_secret_key(id_type, symbol_hash, phrase);
-            let default_expire = 90*24*3600;
-            context_default.set_auth_sk_with_secret(&URL_SAFE_NO_PAD.encode(secret_key), default_expire);
-            let crypt_key = get_specific_secret_key("context", id_type, symbol_hash, phrase);
-            let aes_key_encrypted = URL_SAFE_NO_PAD.encode(encrypt(&context_default.get_crypt_key(), &crypt_key, 0));
-            context_default.set_aes_key_encrypted(&aes_key_encrypted);
-            context_default
-        }
-    };
-    context
+        */
 }
 
 
-pub(crate) fn get_user_token_from_file(did: &str) -> Result<UserContext, TokenError> {
+pub(crate) fn get_user_token_from_file(did: &str, sys_did: &str) -> UserContext {
     let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
     match user_token_file.exists() {
-        true => read_user_token_from_file(user_token_file.as_path()),
-        false => Ok(UserContext::default())
+        true => {
+            let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", true));
+            let token_raw_data = match user_token_file.exists() {
+                true => {
+                    match fs::read(user_token_file) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            println!("[UserBase] read user issued certificates file error: {}",e);
+                            return UserContext::default()
+                        },
+                    }
+                }
+                false => return UserContext::default()
+            };
+            let token_data = decrypt(&token_raw_data, &device_key, 0);
+            let user_tokens: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
+            let user_context: UserContext = match user_tokens.get(sys_did) {
+                Some(value) => {
+                    let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
+                    let json_string = serde_json::to_string(&value).unwrap_or(String::from("{}"));
+                    let token_data = decrypt(&URL_SAFE_NO_PAD.decode(json_string).unwrap_or([0u8; 32].to_vec()), &sys_key, 0);
+                    let user_token: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
+                    serde_json::from_value(user_token.clone()).unwrap_or_else(|_| UserContext::default())
+                }
+                None => {
+                    UserContext::default()
+                }
+            };
+            user_context
+        },
+        false => UserContext::default()
     }
 }
 
-pub(crate) fn save_user_token_to_file(context: &UserContext) -> Result<String, TokenError> {
-    let json_string = serde_json::to_string(&context)?;
-    let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", context.get_did()));
-    let crypt_key = get_token_crypt_key();
-    let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
-    fs::write(user_token_file, token_raw_data)?;
-    Ok(json_string)
+pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> String {
+    let did = context.get_did();
+    let sys_did = context.get_sys_did();
+    let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
+    match user_token_file.exists() {
+        true => {
+            let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", true));
+            let token_raw_data = match user_token_file.exists() {
+                true => {
+                    match fs::read(user_token_file.clone()) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            println!("[UserBase] read user token file error: {}",e);
+                            return "Err".to_string()
+                        },
+                    }
+                }
+                false => return "Err".to_string()
+            };
+            let token_data = decrypt(&token_raw_data, &device_key, 0);
+            let mut user_tokens: serde_json::Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
+            if method == "add" {
+                let context_string = context.to_json_string();
+                let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
+                let context_raw_data = URL_SAFE_NO_PAD.encode(encrypt(context_string.as_bytes(), &sys_key, 0));
+                user_tokens[sys_did] = json!(context_raw_data);
+            } else if method == "remove" {
+                if let Some(obj) = user_tokens.as_object_mut() {
+                    obj.remove(&sys_did);
+                }
+            }
+            let json_string = serde_json::to_string(&user_tokens).unwrap_or(String::from("{}"));
+            let token_raw_data = encrypt(json_string.as_bytes(), &device_key, 0);
+            debug!("Save user token to file: {}", json_string);
+            fs::write(user_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", user_token_file.display()));
+            "Ok".to_string()
+        }
+        _ => {  "Err".to_string() }
+    }
 }
 
 pub(crate) fn get_path_in_user_dir(did: &str, filename: &str) -> PathBuf {
@@ -831,18 +885,6 @@ pub(crate) fn get_file_crypt_key() -> [u8; 32] {
     com_hash[32..].copy_from_slice(&local_key);
     calc_sha256(com_hash.as_ref())
 }
-
-
-fn read_user_token_from_file(user_token_file: &Path) -> Result<UserContext, TokenError> {
-    let crypt_key = get_token_crypt_key();
-    let token_raw_data = fs::read(user_token_file)?;
-    let token_data = decrypt(&token_raw_data, &crypt_key, 0);
-    Ok(serde_json::from_slice(&token_data).unwrap_or(UserContext::default()))
-}
-
-
-
-
 
 
 pub(crate) fn convert_vec_to_key(vec: &Vec<u8>) -> [u8; 32] {

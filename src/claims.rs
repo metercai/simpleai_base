@@ -432,6 +432,7 @@ impl fmt::Display for IdClaim {
 pub struct UserContext {
     did: String,
     sys_did: String,                // 授权给哪个系统
+    timestamp: u64,
     nickname: String,
     auth_sk: String,                // 授权密钥
     permissions: String,            // 权限
@@ -444,9 +445,12 @@ pub struct UserContext {
 impl UserContext {
     #[new]
     pub fn new(did: &str, sys_did: &str, nickname: &str, permissions: &str, private_paths: &str) -> Self {
+        let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
         Self {
             did: did.to_string(),
             sys_did: sys_did.to_string(),
+            timestamp: now_sec,
             nickname: nickname.to_string(),
             auth_sk: String::new(),
             permissions: permissions.to_string(),
@@ -471,6 +475,10 @@ impl UserContext {
         self.sys_did = sys_did.to_string();
     }
 
+    pub fn get_timestamp(&self) -> u64 {
+        self.timestamp.clone()
+    }
+
     pub(crate) fn get_permissions(&self) -> String {
         self.permissions.clone()
     }
@@ -487,6 +495,7 @@ impl UserContext {
 
     pub(crate) fn set_auth_sk(&mut self, auth_sk: &str) {
         self.auth_sk = auth_sk.to_string();
+
     }
 
     pub(crate) fn set_auth_sk_with_secret(&mut self, secret_key: &str, expire: u64) {
@@ -536,19 +545,31 @@ impl UserContext {
         self.sig.clone()
     }
 
-    pub(crate) fn set_sig(&mut self, sig: &str) {
-        self.sig = sig.to_string();
+    pub fn signature(&mut self, phrase: &str) -> String {
+        let text = self.get_text();
+        let claim = {
+            let claims = GlobalClaims::instance();
+            let mut claims = claims.lock().unwrap();
+            claims.get_claim_from_local(&self.get_did())
+        };
+        self.sig = URL_SAFE_NO_PAD.encode(token_utils::get_signature(&text, &claim.id_type, &claim.get_symbol_hash(), phrase));
+        self.sig.clone()
     }
 
     pub(crate) fn get_text(&self) -> String {
-        format!("{}|{}|{}|{}|{}|{}|{}", self.did, self.sys_did, self.nickname, self.auth_sk, self.permissions,
+        format!("{}|{}|{}|{}|{}|{}|{}|{}", self.did, self.sys_did, self.timestamp, self.nickname, self.auth_sk, self.permissions,
                 self.private_paths, self.aes_key_encrypted)
     }
 
     pub fn is_default(&self) -> bool {
-        self.nickname == "Default"
+        self.nickname == "Default" && self.did == "Default_did"
     }
 
+    pub fn is_expired(&self) -> bool {
+        let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+        now_sec > self.timestamp + 3600*24*30*12*10
+    }
     pub(crate) fn to_json_string(&self) -> String {
         serde_json::to_string(self).unwrap_or("Unknown".to_string())
     }
@@ -560,6 +581,7 @@ impl Default for UserContext {
         UserContext {
             did: "Default_did".to_string(),
             sys_did: "Default_sys_did".to_string(),
+            timestamp: 0,
             nickname: "Default".to_string(),
             auth_sk: "Default_auth_sk".to_string(),
             permissions: "Default_permissions".to_string(),

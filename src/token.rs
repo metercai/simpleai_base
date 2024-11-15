@@ -46,8 +46,9 @@ pub static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 pub struct SimpleAI {
     pub sys_name: String,
     pub did: String,
+    token_db: Arc<Mutex<sled::Db>>,
     // 用户绑定授权的缓存，来自user_{did}.token
-    pub authorized: HashMap<String, UserContext>,
+    pub authorized: Arc<Mutex<sled::Tree>>, //HashMap<String, UserContext>,
     pub sysinfo: SystemInfo,
     // 留存本地的身份自证, 用根密钥签
     claims: Arc<Mutex<GlobalClaims>>,
@@ -66,8 +67,6 @@ pub struct SimpleAI {
     ready_users: HashMap<String, serde_json::Value>,
     blacklist: Vec<String>, // 黑名单
     upstream_did: String,
-    //token_db: Arc<Mutex<sled::Db>>,
-    //crypt_secrets_tree: Arc<Mutex<sled::Tree>>,
 
 }
 
@@ -86,11 +85,11 @@ impl SimpleAI {
             SystemInfo::generate().await
         });
 
-        //let token_db = Arc::new(Mutex::new(sled::open("token.db").unwrap()));
-        //let certs_tree = {
-        //    let token_db = token_db.lock().unwrap();
-        //    Arc::new(Mutex::new(token_db.open_tree("certificates").unwrap()))
-        //};
+        let sled_db: sled::Db = sled::open("token.db").unwrap();
+        let token_db = Arc::new(Mutex::new(sled_db.clone()));
+        let authorized_tree = sled_db.open_tree("authorized").unwrap();
+        let authorized = Arc::new(Mutex::new(authorized_tree));
+
 
         let zeroed_key: [u8; 32] = [0; 32];
         let root_dir = sys_base_info.root_dir.clone();
@@ -196,7 +195,8 @@ impl SimpleAI {
             did: local_did,
             device: device_did,
             admin,
-            authorized: HashMap::new(),
+            token_db,
+            authorized,
             sysinfo,
             claims,
             crypt_secrets,
@@ -207,8 +207,6 @@ impl SimpleAI {
             ready_users: HashMap::new(),
             blacklist,
             upstream_did,
-            //token_db,
-            //certs_tree,
         }
     }
 
@@ -243,6 +241,8 @@ impl SimpleAI {
     pub fn get_admin_did(&self) -> String {
         self.admin.clone()
     }
+
+    //pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> { self.token_db.clone() }
 
     pub fn is_guest(&self, did: &str) -> bool {
         did == self.guest.as_str()
@@ -517,16 +517,22 @@ impl SimpleAI {
             token_utils::gen_entry_point_of_service(entry_point_id)
         } else { "".to_string() }
     }
-    pub fn get_guest_sstoken(&self, ua_hash: &str) -> String {
-        self.get_user_sstoken(&self.guest, ua_hash)
+    pub fn get_guest_sstoken(&mut self, ua_hash: &str) -> String {
+        let guest_did = self.guest.clone();
+        self.get_user_sstoken(&guest_did, ua_hash)
     }
 
-    pub fn get_user_sstoken(&self, did: &str, ua_hash: &str) -> String {
+    pub fn get_user_sstoken(&mut self, did: &str, ua_hash: &str) -> String {
         if IdClaim::validity(did) {
             let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-            let text1 = token_utils::calc_sha256(format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
-                                                         self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
+            let context = self.get_user_context(did);
+            if context.is_default() || context.is_expired(){
+                return String::from("Unknown")
+            }
+            let text1 = token_utils::calc_sha256(
+                format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
+                        self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
             let text2 = token_utils::calc_sha256(format!("{}",now_sec/2000000).as_bytes());
             let mut text_bytes: [u8; 64] = [0; 64];
             text_bytes[..32].copy_from_slice(&text1);
@@ -554,8 +560,9 @@ impl SimpleAI {
         padded_sstoken_bytes.copy_from_slice(&sstoken_bytes);
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-        let text1 = token_utils::calc_sha256(format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
-                           self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
+        let text1 = token_utils::calc_sha256(
+            format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
+                    self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
         let text2 = token_utils::calc_sha256(format!("{}",now_sec/2000000).as_bytes());
         let mut text_bytes: [u8; 64] = [0; 64];
         text_bytes[..32].copy_from_slice(&text1);
@@ -756,26 +763,7 @@ impl SimpleAI {
         "error:0".to_string()
     }
 
-    pub fn get_user_context(&mut self, did: &str) -> UserContext {
-        if !self.blacklist.contains(&did.to_string()) {
-            self.authorized.get(did).cloned().unwrap_or_else(|| {
-                let context = token_utils::get_user_token_from_file(did).unwrap_or(
-                    UserContext::default()
-                );
-                if !context.is_default() && context.get_sys_did() == self.did &&
-                    self.verify_by_did(&context.get_text(), &context.get_sig(), did) {
-                    self.authorized.insert(did.to_string(), context.clone());
-                    context
-                } else {
-                    if context.is_default() && did == &self.guest {
-                        self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
-                    } else {
-                        UserContext::default()
-                    }
-                }
-            })
-        } else { UserContext::default()  }
-    }
+
 
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = nickname.chars().take(24).collect::<String>();
@@ -875,8 +863,8 @@ impl SimpleAI {
                                         let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
                                             user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
 
-                                        let _ = token_utils::save_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
-                                            .unwrap_or(UserContext::default()));
+                                        let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
+                                            .unwrap_or(UserContext::default()), "add");
 
                                         let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
                                             user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
@@ -944,8 +932,51 @@ impl SimpleAI {
             let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
             fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
         }
+        // release user token and conext
+        if (user_did != self.admin) {
+            let authorized = self.authorized.lock().unwrap();
+            let _ = match authorized.contains_key(&user_did).unwrap() {
+                false => {},
+                true => {
+                    let _ = authorized.remove(&user_did);
+                }
+            };
+            let _ = token_utils::update_user_token_to_file(&context, "remove");
+        }
         println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
         self.get_guest_user_context()
+    }
+
+    pub fn get_user_context(&mut self, did: &str) -> UserContext {
+        if !self.blacklist.contains(&did.to_string()) {
+            let context = {
+                let authorized = self.authorized.lock().unwrap();
+                match authorized.get(&format!("{}_{}", did, self.get_sys_did())) {
+                    Ok(Some(context)) => {
+                        let context_string = String::from_utf8(context.to_vec()).unwrap();
+                        let user_token: serde_json::Value = serde_json::from_slice(&context_string.as_bytes()).unwrap_or(serde_json::json!({}));
+                        serde_json::from_value(user_token.clone()).unwrap_or_else(|_| UserContext::default())
+                    },
+                    _ => token_utils::get_user_token_from_file(did, &self.get_sys_did())
+                }
+            };
+            if !context.is_default() && context.get_sys_did() == self.did &&
+                self.verify_by_did(&context.get_text(), &context.get_sig(), did) {
+                let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
+                {
+                    let authorized = self.authorized.lock().unwrap();
+                    let _ = authorized.insert(&format!("{}_{}", did, self.get_sys_did()), ivec_data);
+                }
+                context
+            } else {
+                if context.is_default() && did == &self.guest {
+                    self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
+                } else {
+                    UserContext::default()
+                }
+            }
+
+        } else { UserContext::default()  }
     }
 
     pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
@@ -953,26 +984,27 @@ impl SimpleAI {
             return UserContext::default();
         }
         let claim = self.get_claim(did);
-        let mut context = token_utils::create_or_renew_user_context_token(
+        let mut context = token_utils::get_or_create_user_context_token(
             did, &self.did, &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
-        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_did(&context.get_text(), did, phrase));
-        context.set_sig(&sig);
-        match token_utils::save_user_token_to_file(&context) {
-            Ok(_) => {
-                if self.admin.is_empty() && did != self.guest {
-                    self.admin = did.to_string();
-                    token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
-                    println!("[UserBase] Set admin_did/设置系统管理 = {}", self.admin);
-                }
-                self.authorized.insert(did.to_string(), context.clone());
-                context
-            },
-            Err(e) => {
-                debug!("Failed to save user token: {}", e);
-                UserContext::default()
+        let _ = context.signature(phrase);
+        if token_utils::update_user_token_to_file(&context, "add") == "Ok"  {
+            if self.admin.is_empty() && did != self.guest {
+                self.admin = did.to_string();
+                token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
+                println!("[UserBase] Set admin_did/设置系统管理 = {}", self.admin);
             }
+            {
+                let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
+                let authorized = self.authorized.lock().unwrap();
+                let _ = authorized.insert(&format!("{}_{}", did, self.get_sys_did()), ivec_data);
+            }
+            context
+        } else {
+            debug!("Failed to save user token");
+            UserContext::default()
         }
     }
+
 
     #[staticmethod]
     fn is_valid_telephone(user_telephone: &str) -> bool {
