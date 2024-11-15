@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs;
+use std::{fs, result};
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1110,7 +1110,9 @@ async fn request_token_api_async(sys_did: &str, dev_did: &str, api_name: &str, e
                 Ok(text) => {
                     debug!("[Upstream] response: {}", text);
                     if status_code.is_success() {
-                        serde_json::to_string(&text).unwrap_or("".to_string())
+                        let result = serde_json::from_str(&text).unwrap_or("".to_string());
+                        debug!("[Upstream] result: {}", result);
+                        result
                     } else { "Unknown".to_string() }
                 },
                 Err(e) => {
