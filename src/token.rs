@@ -85,7 +85,13 @@ impl SimpleAI {
             SystemInfo::generate().await
         });
 
-        let sled_db: sled::Db = sled::open("token.db").unwrap();
+        let db_path = token_utils::get_path_in_sys_key_dir("token.db");
+        let config = sled::Config::new()
+            .path(db_path)
+            .cache_capacity(10_000)
+            .flush_every_ms(Some(1000));
+
+        let sled_db: sled::Db = config.open().expect("Failed to open token database");
         let token_db = Arc::new(Mutex::new(sled_db.clone()));
         let authorized_tree = sled_db.open_tree("authorized").unwrap();
         let authorized = Arc::new(Mutex::new(authorized_tree));
