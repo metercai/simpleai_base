@@ -3,6 +3,7 @@ import os
 import sys
 import torch
 import gc
+import time
 import ldm_patched.modules.model_management as model_management
 from . import comfyclient_pipeline, utils
 from simpleai_base.simpleai_base import gen_entry_point_id
@@ -29,7 +30,7 @@ def start(args_patch=[[]], force=False):
     global comfyd_process, comfyd_args
     if force:
         stop(force)
-        sleep(1)
+        time.sleep(1)
 
     if not is_running():
         backend_script = os.path.join(os.getcwd(), 'comfy/main.py')
