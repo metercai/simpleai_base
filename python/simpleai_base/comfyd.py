@@ -25,8 +25,12 @@ def is_running():
     return False
 
 
-def start(args_patch=[[]]):
+def start(args_patch=[[]], force=False):
     global comfyd_process, comfyd_args
+    if force:
+        stop(force)
+        sleep(1)
+
     if not is_running():
         backend_script = os.path.join(os.getcwd(), 'comfy/main.py')
         args_comfyd = [["--preview-method", "auto"], ["--port", "8187"], ["--disable-auto-launch"]]
@@ -92,13 +96,13 @@ def finished():
     print("[Comfyd] Comfyd stopped!")
 
 
-def stop():
+def stop(force=False):
     global comfyd_process
     if 'comfyd_process' not in globals():
         return
     if comfyd_process is None:
         return
-    if comfyd_active:
+    if comfyd_active and not force:
         free(all=True)
         gc.collect()
         print("[Comfyd] Comfyd freeing!")
