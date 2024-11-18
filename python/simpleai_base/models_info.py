@@ -626,17 +626,15 @@ class ModelsInfo:
                         model_name = file_path[len(path) + 1:]
 
             if not catalog:
-                print(f'[ModelInfo] The added file path {file_path} does not match any path in path_map.')
+                print(f'[ModelInfo] The added file path "{file_path}" does not match any path in path_map.')
                 return
-            else:
-                print(f'[ModelInfo] The added file path {file_path} matches catalog {catalog} with model_name {model_name}.')
 
             scan_hash = self.scan_models_hash
             self.scan_models_hash = True
             model_name = model_name.replace(os.sep, '/')
             model_key = f'{catalog}/{model_name}'
             self.add_or_refresh_model(model_key, [file_path], url)
-            print(f'[ModelInfo] Added model {model_key} with file {file_path}')
+            print(f'[ModelInfo] Added model "{model_key}" with file: {file_path}')
             self.scan_models_hash = scan_hash
 
         elif action == 'delete':
@@ -644,7 +642,7 @@ class ModelsInfo:
                 print(f'[ModelInfo] File not found in model info: {file_path}')
                 return
             self.remove_file(file_path)
-            print(f'[ModelInfo] Deleted model {model_key} with file {file_path}')
+            print(f'[ModelInfo] Deleted model "{model_key}" with file: {file_path}')
 
         self.save_model_info()
 
