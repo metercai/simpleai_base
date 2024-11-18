@@ -626,7 +626,7 @@ class ModelsInfo:
                         model_name = file_path[len(path) + 1:]
 
             if not catalog:
-                print(f'[ModelInfo] The added file path "{file_path}" does not match any path in path_map.')
+                print(f'[ModelInfo] The added file "{file_path}" does not match any path in path_map.')
                 return
 
             scan_hash = self.scan_models_hash
