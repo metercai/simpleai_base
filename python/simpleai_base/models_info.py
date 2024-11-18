@@ -619,6 +619,7 @@ class ModelsInfo:
             model_name = os.path.basename(file_path)
             for key, paths in self.path_map.items():
                 for path in paths:
+                    path = os.path.abspath(path)
                     if file_path.startswith(path) and len(path) > max_match_length:
                         catalog = key
                         max_match_length = len(path)
@@ -627,6 +628,8 @@ class ModelsInfo:
             if not catalog:
                 print(f'[ModelInfo] The added file path {file_path} does not match any path in path_map.')
                 return
+            else:
+                print(f'[ModelInfo] The added file path {file_path} matches catalog {catalog} with model_name {model_name}.')
 
             scan_hash = self.scan_models_hash
             self.scan_models_hash = True
