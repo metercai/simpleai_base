@@ -111,9 +111,7 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
     let token_data = decrypt(&token_raw_data, &crypt_key, 0);
     let system_token: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
 
-    if *VERBOSE_INFO {
-        println!("Load user_certs token from file: {}", system_token);
-    }
+    debug!("Load user_certs token from file: {}", system_token);
     let claims = claims::GlobalClaims::instance();
     if let Some(Value::Object(user_certs)) = system_token.get("user_certs") {
         for (key, value) in user_certs {

@@ -386,12 +386,13 @@ impl SimpleAI {
     pub fn push_certificate(&mut self, cert_key: &str, cert: &str) {
         self.certificates.insert(cert_key.to_string(), cert.to_string());
         token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
+        let cert_key_array: Vec<&str> = cert_key.split("|").collect();
+        let claim = self.get_claim(cert_key_array[0]); // get issue_did and save local
     }
 
     pub fn push_issue_cert(&mut self, issue_key: &str, issue_cert: &str) {
         self.issued_certs.insert(issue_key.to_string(), issue_cert.to_string());
         token_utils::save_issued_certs_to_file(&self.did, &self.issued_certs);
-
     }
 
     pub fn get_register_cert(&self, for_did: &str) -> String {
@@ -406,6 +407,7 @@ impl SimpleAI {
         if !issue_did.is_empty() && !for_did.is_empty() &&
             IdClaim::validity(issue_did) && IdClaim::validity(for_did) {
             let cert_key = format!("{}|{}|{}", issue_did, for_did, item);
+            debug!("get_user_cert, cert_key: {}", cert_key);
             self.certificates.get(&cert_key).unwrap_or(&"Unknown".to_string()).clone()
         } else { "Unknown".to_string()  }
     }
