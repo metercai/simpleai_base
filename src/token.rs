@@ -387,7 +387,8 @@ impl SimpleAI {
         self.certificates.insert(cert_key.to_string(), cert.to_string());
         token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
         let cert_key_array: Vec<&str> = cert_key.split("|").collect();
-        let claim = self.get_claim(cert_key_array[0]); // get issue_did and save local
+        let _ = self.get_claim(cert_key_array[0]); // get issue_did and save local
+        let _ = self.get_claim(cert_key_array[1]);
     }
 
     pub fn push_issue_cert(&mut self, issue_key: &str, issue_cert: &str) {
@@ -563,6 +564,9 @@ impl SimpleAI {
 
     pub fn check_sstoken_and_get_did(&self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
+        if sstoken.len() != 44 || sstoken_bytes==[0; 32] {
+            return String::from("Unknown")
+        }
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
         padded_sstoken_bytes.copy_from_slice(&sstoken_bytes);
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)

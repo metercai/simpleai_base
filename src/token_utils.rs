@@ -248,7 +248,7 @@ pub(crate) fn filter_issuer_certs(issuer_did: &str, item: &str,user_certs: &Hash
 
 pub(crate) fn parse_user_certs(certificate_string: &str) -> (String, String) {
     let certs_array: Vec<&str> = certificate_string.split("|").collect();
-    if certs_array.len() >= 7 {
+    if certs_array.len() >= 7 && IdClaim::validity(certs_array[0]) && IdClaim::validity(certs_array[1]){
         let certs_key = format!("{}|{}|{}", certs_array[0], certs_array[1], certs_array[2]);
         let certs_value = format!("{}|{}|{}|{}", certs_array[3], certs_array[4], certs_array[5], certs_array[6]);
         (certs_key, certs_value)
@@ -997,7 +997,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &telephone);
         let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
         let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-        fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+        fs::write(identity_file.clone(), URL_SAFE_NO_PAD.encode(encrypted_identity)).expect(&format!("Unable to write file: {}", identity_file.display()));
         println!("[UserBase] Import from qrcode and save identity_file: {}", user_did);
         if telephone == "0" {
             (user_did, nickname, "".to_string())
