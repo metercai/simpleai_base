@@ -876,7 +876,7 @@ impl SimpleAI {
                                         let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
                                             user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
 
-                                        let _ = certificate_string.replace(":", "|");
+                                        let certificate_string = certificate_string.replace(":", "|");
                                         let certs_array: Vec<&str> = certificate_string.split(",").collect();
                                         for cert in &certs_array {
                                             let (certs_key, certs_value) = token_utils::parse_user_certs(cert);
