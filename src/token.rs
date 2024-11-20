@@ -842,17 +842,22 @@ impl SimpleAI {
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
             let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
             match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
-                true => self.sign_user_context(&user_did, phrase),
+                true => {
+                    debug!("User {} exists", user_did);
+                    self.sign_user_context(&user_did, phrase)
+                },
                 false => {
                     let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
                     let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                     match identity_file.exists() {
                         true => {
+                            debug!("User {} identity file exists", user_did);
                             let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                             let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
                             self.sign_user_context(&user_did, phrase)
                         }
                         false => {
+                            debug!("ready to get user copy");
                             let mut request: serde_json::Value = json!({});
                             let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
                             request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
