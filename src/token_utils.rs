@@ -659,6 +659,7 @@ pub(crate) fn get_user_copy_hash_id(nickname: &str, telephone_base64: &str, phra
 pub(crate) fn save_user_pem(symbol_hash: &[u8; 32], pem: &str) {
     let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
     let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+    debug!("save user_key_file: {}", user_key_file.display());
     fs::write(user_key_file.clone(), pem).unwrap_or_else(|_| panic!("Failed to write to file: {}", user_key_file.display()));
 }
 

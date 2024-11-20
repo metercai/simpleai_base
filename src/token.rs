@@ -1063,6 +1063,9 @@ impl SimpleAI {
 
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.upstream_did.clone();
+        if upstream_did.is_empty() {
+            return "Unknown".to_string()
+        }
         let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
         TOKIO_RUNTIME.block_on(async {
             debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
