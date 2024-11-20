@@ -665,6 +665,7 @@ pub(crate) fn save_user_pem(symbol_hash: &[u8; 32], pem: &str) {
 pub(crate) fn remove_user_pem_and_claim(symbol_hash: &[u8; 32], did: &str) {
     let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
     let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+    debug!("symbol_hash: {}, remove user_key_file: {:?} and user_did: {}", URL_SAFE_NO_PAD.encode(symbol_hash), user_key_file, did);
     if let Err(e) = fs::remove_file(user_key_file.clone()) {
         debug!("delete user_key_file error: {}", e);
     } else {
