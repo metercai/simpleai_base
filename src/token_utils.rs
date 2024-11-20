@@ -827,9 +827,7 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool) -> [u8
             priv_key
         }
     };
-    if *VERBOSE_INFO {
-        println!("read private key: {}", file_path.display());
-    }
+    debug!("read private key: {}", file_path.display());
     private_key.try_into().unwrap()
 }
 
@@ -839,6 +837,7 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
             fs::create_dir_all(parent_dir).unwrap();
         }
     }
+    debug!("generate new key: {}", file_path.display());
     let pem_label = "SIMPLE_AI_KEY";
     let mut csprng = OsRng {};
     let secret_key = SigningKey::generate(&mut csprng).to_bytes();
