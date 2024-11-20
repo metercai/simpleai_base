@@ -682,7 +682,7 @@ impl SimpleAI {
                 match identity_file.exists() {
                     true => "local".to_string(),
                     false => {
-                        debug!("generate ready_data for new user: {} {}", nickname, telephone);
+                        println!("[UserBase] The identity is not in local and generate ready_data for new user: {}", nickname);
                         let new_claim = GlobalClaims::generate_did_claim
                             ("User", &nickname, Some(telephone.to_string()), None, &user_phrase);
                         let exchange_crypt_secret =  URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
@@ -708,14 +708,16 @@ impl SimpleAI {
                         let user_certificate = self.request_token_api(
                             "apply",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        println!("[UserBase] Apply user copy or verify new user: symbol({}), ready_cert({})", symbol_hash_base64, user_certificate);
+                        println!("[UserBase] Apply to verify user: symbol({}), ready_cert({})", symbol_hash_base64, user_certificate);
                         let parts: Vec<&str> = user_certificate.split('_').collect();
                         let result = parts[0].to_string();
                         if result != "Unknown".to_string()  {
                             ready_data["user_certificate"] = serde_json::to_value(user_certificate.clone()).unwrap_or(json!(""));
                             self.ready_users.insert(user_hash_id.clone(), ready_data);
+                            println!("[UserBase] User verification apply is ok, ready to verify with vcode: did({}), symbol({})", new_claim.gen_did(), symbol_hash_base64);
                             "remote".to_string()
                         } else {
+                            println!("[UserBase] User verification apply is failure: did({}), symbol({})", new_claim.gen_did(), symbol_hash_base64);
                             token_utils::remove_user_pem_and_claim(&symbol_hash, &new_claim.gen_did());
                             "unknown".to_string()
                         }
@@ -738,10 +740,10 @@ impl SimpleAI {
                 let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
                 let did = claim.gen_did();
                 let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
-                if user_certificate.len() > 32 {
+                if user_certificate.len() > 32 && !self.get_upstream_did().is_empty() {
                     let upstream_did = self.get_upstream_did();
                     let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
-                    println!("[UserBase] Identity verified: symbol({}), did({}), cert({})", URL_SAFE_NO_PAD.encode(symbol_hash), did, user_certificate_text);
+                    println!("[UserBase] The parsed_cert from Root is correct: symbol({}), did({}), cert({})", URL_SAFE_NO_PAD.encode(symbol_hash), did, user_certificate_text);
                     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
                     let user_certificate_text_array: Vec<&str> = user_certificate_text.split("|").collect();
                     if user_certificate_text_array.len() >= 7
@@ -758,19 +760,22 @@ impl SimpleAI {
                         let result = self.request_token_api(
                             "confirm",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        println!("[UserBase] Identity confirm to root, the result: {}", result);
                         if result == "Confirmed_ok" {
                             if did == user_certificate_text_array[1] {
+                                println!("[UserBase] Identity confirmed and ready to create new user: {}", did);
                                 return "create".to_string();
                             } else {
+                                println!("[UserBase] Identity confirmed and ready to recall from root: {}", did);
                                 token_utils::remove_user_pem_and_claim(&symbol_hash, &did);
                                 return "recall".to_string();
                             }
                         } else {
+                            println!("[UserBase] Identity confirm fail: did({}), error({})", did, result);
                             return "error in confirming".to_string();
                         }
                     }
                 }
+                println!("[UserBase] The parsed_cert from Root is incorrect : symbol({}), did({})", URL_SAFE_NO_PAD.encode(symbol_hash), did);
                 ready_data["vcode_try_counts"] = try_count.into();
                 self.ready_users.insert(user_hash_id.clone(), ready_data);
                 return format!("error:{}", try_count).to_string();
@@ -802,7 +807,7 @@ impl SimpleAI {
             let identity = self.export_user(&nickname, &telephone, &phrase);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
             fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-            println!("[UserBase] Create user and save identity_file: {}", did);
+            println!("[UserBase] Create new user with phrase and save identity_file: {}", did);
 
             let context = self.sign_user_context(&did, phrase);
 
@@ -831,7 +836,7 @@ impl SimpleAI {
                 let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", did));
                 fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
             }
-            println!("[UserBase] Set phrase and upload encrypted_user_copy: {}, {}", did, params);
+            println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", did, params);
             context
         } else {
             self.get_guest_user_context()
@@ -842,23 +847,22 @@ impl SimpleAI {
         if Self::is_valid_telephone(telephone) {
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
             let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
+            let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
             match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
                 true => {
-                    debug!("User {} exists", user_did);
+                    println!("[UserBase] Get user context:{} from local key file: .token_user_{}.pem", user_did, user_hash_id);
                     self.sign_user_context(&user_did, phrase)
                 },
                 false => {
-                    let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
                     let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                     match identity_file.exists() {
                         true => {
-                            debug!("User {} identity file exists", user_did);
+                            println!("[UserBase] Get user encrypted copy from identity file: {}, user_identity_{}.token", user_did, user_hash_id);
                             let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                             let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
                             self.sign_user_context(&user_did, phrase)
                         }
                         false => {
-                            debug!("ready to get user copy");
                             let mut request: serde_json::Value = json!({});
                             let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
                             request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
@@ -876,40 +880,49 @@ impl SimpleAI {
                                         token_utils::save_user_pem(&symbol_hash, pem);
                                         let claim: IdClaim = serde_json::from_str(&user_copy_from_cloud_array[1]).unwrap_or(IdClaim::default());
                                         let did = claim.gen_did();
-                                        // reset crypt_secret
-                                        token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &claim, phrase);
-                                        self.push_claim(&claim.clone());
-                                        token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+                                        if token_utils::is_valid_user_key(&symbol_hash, phrase) {
+                                            println!("[UserBase] Get user encrypted copy is valid: {}", did);
+                                            // reset crypt_secret
+                                            token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &claim, phrase);
+                                            self.push_claim(&claim.clone());
+                                            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
 
-                                        let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                            user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+                                            let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                                user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
 
-                                        let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
-                                            .unwrap_or(UserContext::default()), "add");
+                                            let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
+                                                .unwrap_or(UserContext::default()), "add");
 
-                                        let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                            user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+                                            let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                                user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
 
-                                        let certificate_string = certificate_string.replace(":", "|");
-                                        let certs_array: Vec<&str> = certificate_string.split(",").collect();
-                                        for cert in &certs_array {
-                                            let (certs_key, certs_value) = token_utils::parse_user_certs(cert);
-                                            if certs_key != "Unknown" {
-                                                self.certificates.insert(certs_key, certs_value);
+                                            let certificate_string = certificate_string.replace(":", "|");
+                                            let certs_array: Vec<&str> = certificate_string.split(",").collect();
+                                            for cert in &certs_array {
+                                                let (certs_key, certs_value) = token_utils::parse_user_certs(cert);
+                                                if certs_key != "Unknown" {
+                                                    self.certificates.insert(certs_key, certs_value);
+                                                }
                                             }
+                                            token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
+
+                                            let identity = self.export_user(&nickname, &telephone, &phrase);
+                                            fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+                                            println!("[UserBase] Get user encrypted copy and save identity_file: {}", identity_file.display());
+
+                                            self.sign_user_context(&did, phrase)
+                                        } else {
+                                            println!("[UserBase] Get user encrypted copy is not valid: {}", did);
+                                            self.get_guest_user_context()
                                         }
-                                        token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
 
-                                        let identity = self.export_user(&nickname, &telephone, &phrase);
-                                        fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-                                        println!("[UserBase] Get user encrypted copy and save identity_file: {}", identity_file.display());
-
-                                        self.sign_user_context(&did, phrase)
                                     } else {
+                                        println!("[UserBase] Get user encrypted copy is not valid: {}", user_hash_id);
                                         self.get_guest_user_context()
                                     }
                                 },
                                 false => {
+                                    println!("[UserBase] Get user encrypted copy is not valid: {}", user_hash_id);
                                     self.get_guest_user_context()
                                 }
                             }
@@ -918,6 +931,7 @@ impl SimpleAI {
                 }
             }
         } else {
+            println!("[UserBase] The telephone is not valid: {}", telephone);
             self.get_guest_user_context()
         }
     }

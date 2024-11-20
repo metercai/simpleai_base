@@ -903,6 +903,11 @@ pub(crate) fn is_original_user_key(symbol_hash: &[u8; 32]) -> bool {
     key != [0u8; 32]
 }
 
+pub(crate) fn is_valid_user_key(symbol_hash: &[u8; 32], phrase: &str) -> bool {
+    let key = read_key_or_generate_key("User", symbol_hash, &phrase, false);
+    key != [0u8; 32]
+}
+
 pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], TokenError> {
     let mut key = [0u8; 32];
     Argon2::default().hash_password_into(password, salt, &mut key)?;
