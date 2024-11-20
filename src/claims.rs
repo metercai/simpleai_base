@@ -166,9 +166,7 @@ impl GlobalClaims {
                 request["user_symbol"] = serde_json::to_value("").unwrap();
                 request["user_did"] = serde_json::to_value(did).unwrap();
 
-                if *token_utils::VERBOSE_INFO {
-                    println!("get claim from global with did: {}", did);
-                }
+                debug!("get claim from global with did: {}", did);
                 let result = token::TOKIO_RUNTIME.block_on(async {
                     match token::REQWEST_CLIENT.post(
                         format!("{}{}", token_utils::TOKEN_TM_URL, "get_use_claim"))
@@ -180,9 +178,7 @@ impl GlobalClaims {
                             let status_code = res.status();
                             match res.text().await {
                                 Ok(text) => {
-                                    if *token_utils::VERBOSE_INFO {
-                                        println!("[Upstream] response: {}", text);
-                                    }
+                                    debug!("[Upstream] response: {}", text);
                                     if status_code.is_success() { text } else { "Unknown".to_string() }
                                 },
                                 Err(e) => {
@@ -293,10 +289,9 @@ impl IdClaim {
         let verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_verify_key(id_type, &symbol_hash, phrase));
         let crypt_secret = token_utils::get_specific_secret_key("exchange", id_type, &symbol_hash, phrase);
         let cert_secret = token_utils::get_specific_secret_key("issue", id_type, &symbol_hash, phrase);
-        if *token_utils::VERBOSE_INFO {
-            println!("IdClaim new() get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(crypt_secret));
-            println!("IdClaim new() get {} issue_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(cert_secret));
-        }
+        debug!("IdClaim new() get {} exchange_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(crypt_secret));
+        debug!("IdClaim new() get {} issue_key: {}", URL_SAFE_NO_PAD.encode(symbol_hash), URL_SAFE_NO_PAD.encode(cert_secret));
+
         let crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_crypt_key(crypt_secret));
         let cert_verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_cert_verify_key(&cert_secret));
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)

@@ -662,6 +662,23 @@ pub(crate) fn save_user_pem(symbol_hash: &[u8; 32], pem: &str) {
     fs::write(user_key_file.clone(), pem).unwrap_or_else(|_| panic!("Failed to write to file: {}", user_key_file.display()));
 }
 
+pub(crate) fn remove_user_pem_and_claim(symbol_hash: &[u8; 32], did: &str) {
+    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
+    let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+    if let Err(e) = fs::remove_file(user_key_file.clone()) {
+        debug!("delete user_key_file error: {}", e);
+    } else {
+        debug!("user_key_file was deleted: {:?}", user_key_file);
+    }
+    let user_did_file_path = get_path_in_sys_key_dir(format!("user_{}.did", did).as_str());
+    if user_did_file_path.exists() {
+        if let Err(e) = fs::remove_file(user_did_file_path.clone()) {
+            debug!("delete user_did_file error: {}", e);
+        } else {
+            debug!("user_did_file was deleted: {:?}", user_did_file_path);
+        }
+    }
+}
 pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, new_phrase: &str) {
     let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
     let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));

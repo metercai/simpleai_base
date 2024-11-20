@@ -716,12 +716,8 @@ impl SimpleAI {
                             self.ready_users.insert(user_hash_id.clone(), ready_data);
                             "remote".to_string()
                         } else {
-                            let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
-                            if let Err(e) = fs::remove_file(user_key_file.clone()) {
-                                debug!("无法私钥删除文件: {}", e);
-                            } else {
-                                debug!("私钥文件已成功删除: {:?}", user_key_file);
-                            }"unknown".to_string()
+                            token_utils::remove_user_pem_and_claim(&symbol_hash, &new_claim.gen_did());
+                            "unknown".to_string()
                         }
                     }
                 }
@@ -767,12 +763,7 @@ impl SimpleAI {
                             if did == user_certificate_text_array[1] {
                                 return "create".to_string();
                             } else {
-                                let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
-                                if let Err(e) = fs::remove_file(user_key_file.clone()) {
-                                    debug!("无法私钥删除文件: {}", e);
-                                } else {
-                                    debug!("私钥文件已成功删除: {:?}", user_key_file);
-                                }
+                                token_utils::remove_user_pem_and_claim(&symbol_hash, &did);
                                 return "recall".to_string();
                             }
                         } else {
