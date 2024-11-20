@@ -893,6 +893,11 @@ impl SimpleAI {
                                             }
                                         }
                                         token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
+
+                                        let identity = self.export_user(&nickname, &telephone, &phrase);
+                                        fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+                                        println!("[UserBase] Get user encrypted copy and save identity_file: {}", identity_file.display());
+
                                         self.sign_user_context(&did, phrase)
                                     } else {
                                         self.get_guest_user_context()

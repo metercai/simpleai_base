@@ -368,7 +368,7 @@ pub(crate) fn get_user_token_from_file(did: &str, sys_did: &str) -> UserContext 
     let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
     match user_token_file.exists() {
         true => {
-            let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", true));
+            let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", false));
             let token_raw_data = match user_token_file.exists() {
                 true => {
                     match fs::read(user_token_file) {
@@ -385,7 +385,7 @@ pub(crate) fn get_user_token_from_file(did: &str, sys_did: &str) -> UserContext 
             let user_tokens: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
             let user_context: UserContext = match user_tokens.get(sys_did) {
                 Some(value) => {
-                    let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
+                    let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", false));
                     let json_string = serde_json::to_string(&value).unwrap_or(String::from("{}"));
                     let token_data = decrypt(&URL_SAFE_NO_PAD.decode(json_string).unwrap_or([0u8; 32].to_vec()), &sys_key, 0);
                     let user_token: Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
@@ -404,8 +404,8 @@ pub(crate) fn get_user_token_from_file(did: &str, sys_did: &str) -> UserContext 
 pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> String {
     let did = context.get_did();
     let sys_did = context.get_sys_did();
-    let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", true));
-    let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
+    let device_key = calc_sha256(&read_key_or_generate_key("Device", &[0u8; 32], "None", false));
+    let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", false));
     let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
     match user_token_file.exists() {
         true => {
@@ -445,7 +445,7 @@ pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> 
             let mut user_tokens: serde_json::Value = json!({});
             if method == "add" {
                 let context_string = context.to_json_string();
-                let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", true));
+                let sys_key = calc_sha256(&read_key_or_generate_key("System", &[0u8; 32], "None", false));
                 let context_raw_data = URL_SAFE_NO_PAD.encode(encrypt(context_string.as_bytes(), &sys_key, 0));
                 user_tokens[sys_did] = json!(context_raw_data);
                 let json_string = serde_json::to_string(&user_tokens).unwrap_or(String::from("{}"));
@@ -507,7 +507,7 @@ pub(crate) fn exists_key_file(key_type: &str, symbol_hash: &[u8; 32]) -> bool {
 }
 
 pub(crate) fn get_verify_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
-    let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, symbol_hash, phrase, true));
+    let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, symbol_hash, phrase, false));
     let verifying_key: VerifyingKey = signing_key.verifying_key();
     *verifying_key.as_bytes()
 }
@@ -519,7 +519,7 @@ pub(crate) fn get_cert_verify_key(cert_secret: &[u8; 32]) -> [u8; 32] {
 }
 
 pub(crate) fn get_specific_secret_key(key_name: &str, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
-    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase, true));
+    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase, false));
     let key_name_bytes = calc_sha256(key_name.as_bytes());
     let mut com_phrase = [0u8; 64];
     com_phrase[..32].copy_from_slice(&key_hash);
@@ -530,7 +530,7 @@ pub(crate) fn get_specific_secret_key(key_name: &str, key_type: &str, symbol_has
 
 
 pub(crate) fn get_random_secret_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
-    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase, true));
+    let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase, false));
     let mut csprng = OsRng {};
     let mut random_number = [0u8; 16];
     csprng.fill_bytes(&mut random_number);
@@ -554,7 +554,7 @@ pub(crate) fn get_diffie_hellman_key(did_key: [u8; 32], secret_key: [u8; 32]) ->
 }
 
 pub(crate) fn get_signature(text: &str, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> Vec<u8> {
-    get_signature_by_key(text,&read_key_or_generate_key(key_type, symbol_hash, phrase, true))
+    get_signature_by_key(text,&read_key_or_generate_key(key_type, symbol_hash, phrase, false))
 
 }
 
@@ -666,7 +666,7 @@ pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, ne
     let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
     let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
     let id_hash = [0u8; 32];
-    let device_key = read_key_or_generate_key("Device", &id_hash, "None", true);
+    let device_key = read_key_or_generate_key("Device", &id_hash, "None", false);
     let old_phrase_text = format!("{}|{}|{}",
                               URL_SAFE_NO_PAD.encode(device_key.as_slice()),
                               old_phrase, user_phrase);
@@ -819,6 +819,7 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool) -> [u8
                         println!("[UserBase] Read key file error and generate new key: {}", file_path.display());
                         generate_new_key_and_save_pem(file_path, &phrase_bytes)
                     } else {
+                        println!("[UserBase] Read key file error and return 0 key: {}", file_path.display());
                         [0; 32]
                     }
                 },
@@ -857,7 +858,7 @@ fn save_key_to_pem(symbol_hash: &[u8; 32], key: &[u8; 32], phrase: &str) -> [u8;
         }
     }
     let id_hash = [0u8; 32];
-    let device_key = read_key_or_generate_key("Device", &id_hash, "None", true);
+    let device_key = read_key_or_generate_key("Device", &id_hash, "None", false);
     let phrase_text = format!("{}|{}|{}",
                               URL_SAFE_NO_PAD.encode(device_key.as_slice()),
                               phrase, user_phrase);
@@ -899,8 +900,8 @@ fn get_token_crypt_key() -> [u8; 32] {
 
 pub(crate) fn get_file_crypt_key() -> [u8; 32] {
     let id_hash = [0u8; 32];
-    let device_key = calc_sha256(&read_key_or_generate_key("Device", &id_hash, "None", true));
-    let local_key = calc_sha256(&read_key_or_generate_key("System", &id_hash, "None", true));
+    let device_key = calc_sha256(&read_key_or_generate_key("Device", &id_hash, "None", false));
+    let local_key = calc_sha256(&read_key_or_generate_key("System", &id_hash, "None", false));
     let mut com_hash = [0u8; 64];
     com_hash[..32].copy_from_slice(&device_key);
     com_hash[32..].copy_from_slice(&local_key);
@@ -950,7 +951,7 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
         }
     }.to_le_bytes();
     let timestamp_bytes = timestamp.to_le_bytes();
-    let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, true);
+    let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, false);
     let nickname_bytes = nickname.as_bytes().get(..24).unwrap_or(nickname.as_bytes());
     let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
     let mut identity_secret = Vec::with_capacity(timestamp_bytes.len() + user_key.len());
