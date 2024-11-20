@@ -504,35 +504,6 @@ impl UserContext {
             &secret_key_bytes, expire));
     }
 
-    pub fn get_private_paths(&self) -> Vec<String> {
-        serde_json::from_str(&self.private_paths).unwrap_or_default()
-    }
-
-    pub fn get_private_paths_list(&self, catalog: &str) -> Vec<String> {
-        let catalog_paths = token_utils::get_path_in_user_dir(self.did.as_str(), catalog);
-        let filters = &[];
-        let suffixes = &[".json"];
-        token_utils::filter_files(&catalog_paths, filters, suffixes)
-    }
-
-    pub fn get_private_paths_datas(&self, catalog: &str, filename: &str) -> String {
-        let file_paths = token_utils::get_path_in_user_dir(self.did.as_str(), catalog).join(filename);
-        match file_paths.exists() {
-            true => {
-                let crypt_key = self.get_crypt_key();
-                match fs::read(file_paths) {
-                    Ok(raw_data) => {
-                        let data = token_utils::decrypt(&raw_data, &crypt_key, 0);
-                        let private_datas: Value = serde_json::from_slice(&data).unwrap_or(serde_json::json!({}));
-                        private_datas.to_string()
-                    },
-                    Err(_) => "Unknowns".to_string(),
-                }
-            }
-            false => "Unknowns".to_string(),
-        }
-    }
-
     pub(crate) fn get_aes_key_encrypted(&self) -> String {
         self.aes_key_encrypted.clone()
     }

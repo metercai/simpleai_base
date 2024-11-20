@@ -67,7 +67,7 @@ pub struct SimpleAI {
     ready_users: HashMap<String, serde_json::Value>,
     blacklist: Vec<String>, // 黑名单
     upstream_did: String,
-
+    user_base_dir: String,
 }
 
 #[pymethods]
@@ -212,6 +212,7 @@ impl SimpleAI {
             ready_users: HashMap::new(),
             blacklist,
             upstream_did,
+            user_base_dir: String::new(),
         }
     }
 
@@ -616,27 +617,30 @@ impl SimpleAI {
     }
 
     #[staticmethod]
-    pub fn get_path_in_user_dir(did: &str, catalog: &str) -> String {
-        let path_file = token_utils::get_path_in_user_dir(did, catalog);
-        path_file.to_string_lossy().to_string()
-    }
-
-    #[staticmethod]
     pub fn get_path_in_root_dir(did: &str, catalog: &str) -> String {
         let path_file = token_utils::get_path_in_root_dir(did, catalog);
         path_file.to_string_lossy().to_string()
     }
-    #[staticmethod]
-    pub fn get_private_paths_list(did: &str, catalog: &str) -> Vec<String> {
-        let catalog_paths = token_utils::get_path_in_user_dir(did, catalog);
+
+    pub fn set_user_base_dir(&mut self, user_base_dir: &str) {
+        self.user_base_dir = user_base_dir.to_string();
+    }
+
+    pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
+        let path_file = token_utils::get_path_in_user_dir(did, catalog, &self.user_base_dir);
+        path_file.to_string_lossy().to_string()
+    }
+
+    pub fn get_private_paths_list(&self, did: &str, catalog: &str) -> Vec<String> {
+        let catalog_paths = token_utils::get_path_in_user_dir(did, catalog, &self.user_base_dir);
         let filters = &[];
         let suffixes = &[".json"];
         token_utils::filter_files(&catalog_paths, filters, suffixes)
     }
 
-    #[staticmethod]
-    pub fn get_private_paths_datas(user_context: &UserContext, catalog: &str, filename: &str) -> String {
-        let file_paths = token_utils::get_path_in_user_dir(&user_context.get_did(), catalog).join(filename);
+
+    pub fn get_private_paths_datas(&self, user_context: &UserContext, catalog: &str, filename: &str) -> String {
+        let file_paths = token_utils::get_path_in_user_dir(&user_context.get_did(), catalog, &self.user_base_dir).join(filename);
         match file_paths.exists() {
             true => {
                 let crypt_key = user_context.get_crypt_key();
@@ -945,11 +949,12 @@ impl SimpleAI {
         }
         // release user token and conext
         if (user_did != self.admin) {
+            let key = format!("{}_{}", user_did, self.get_sys_did());
             let authorized = self.authorized.lock().unwrap();
-            let _ = match authorized.contains_key(&user_did).unwrap() {
+            let _ = match authorized.contains_key(&key).unwrap() {
                 false => {},
                 true => {
-                    let _ = authorized.remove(&user_did);
+                    let _ = authorized.remove(&key);
                 }
             };
             let _ = token_utils::update_user_token_to_file(&context, "remove");
@@ -959,10 +964,11 @@ impl SimpleAI {
     }
 
     pub fn get_user_context(&mut self, did: &str) -> UserContext {
+        let key = format!("{}_{}", did, self.get_sys_did());
         if !self.blacklist.contains(&did.to_string()) {
             let context = {
                 let authorized = self.authorized.lock().unwrap();
-                match authorized.get(&format!("{}_{}", did, self.get_sys_did())) {
+                match authorized.get(&key) {
                     Ok(Some(context)) => {
                         let context_string = String::from_utf8(context.to_vec()).unwrap();
                         let user_token: serde_json::Value = serde_json::from_slice(&context_string.as_bytes()).unwrap_or(serde_json::json!({}));
@@ -976,7 +982,7 @@ impl SimpleAI {
                 let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
                 {
                     let authorized = self.authorized.lock().unwrap();
-                    let _ = authorized.insert(&format!("{}_{}", did, self.get_sys_did()), ivec_data);
+                    let _ = authorized.insert(&key, ivec_data);
                 }
                 context
             } else {

@@ -2,8 +2,9 @@ import json
 from simpleai_base.simpleai_base import ComfyTaskParams as inheritedComfyTaskParams
 
 class ComfyTaskParams:
-    def __init__(self, params):
-        self.obj = inheritedComfyTaskParams(json.dumps(params))
+    def __init__(self, params, user_did="", user_base_dir=""):
+        self.obj = inheritedComfyTaskParams(json.dumps(params), user_did, user_base_dir)
+
 
     def set_mapping_rule(self, maps):
         return self.obj.set_mapping_rule(maps)

@@ -10,6 +10,8 @@ use crate::token_utils;
 pub struct ComfyTaskParams {
     params: HashMap<String, Value>,
     fooo2node: HashMap<String, String>,
+    user_did: String,
+    user_base_dir: String,
 }
 
 static FOOO2NODE_DATA: &[(&str, &str)] = &[
@@ -104,7 +106,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
 #[pymethods]
 impl ComfyTaskParams {
     #[new]
-    pub fn new(params: String) -> Self {
+    pub fn new(params: String, user_did: String, user_base_dir: String) -> Self {
         let fooo2node: HashMap<String, String> = FOOO2NODE_DATA.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let params: HashMap<String, Value> = match serde_json::from_str(&params) {
             Ok(json) => json,
@@ -113,6 +115,8 @@ impl ComfyTaskParams {
         Self {
             params,
             fooo2node,
+            user_did,
+            user_base_dir
         }
     }
 
@@ -146,7 +150,8 @@ impl ComfyTaskParams {
 
     pub fn convert2comfy(&self, flow_name: String) -> String {
         let filename = format!("{}_api.json", flow_name);
-        let flow_file = token_utils::get_path_in_user_dir("workflows", &filename);
+        let filename_with_path = format!("workflows/{}", filename);
+        let flow_file = token_utils::get_path_in_user_dir(&self.user_did, &filename_with_path, &self.user_base_dir);
         let flow_file = match flow_file.exists() {
             true => flow_file,
             false => token_utils::get_path_in_root_dir("workflows", &filename)
