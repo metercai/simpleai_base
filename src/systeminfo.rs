@@ -172,7 +172,7 @@ impl SystemInfo {
         let local_ip = env_utils::get_ipaddr_from_stream(None).await.unwrap_or_else(|_| Ipv4Addr::new(127, 0, 0, 1));
         let public_ip_task = env_utils::get_ipaddr_from_public(false);
         let local_port_task = env_utils::get_port_availability(local_ip.clone(), 8186);
-        let loopback_port_task = env_utils::get_random_port_availability(Ipv4Addr::new(127,0,0,1), 8185);
+        let loopback_port_task = env_utils::get_port_availability(Ipv4Addr::new(127,0,0,1), 8187);
         let location_task = env_utils::get_location();
         let program_hash_task = env_utils::get_program_hash();
         let mac_address_task = env_utils::get_mac_address(local_ip.into());
