@@ -680,18 +680,10 @@ class ModelsInfo:
     def get_model_names(self, catalog, filters=[], casesensitive=False, reverse=False):
         result = []
         result_reverse = []
-        if not casesensitive:
-            new_filters=[]
-            for item in filters:
-                if isinstance(item, list):
-                    item = [item.lower() for item in item]
-                else:
-                    item = item.lower()
-                new_filters.append(item)
-            filters = new_filters
         for f in self.m_info.keys():
             cata = f.split('/')[0]
-            m_path_or_file = f[len(cata) + 1:].replace('/', os.sep)
+            m_path_or_file_org = f[len(cata) + 1:].replace('/', os.sep)
+            m_path_or_file = m_path_or_file if casesensitive else m_path_or_file_org.lower()
             if catalog and cata == catalog:
                 result_reverse.append(m_path_or_file)
                 if len(filters) > 0:
@@ -704,16 +696,16 @@ class ModelsInfo:
                                     ex_flag = True
                                     break
                             if not ex_flag:
-                                result.append(m_path_or_file)
+                                result.append(m_path_or_file_org)
                                 result_reverse.pop()
                                 break
                         else:
                             if item in m_path_or_file:
-                                result.append(m_path_or_file)
+                                result.append(m_path_or_file_org)
                                 result_reverse.pop()
                                 break
                 else:
-                    result.append(m_path_or_file)
+                    result.append(m_path_or_file_org)
                     result_reverse.pop()
         if reverse:
             return sorted(result_reverse, key=str.casefold)
