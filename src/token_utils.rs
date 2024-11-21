@@ -53,14 +53,15 @@ lazy_static! {
 }
 
 
-pub(crate) fn load_pem_and_claim_from_file(id_type: &str, symbol_hash: &[u8; 32], did: &str) -> String {
+pub(crate) fn load_identity_and_claim_from_file(id_type: &str, symbol_hash: &[u8; 32], did: &str) -> String {
     let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
-    let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
-    let pem_string = fs::read_to_string(user_key_file).unwrap_or("".to_string());
+    let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+    let identity_string = fs::read_to_string(identity_file).unwrap_or("".to_string());
     let did_file_path = get_path_in_sys_key_dir(format!("{}_{}.did", id_type.to_lowercase(), did).as_str());
     let claim_string  = fs::read_to_string(did_file_path).unwrap_or("".to_string());
-    format!("{}|{}", pem_string, claim_string)
+    format!("{}|{}", identity_string, claim_string)
 }
+
 
 #[macro_export]
 macro_rules! exchange_key {
@@ -835,10 +836,10 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool) -> [u8
                 },
                 Err(_e) => {
                     if regen {
-                        println!("[UserBase] Read key file error and generate new key: {}", file_path.display());
+                        println!("[UserBase] Read private key error and generate new key: {}", file_path.display());
                         generate_new_key_and_save_pem(file_path, &phrase_bytes)
                     } else {
-                        println!("[UserBase] Read key file error and return 0 key: {}", file_path.display());
+                        println!("[UserBase] Read private key error and return 0 key: {}", file_path.display());
                         [0; 32]
                     }
                 },
@@ -856,7 +857,7 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
             fs::create_dir_all(parent_dir).unwrap();
         }
     }
-    debug!("generate new key: {}", file_path.display());
+    debug!("generate new key and save pem file: {}", file_path.display());
     let pem_label = "SIMPLE_AI_KEY";
     let mut csprng = OsRng {};
     let secret_key = SigningKey::generate(&mut csprng).to_bytes();
@@ -893,6 +894,7 @@ fn save_key_to_pem(symbol_hash: &[u8; 32], key: &[u8; 32], phrase: &str) -> [u8;
     let mut file = fs::File::create(&user_key_file).unwrap();
     file.write_all(pem_content.as_bytes()).unwrap();
     file.sync_all().unwrap();
+    debug!("save key to local pem file: {}", user_key_file.display());
 
     secret_key
 }
@@ -903,9 +905,16 @@ pub(crate) fn is_original_user_key(symbol_hash: &[u8; 32]) -> bool {
     key != [0u8; 32]
 }
 
-pub(crate) fn is_valid_user_key(symbol_hash: &[u8; 32], phrase: &str) -> bool {
-    let key = read_key_or_generate_key("User", symbol_hash, &phrase, false);
-    key != [0u8; 32]
+
+pub(crate) fn exists_and_valid_user_key(symbol_hash: &[u8; 32], phrase: &str) -> bool {
+    let key_type = "User";
+    let (key_hash_id, _phrase) = get_key_hash_id_and_phrase(key_type, symbol_hash);
+    let key_file = get_path_in_sys_key_dir(&format!(".token_{}_{}.pem",
+                                                    key_type.to_lowercase(), key_hash_id));
+    if key_file.exists() {
+        let key = read_key_or_generate_key("User", symbol_hash, &phrase, false);
+        key != [0u8; 32]
+    } else { false  }
 }
 
 pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], TokenError> {

@@ -804,25 +804,13 @@ impl SimpleAI {
             self.push_claim(&claim);
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
 
-            let identity = self.export_user(&nickname, &telephone, &phrase);
+            let encrypted_identity = self.export_user(&nickname, &telephone, &phrase);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-            fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+            fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
             println!("[UserBase] Create new user with phrase and save identity_file: {}", did);
 
             let context = self.sign_user_context(&did, phrase);
-
-            let pem_claim_string = token_utils::load_pem_and_claim_from_file("User", &claim.get_symbol_hash(), &did);
-            let context_json = serde_json::to_string(&context).unwrap_or("Unknown".to_string());
-            let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context_json.as_bytes(), phrase.as_bytes(), 0));
-            let certificates = token_utils::filter_user_certs(&did, "*", &self.certificates);
-            let certificates_str = certificates
-                .iter()
-                .map(|(key, value)| format!("{}:{}", key, value))
-                .collect::<Vec<String>>()
-                .join(",");
-            let _ = certificates_str.replace("|", ":");
-            let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
-            let user_copy_to_cloud = format!("{}|{}|{}", pem_claim_string, context_crypt, certificate_crypt);
+            let user_copy_to_cloud = self.get_user_copy_string(&did, phrase);
             let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
 
             let mut request: serde_json::Value = json!({});
@@ -848,7 +836,7 @@ impl SimpleAI {
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
             let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-            match token_utils::exists_key_file("User", &symbol_hash) && user_did != "Unknown" {
+            match token_utils::exists_and_valid_user_key(&symbol_hash, phrase) && user_did != "Unknown" {
                 true => {
                     println!("[UserBase] Get user context:{} from local key file: .token_user_{}.pem", user_did, user_hash_id);
                     self.sign_user_context(&user_did, phrase)
@@ -875,26 +863,18 @@ impl SimpleAI {
                                 user_copy_from_cloud != "Unknown_backup".to_string() {
                                 true => {
                                     let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
-                                    if user_copy_from_cloud_array.len() >= 4 {
-                                        let pem = user_copy_from_cloud_array[0];
-                                        token_utils::save_user_pem(&symbol_hash, pem);
-                                        let claim: IdClaim = serde_json::from_str(&user_copy_from_cloud_array[1]).unwrap_or(IdClaim::default());
-                                        let did = claim.gen_did();
-                                        if token_utils::is_valid_user_key(&symbol_hash, phrase) {
-                                            println!("[UserBase] Get user encrypted copy is valid: {}", did);
-                                            // reset crypt_secret
-                                            token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &claim, phrase);
-                                            self.push_claim(&claim.clone());
-                                            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+                                    if user_copy_from_cloud_array.len() >= 3 {
+                                        let encrypted_identity = user_copy_from_cloud_array[0];
+                                        let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
+                                        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                                        fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+                                        println!("[UserBase] Download user encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
 
-                                            let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                                user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
-
-                                            let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
-                                                .unwrap_or(UserContext::default()), "add");
+                                        if token_utils::exists_and_valid_user_key(&symbol_hash, phrase) {
+                                            println!("[UserBase] Get user encrypted copy is valid: {}", user_did);
 
                                             let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                                user_copy_from_cloud_array[3]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+                                                user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
 
                                             let certificate_string = certificate_string.replace(":", "|");
                                             let certs_array: Vec<&str> = certificate_string.split(",").collect();
@@ -906,13 +886,15 @@ impl SimpleAI {
                                             }
                                             token_utils::save_user_certificates_to_file(&self.did, &self.certificates);
 
-                                            let identity = self.export_user(&nickname, &telephone, &phrase);
-                                            fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-                                            println!("[UserBase] Get user encrypted copy and save identity_file: {}", identity_file.display());
+                                            let context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                                user_copy_from_cloud_array[1]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+                                            // 取回的context里的sys_did不一定是本地系统的sys_did，需要考虑如何迁移context
+                                            //let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
+                                            //    .unwrap_or(UserContext::default()), "add");
 
-                                            self.sign_user_context(&did, phrase)
+                                            self.sign_user_context(&user_did, phrase)
                                         } else {
-                                            println!("[UserBase] Get user encrypted copy is not valid: {}", did);
+                                            println!("[UserBase] Get user encrypted copy is not valid: {}", user_did);
                                             self.get_guest_user_context()
                                         }
 
@@ -946,19 +928,7 @@ impl SimpleAI {
             (user_did, claim)
         };
         let context = self.get_user_context(&user_did);
-
-        let pem_claim_string = token_utils::load_pem_and_claim_from_file("User", &claim.get_symbol_hash(), &user_did);
-        let context_json = serde_json::to_string(&context).unwrap_or("Unknown".to_string());
-        let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context_json.as_bytes(), phrase.as_bytes(), 0));
-        let certificates = token_utils::filter_user_certs(&user_did, "*", &self.certificates);
-        let certificates_str = certificates
-            .iter()
-            .map(|(key, value)| format!("{}:{}", key, value))
-            .collect::<Vec<String>>()
-            .join(",");
-        let _ = certificates_str.replace("|", ":");
-        let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
-        let user_copy_to_cloud = format!("{}|{}|{}", pem_claim_string, context_crypt, certificate_crypt);
+        let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
         let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
 
         let mut request: serde_json::Value = json!({});
@@ -986,6 +956,25 @@ impl SimpleAI {
         }
         println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
         self.get_guest_user_context()
+    }
+
+    pub fn get_user_copy_string(&mut self, user_did: &str, phrase: &str) -> String {
+        let symbol_hash = self.get_claim(user_did).get_symbol_hash();
+        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        let context = self.get_user_context(&user_did);
+        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+        let encrypted_identity = fs::read_to_string(identity_file).unwrap_or("".to_string());
+        let context_json = serde_json::to_string(&context).unwrap_or("Unknown".to_string());
+        let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context_json.as_bytes(), phrase.as_bytes(), 0));
+        let certificates = token_utils::filter_user_certs(&user_did, "*", &self.certificates);
+        let certificates_str = certificates
+            .iter()
+            .map(|(key, value)| format!("{}:{}", key, value))
+            .collect::<Vec<String>>()
+            .join(",");
+        let _ = certificates_str.replace("|", ":");
+        let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
+        format!("{}|{}|{}", encrypted_identity, context_crypt, certificate_crypt)
     }
 
     pub fn get_user_context(&mut self, did: &str) -> UserContext {
