@@ -794,7 +794,7 @@ class ModelsInfo:
 
 def get_model_filenames(folder_paths, extensions=None, name_filter=None, variation=False):
     if extensions is None:
-        extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch', '.gguf', '.pt', '.onnx']
+        extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.patch', '.gguf', '.pt', '.onnx']
     files = []
     for folder in folder_paths:
         files += get_files_from_folder(folder, extensions, name_filter, variation)
@@ -817,10 +817,8 @@ def get_files_from_folder(folder_path, extensions=None, name_filter=None, variat
             relative_path = ""
         for filename in sorted(files, key=lambda s: s.casefold()):
             _, file_extension = os.path.splitext(filename)
-            print(f'file_extension: {file_extension}')
             if (extensions is None or file_extension.lower() in extensions) and (
                     name_filter is None or name_filter in _):
-                print(f'filename: {filename}')
                 path = os.path.join(relative_path, filename)
                 if variation:
                     mtime = int(os.path.getmtime(os.path.join(root, filename)))
