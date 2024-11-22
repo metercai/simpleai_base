@@ -871,7 +871,7 @@ impl SimpleAI {
                                         println!("[UserBase] Download user encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
 
                                         if token_utils::exists_and_valid_user_key(&symbol_hash, phrase) {
-                                            println!("[UserBase] Get user encrypted copy is valid: {}", user_did);
+                                            println!("[UserBase] The user encrypted copy is valid: {}", user_did);
 
                                             let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
                                                 user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
@@ -894,17 +894,17 @@ impl SimpleAI {
 
                                             self.sign_user_context(&user_did, phrase)
                                         } else {
-                                            println!("[UserBase] Get user encrypted copy is not valid: {}", user_did);
+                                            println!("[UserBase] The user encrypted copy is not valid: {}", user_did);
                                             self.get_guest_user_context()
                                         }
 
                                     } else {
-                                        println!("[UserBase] Get user encrypted copy is not valid: {}", user_hash_id);
+                                        println!("[UserBase] The user encrypted copy is not valid: {}", user_hash_id);
                                         self.get_guest_user_context()
                                     }
                                 },
                                 false => {
-                                    println!("[UserBase] Get user encrypted copy is not valid: {}", user_hash_id);
+                                    println!("[UserBase] The user encrypted copy is not valid: {}", user_hash_id);
                                     self.get_guest_user_context()
                                 }
                             }

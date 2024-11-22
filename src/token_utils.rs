@@ -836,10 +836,10 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool) -> [u8
                 },
                 Err(_e) => {
                     if regen {
-                        println!("[UserBase] Read private key error and generate new key: {}", file_path.display());
+                        debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
                         generate_new_key_and_save_pem(file_path, &phrase_bytes)
                     } else {
-                        println!("[UserBase] Read private key error and return 0 key: {}", file_path.display());
+                        debug!("[UserBase] Read private key error and return 0 key: {}", file_path.display());
                         [0; 32]
                     }
                 },
@@ -900,7 +900,8 @@ fn save_key_to_pem(symbol_hash: &[u8; 32], key: &[u8; 32], phrase: &str) -> [u8;
 }
 
 pub(crate) fn is_original_user_key(symbol_hash: &[u8; 32]) -> bool {
-    let (_user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
+    let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
+    debug!("the user key testing : {}", user_hash_id);
     let key = read_key_or_generate_key("User", symbol_hash, &user_phrase, false);
     key != [0u8; 32]
 }
@@ -913,6 +914,7 @@ pub(crate) fn exists_and_valid_user_key(symbol_hash: &[u8; 32], phrase: &str) ->
                                                     key_type.to_lowercase(), key_hash_id));
     if key_file.exists() {
         let key = read_key_or_generate_key("User", symbol_hash, &phrase, false);
+        debug!("user_key exists: {}, valid: {}", key_file.display(), key != [0u8; 32]);
         key != [0u8; 32]
     } else { false  }
 }
