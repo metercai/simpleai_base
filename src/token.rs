@@ -918,43 +918,38 @@ impl SimpleAI {
         }
     }
 
-    pub fn unbind_and_return_guest(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
-        let nickname = nickname.chars().take(24).collect::<String>();
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
-        let (user_did, claim) = {
-            let mut claims = self.claims.lock().unwrap();
-            let user_did = claims.reverse_lookup_did_by_symbol(&symbol_hash);
-            let claim = claims.get_claim_from_local(&user_did);
-            (user_did, claim)
-        };
-        let context = self.get_user_context(&user_did);
-        let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
-        let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
-
-        let mut request: serde_json::Value = json!({});
-        request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
-        request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
-        request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
-        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-        let result = self.request_token_api("unbind_node", &params);
-        if result != "Unbind_ok" {
-            let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
-            let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
-            fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
+    pub fn unbind_and_return_guest(&mut self, user_did: &str, phrase: &str) -> UserContext {
+        if IdClaim::validity(user_did) {
+            let claim = self.get_claim(user_did);
+            let symbol_hash =claim.get_symbol_hash();
+            let context = self.get_user_context(&user_did);
+            let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
+            let user_copy_hash_id = token_utils::get_user_copy_hash_id(&claim.nickname, &claim.telephone_hash, phrase);
+            let mut request: serde_json::Value = json!({});
+            request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+            request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
+            request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
+            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+            let result = self.request_token_api("unbind_node", &params);
+            if result != "Unbind_ok" {
+                let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
+                let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
+                fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
+            }
+            // release user token and conext
+            if (user_did != self.admin) {
+                let key = format!("{}_{}", user_did, self.get_sys_did());
+                let authorized = self.authorized.lock().unwrap();
+                let _ = match authorized.contains_key(&key).unwrap() {
+                    false => {},
+                    true => {
+                        let _ = authorized.remove(&key);
+                    }
+                };
+                let _ = token_utils::update_user_token_to_file(&context, "remove");
+            }
+            println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
         }
-        // release user token and conext
-        if (user_did != self.admin) {
-            let key = format!("{}_{}", user_did, self.get_sys_did());
-            let authorized = self.authorized.lock().unwrap();
-            let _ = match authorized.contains_key(&key).unwrap() {
-                false => {},
-                true => {
-                    let _ = authorized.remove(&key);
-                }
-            };
-            let _ = token_utils::update_user_token_to_file(&context, "remove");
-        }
-        println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
         self.get_guest_user_context()
     }
 
