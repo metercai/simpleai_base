@@ -409,8 +409,9 @@ impl SimpleAI {
         if !issue_did.is_empty() && !for_did.is_empty() &&
             IdClaim::validity(issue_did) && IdClaim::validity(for_did) {
             let cert_key = format!("{}|{}|{}", issue_did, for_did, item);
-            debug!("get_user_cert, cert_key: {}", cert_key);
-            self.certificates.get(&cert_key).unwrap_or(&"Unknown".to_string()).clone()
+            let cert = self.certificates.get(&cert_key).unwrap_or(&"Unknown".to_string()).clone();
+            debug!("get_user_cert, cert_key: {}, {}", cert_key, cert);
+            cert
         } else { "Unknown".to_string()  }
     }
 
