@@ -614,7 +614,13 @@ impl SimpleAI {
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
                 if token_utils::is_original_user_key(&symbol_hash)  {
-                    "immature".to_string()
+                    if self.ready_users.contains_key(&user_hash_id) {
+                        debug!("user_key is exist and the phrase hasn't been updated: {}, {}", nickname, user_hash_id);
+                        "immature".to_string()
+                    } else {
+                        debug!("user_key is exist but the ready data is empty: {}, {}", nickname, user_hash_id);
+                        "re_input".to_string()
+                    }
                 } else {
                     "local".to_string()
                 }
@@ -769,6 +775,7 @@ impl SimpleAI {
             println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", did, params);
             context
         } else {
+            debug!("user_did not exist in ready_users: {}, {}", nickname, user_hash_id);
             self.get_guest_user_context()
         }
     }
