@@ -165,6 +165,7 @@ pub(crate) fn get_slim_user_cert(cert_text: &str) -> Vec<u8> {
         let secret = URL_SAFE_NO_PAD.decode(parts[0]).unwrap_or(Vec::new());   // 48 bytes
         let timestamp = parts[2].parse().unwrap_or(0u64); // 8bytes
         let sig = URL_SAFE_NO_PAD.decode(parts[3]).unwrap_or(Vec::new());  // 64bytes
+        debug!("get_slim_user_cert: {}, {}, {}\ncert_text: {}", secret.len(), timestamp, sig.len(), cert_text);
         if secret.len() > 0 && sig.len() > 0 && timestamp != 0 {
             let mut cert_bytes = Vec::with_capacity(secret.len()+sig.len()+8);
             cert_bytes.extend_from_slice(&secret);
