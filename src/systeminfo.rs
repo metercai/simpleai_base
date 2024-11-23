@@ -5,14 +5,13 @@ use std::env;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tokio::join;
 use sysinfo::System;
 
-use crate::{token, token_utils, env_utils};
+use crate::token_utils;
+use crate::env_utils;
 
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -68,10 +67,7 @@ impl SystemBaseInfo {
                 PathBuf::from("/")
             }
         };
-        let mut exe_name = "simpleai_base".to_string();
-        if let Some(exe) = env::args().collect::<Vec<_>>().get(1).cloned() {
-            exe_name = exe.to_string()
-        }
+        let exe_name = env::args().nth(1).unwrap_or_else(|| "SimpleAI".to_string());
 
         Self {
             os_type,
@@ -210,7 +206,7 @@ impl SystemInfo {
 
         let url = reqwest::Url::parse_with_params("https://edge.tokentm.net/log.gif", &[("d", did), ("p", &ctext)]).unwrap();
 
-        let _ = token::REQWEST_CLIENT.get(url.as_str())
+        let _ = token_utils::REQWEST_CLIENT.get(url.as_str())
             .send()
             .await;
     }

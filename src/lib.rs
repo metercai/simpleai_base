@@ -17,6 +17,7 @@ mod token;
 mod systeminfo;
 mod env_data;
 mod params_mapper;
+mod cert_center;
 
 
 #[pyfunction]

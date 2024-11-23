@@ -20,7 +20,7 @@ use lazy_static::lazy_static;
 
 use crate::error::TokenError;
 use crate::systeminfo::SystemBaseInfo;
-use crate::token;
+use crate::token_utils;
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB chunks
 
@@ -62,7 +62,7 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
         true => "https://ipinfo.io/ip",
         false => "https://ipinfo.io/ip",
     };
-     let response = token::REQWEST_CLIENT.get(default_url)
+     let response = token_utils::REQWEST_CLIENT.get(default_url)
         .send()
         .await?
         .text()
@@ -78,7 +78,7 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
 
 pub(crate) async fn get_location() -> Result<String, TokenError> {
     //println!("get_location, in");
-    let response = token::REQWEST_CLIENT.get("http://ip-api.com/json")
+    let response = token_utils::REQWEST_CLIENT.get("http://ip-api.com/json")
         .send()
         .await?
         .text()

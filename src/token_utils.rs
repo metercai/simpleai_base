@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::env;
 use std::io::Write;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use serde_json::{json, Value};
 use directories_next::BaseDirs;
 
@@ -25,7 +25,8 @@ use argon2::Argon2;
 use tracing::{debug, info};
 use crate::systeminfo::SystemBaseInfo;
 use lazy_static::lazy_static;
-
+use once_cell::sync::Lazy;
+use tokio::runtime::Runtime;
 
 use crate::error::TokenError;
 use crate::claims::{GlobalClaims, IdClaim, UserContext};
@@ -52,15 +53,17 @@ lazy_static! {
     };
 }
 
+pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+    Runtime::new().expect("Failed to create Tokio runtime")
+});
 
-pub(crate) fn load_identity_and_claim_from_file(id_type: &str, symbol_hash: &[u8; 32], did: &str) -> String {
-    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
-    let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-    let identity_string = fs::read_to_string(identity_file).unwrap_or("".to_string());
-    let did_file_path = get_path_in_sys_key_dir(format!("{}_{}.did", id_type.to_lowercase(), did).as_str());
-    let claim_string  = fs::read_to_string(did_file_path).unwrap_or("".to_string());
-    format!("{}|{}", identity_string, claim_string)
-}
+pub static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(3)) // 连接超时时间
+        .timeout(Duration::from_secs(5)) // 总超时时间
+        .build()
+        .expect("Failed to build reqwest client")
+});
 
 
 #[macro_export]
@@ -156,6 +159,23 @@ pub(crate) fn save_user_certificates_to_file(sys_did: &str, certificates: &HashM
     fs::write(system_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", system_token_file.display()))
 }
 
+pub(crate) fn get_slim_user_cert(cert_text: &str) -> Vec<u8> {
+    let parts: Vec<&str> = cert_text.split('|').collect();
+    if parts.len() >= 4 {
+        let secret = URL_SAFE_NO_PAD.decode(parts[0]).unwrap_or(Vec::new());   // 48 bytes
+        let timestamp = parts[2].parse().unwrap_or(0u64); // 8bytes
+        let sig = URL_SAFE_NO_PAD.decode(parts[3]).unwrap_or(Vec::new());  // 64bytes
+        if secret.len() > 0 && sig.len() > 0 && timestamp != 0 {
+            let mut cert_bytes = Vec::with_capacity(secret.len()+sig.len()+8);
+            cert_bytes.extend_from_slice(&secret);
+            cert_bytes.extend_from_slice(&timestamp.to_le_bytes());
+            cert_bytes.extend_from_slice(&sig);
+            return cert_bytes
+        }
+    }
+    return Vec::new()
+}
+
 pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashMap<String, String>) {
     let token_file = get_path_in_sys_key_dir(&format!("issued_certs_{}.token", sys_did));
     let crypt_key = get_token_crypt_key();
@@ -216,47 +236,6 @@ pub(crate) fn save_issued_certs_to_file(sys_did: &str, issued_certs: &HashMap<St
     fs::write(system_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", system_token_file.display()))
 }
 
-pub(crate) fn filter_user_certs(user_did: &str, item: &str, user_certs: &HashMap<String, String>) -> HashMap<String, String> {
-    let filter_str = match item {
-        "*" => format!("|{}|", user_did),
-        &_ => format!("|{}|{}", user_did, item), };
-
-    user_certs
-        .iter()
-        .filter(|(key, _value)| key.contains(filter_str.as_str()))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect()
-}
-
-pub(crate) fn filter_issuer_certs(issuer_did: &str, item: &str,user_certs: &HashMap<String, String>) -> HashMap<String, String> {
-    let filter_str = format!("{}|", issuer_did);
-    let filted_certs = user_certs
-        .iter()
-        .filter(|(key, _value)| key.starts_with(filter_str.as_str()))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
-    if item == "*" {
-        filted_certs
-    } else {
-        let filter_str = format!("|{}", item);
-        user_certs
-            .iter()
-            .filter(|(key, _value)| key.ends_with(filter_str.as_str()))
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect()
-    }
-}
-
-pub(crate) fn parse_user_certs(certificate_string: &str) -> (String, String) {
-    let certs_array: Vec<&str> = certificate_string.split("|").collect();
-    if certs_array.len() >= 7 && IdClaim::validity(certs_array[0]) && IdClaim::validity(certs_array[1]){
-        let certs_key = format!("{}|{}|{}", certs_array[0], certs_array[1], certs_array[2]);
-        let certs_value = format!("{}|{}|{}|{}", certs_array[3], certs_array[4], certs_array[5], certs_array[6]);
-        (certs_key, certs_value)
-    } else {
-        ("Unknown".to_string(), "Unknown".to_string())
-    }
-}
 
 pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut HashMap<String, String>)
                                               -> String {
@@ -655,13 +634,6 @@ pub(crate) fn get_user_copy_hash_id_by_source(nickname: &str, telephone: &str, p
 pub(crate) fn get_user_copy_hash_id(nickname: &str, telephone_base64: &str, phrase: &str) -> String {
     URL_SAFE_NO_PAD.encode(calc_sha512(
         format!("{}|{}|{}",nickname, telephone_base64, phrase).as_bytes()))
-}
-
-pub(crate) fn save_user_pem(symbol_hash: &[u8; 32], pem: &str) {
-    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
-    let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
-    debug!("save user_key_file: {}", user_key_file.display());
-    fs::write(user_key_file.clone(), pem).unwrap_or_else(|_| panic!("Failed to write to file: {}", user_key_file.display()));
 }
 
 pub(crate) fn remove_user_pem_and_claim(symbol_hash: &[u8; 32], did: &str) {

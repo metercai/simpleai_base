@@ -10,7 +10,7 @@ use sha2::Digest;
 use ripemd::Ripemd160;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::{json, Value};
-use crate::{token, token_utils};
+use crate::token_utils;
 
 use tracing::debug;
 use pyo3::prelude::*;
@@ -19,12 +19,12 @@ lazy_static::lazy_static! {
     static ref GLOBAL_CLAIMS: Arc<Mutex<GlobalClaims>> = Arc::new(Mutex::new(GlobalClaims::new()));
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct GlobalClaims {
     claims: HashMap<String, IdClaim>,       // 留存本地的身份自证
     sys_did: String,                      // 系统did
     device_did: String,                    // 设备id
-    file_crypt_key: String,                // 文件加密密钥
+    file_crypt_key: [u8; 32],                // 文件加密密钥
 }
 
 impl GlobalClaims {
@@ -79,16 +79,13 @@ impl GlobalClaims {
                 eprintln!("Failed to read directory: {}", e);
             }
         }
-
-        if *token_utils::VERBOSE_INFO {
-            println!("Loaded claims.len={}", claims.len());
-        }
+        debug!("Loaded claims.len={}", claims.len());
 
         GlobalClaims {
             claims,
             sys_did: String::new(),
             device_did: String::new(),
-            file_crypt_key: String::new(),
+            file_crypt_key: [0u8; 32],
         }
     }
 
@@ -102,16 +99,16 @@ impl GlobalClaims {
 
     pub fn get_file_crypt_key(&mut self) -> [u8; 32] {
         if self.file_crypt_key.is_empty() {
-            self.file_crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_file_crypt_key());
+            self.file_crypt_key = token_utils::get_file_crypt_key();
         };
-        token_utils::convert_vec_to_key(&URL_SAFE_NO_PAD.decode(self.file_crypt_key.as_bytes()).unwrap())
+        self.file_crypt_key.clone()
     }
 
     pub fn local_len(&self) -> usize {
         self.claims.len()
     }
 
-    pub fn push_claim(&mut self, claim: IdClaim) {
+    pub fn push_claim(&mut self, claim: &IdClaim) {
         self.claims.insert(claim.gen_did(), claim.clone());
         let did_file_path = token_utils::get_path_in_sys_key_dir(&format!("{}_{}.did", claim.id_type.to_lowercase(), claim.gen_did()));
         fs::write(did_file_path, claim.to_json_string()).unwrap()
@@ -167,8 +164,8 @@ impl GlobalClaims {
                 request["user_did"] = serde_json::to_value(did).unwrap();
 
                 debug!("get claim from global with did: {}", did);
-                let result = token::TOKIO_RUNTIME.block_on(async {
-                    match token::REQWEST_CLIENT.post(
+                let result = token_utils::TOKIO_RUNTIME.block_on(async {
+                    match token_utils::REQWEST_CLIENT.post(
                         format!("{}{}", token_utils::TOKEN_TM_URL, "get_use_claim"))
                         .header("Sys-Did", self.sys_did.to_string())
                         .header("Dev-Did", self.device_did.to_string())
@@ -198,8 +195,9 @@ impl GlobalClaims {
                 } else {
                     IdClaim::default()
                 };
-
-                self.push_claim(claim.clone());
+                if !claim.is_default() {
+                    self.push_claim(&claim);
+                }
                 claim
             }
         } else {
@@ -250,6 +248,14 @@ impl GlobalClaims {
             }
         }
         "Unknown".to_string()
+    }
+
+    pub fn verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
+        token_utils::verify_signature(text, signature_str, &claim.get_verify_key())
+    }
+
+    pub fn cert_verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
+        token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
     }
 }
 
