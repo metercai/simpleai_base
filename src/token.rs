@@ -11,7 +11,7 @@ use tracing::{error, warn, info, debug, trace};
 use tracing_subscriber::EnvFilter;
 use qrcode::{QrCode, Version, EcLevel};
 use qrcode::render::svg;
-use qrcode::bits::Bits;
+use qrcode::bits::{Bits, encode_auto};
 
 
 use pyo3::prelude::*;
@@ -353,9 +353,10 @@ impl SimpleAI {
                     let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
                     debug!("encrypted_identity_qr: did.len={}, user_cert={}, identity={}, total={}", did_bytes.len(), user_cert_bytes.len(), encrypted_identity.len(), encrypted_identity_qr.len());
                     debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
-                    let mut bits = Bits::new(Version::Normal(10));
-                    bits.push_byte_data(&encrypted_identity_qr);
-                    bits.push_terminator(EcLevel::L);
+                    //let mut bits = Bits::new(Version::Normal(10));
+                    //bits.push_byte_data(&encrypted_identity_qr);
+                    //bits.push_terminator(EcLevel::L);
+                    let mut bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
                     let qrcode = QrCode::with_bits(bits, EcLevel::L).unwrap();
                     //let qrcode = QrCode::with_version(encrypted_identity_qr, Version::Normal(10), EcLevel::L).unwrap();
                     let image = qrcode.render()
