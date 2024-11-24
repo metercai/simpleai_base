@@ -261,6 +261,11 @@ impl SimpleAI {
         }
     }
 
+    pub fn get_register_cert(&self, user_did: &str) -> String {
+        let mut certificates = self.certificates.lock().unwrap();
+        certificates.get_register_cert(user_did)
+    }
+
     pub fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
                        -> (String, String) {
         let nickname = nickname.chars().take(24).collect::<String>();
@@ -347,7 +352,7 @@ impl SimpleAI {
                     let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
                     debug!("encrypted_identity_qr: did.len={}, user_cert={}, identity={}, total={}", did_bytes.len(), user_cert_bytes.len(), encrypted_identity.len(), encrypted_identity_qr.len());
                     debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
-                    let code = QrCode::with_version(encrypted_identity_qr_base64.as_bytes(), Version::Normal(12), EcLevel::L).unwrap();
+                    let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(10), EcLevel::L).unwrap();
                     let image = code.render()
                         .min_dimensions(500, 500)
                         .dark_color(svg::Color("#800000"))
@@ -363,8 +368,15 @@ impl SimpleAI {
     #[staticmethod]
     pub fn import_identity_qrcode(encrypted_identity: &str) -> (String, String, String) {
         let identity = URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap();
-        token_utils::import_identity_qrcode(&identity)
+        let (user_did, nickname, telephone, user_cert) = token_utils::import_identity_qrcode(&identity);
+        if user_did != "Unknown" && user_cert != "Unknown" {
+            let certificates = GlobalCerts::instance();
+            let mut certificates = certificates.lock().unwrap();
+            certificates.push_user_cert_text(&format!("{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", user_cert));
+        }
+        (user_did, nickname, telephone)
     }
+
 
     pub fn sign_and_issue_cert_by_admin(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
                                -> (String, String) {
@@ -389,6 +401,8 @@ impl SimpleAI {
                     let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
                     if item_key != [0u8; 32] {
                         let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
+                        debug!("encrypt_item_key: cert_secret.len={}, item_key.len={}, encrypt_item_key.len={}",
+                            cert_secret.len(), item_key.len(), URL_SAFE_NO_PAD.decode(encrypt_item_key.clone()).unwrap().len());
                         let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
                         let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
@@ -402,19 +416,6 @@ impl SimpleAI {
         }
         println!("[UserBase] Sign and issue a cert by did: invalid params");
         ("Unknown".to_string(), "Unknown".to_string())
-    }
-
-    #[staticmethod]
-    pub fn parse_issue_cert(cert: &str) -> (String, String, String, String, String, u64, String) {
-        let mut items = cert.split("|");
-        let issuer_did = items.next().unwrap().to_string();
-        let for_did = items.next().unwrap().to_string();
-        let item = items.next().unwrap().to_string();
-        let encrypt_item_key = items.next().unwrap().to_string();
-        let memo = items.next().unwrap().to_string();
-        let timestamp = items.next().unwrap().parse::<u64>().unwrap();
-        let sig = items.next().unwrap().to_string();
-        (issuer_did, for_did, item, encrypt_item_key, memo, timestamp, sig)
     }
 
 

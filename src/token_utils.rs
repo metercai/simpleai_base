@@ -177,6 +177,17 @@ pub(crate) fn get_slim_user_cert(cert_text: &str) -> Vec<u8> {
     return Vec::new()
 }
 
+pub(crate) fn convert_to_short_user_cert_from_slim(cert_bytes: &[u8]) -> String {
+    if cert_bytes.len() == 132 {
+        let secret = URL_SAFE_NO_PAD.encode(cert_bytes[0..60].to_vec());
+        let timestamp = u64::from_le_bytes(cert_bytes[60..68].try_into().unwrap_or(0u64.to_le_bytes()));
+        let sig = URL_SAFE_NO_PAD.encode(cert_bytes[68..132].to_vec());
+        let memo_base64 = URL_SAFE_NO_PAD.encode("User".as_bytes());
+        return format!("{}|{}|{}|{}", secret, memo_base64, timestamp, sig)
+    }
+    return "Unknown".to_string()
+}
+
 pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashMap<String, String>) {
     let token_file = get_path_in_sys_key_dir(&format!("issued_certs_{}.token", sys_did));
     let crypt_key = get_token_crypt_key();
@@ -1001,10 +1012,12 @@ pub(crate) fn import_identity(user_hash_id: &str, encrypted_identity: &Vec<u8>, 
     }
 }
 
-pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, String, String) {
+pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, String, String, String)  {
     let did_bytes = &encrypted_identity[..21];
     let user_did = did_bytes.to_base58();
-    let encrypted_identity = &encrypted_identity[21..];
+    let user_cert_bytes = &encrypted_identity[21..153];
+    let user_cert = convert_to_short_user_cert_from_slim(user_cert_bytes);
+    let encrypted_identity = &encrypted_identity[153..];
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8])).to_string();
@@ -1015,10 +1028,10 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
         fs::write(identity_file.clone(), URL_SAFE_NO_PAD.encode(encrypted_identity)).expect(&format!("Unable to write file: {}", identity_file.display()));
         println!("[UserBase] Import from qrcode and save identity_file: {}", user_did);
         if telephone == "0" {
-            (user_did, nickname, "".to_string())
-        } else { (user_did, nickname, telephone) }
+            (user_did, nickname, "".to_string(), user_cert)
+        } else { (user_did, nickname, telephone, user_cert) }
     } else {
-        ("Unknown".to_string(), "".to_string(), "".to_string())
+        ("Unknown".to_string(), "".to_string(), "".to_string(), "Unknown".to_string())
     }
 }
 
