@@ -352,7 +352,8 @@ impl SimpleAI {
                     let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
                     debug!("encrypted_identity_qr: did.len={}, user_cert={}, identity={}, total={}", did_bytes.len(), user_cert_bytes.len(), encrypted_identity.len(), encrypted_identity_qr.len());
                     debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
-                    let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(10), EcLevel::L).unwrap();
+                    //let code = QrCode::with_version(encrypted_identity_qr, Version::Normal(10), EcLevel::L).unwrap();
+                    let code = QrCode::new(encrypted_identity_qr).unwrap();
                     let image = code.render()
                         .min_dimensions(500, 500)
                         .dark_color(svg::Color("#800000"))
