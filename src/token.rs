@@ -1093,10 +1093,13 @@ async fn request_token_api_async(sys_did: &str, dev_did: &str, api_name: &str, e
                         let result = serde_json::from_str(&text).unwrap_or("".to_string());
                         debug!("[Upstream] result: {}", result);
                         result
-                    } else { "Unknown".to_string() }
+                    } else {
+                        debug!("status_code is unsuccessful: {},{}", status_code, text);
+                        format!("Unknown_{}", status_code).to_string()
+                    }
                 },
                 Err(e) => {
-                    debug!("Failed to read response body: {}", e);
+                    debug!("Failed to read response body: {},{}", status_code,e);
                     "Unknown".to_string()
                 }
             }
@@ -1136,7 +1139,8 @@ async fn submit_uncompleted_request_files(sys_did: &str, dev_did: &str) {
                                 if let Some(method) = extract_method_from_filename(file_name_str) {
                                     if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
                                         debug!("submit uncompleted request file: method={}, {}", method, file_path.display());
-                                        if request_token_api_async(sys_did, dev_did, &method, &content).await != "Unknown"  {
+                                        let result = request_token_api_async(sys_did, dev_did, &method, &content).await;
+                                        if result != "Unknown"  {
                                             tokio::fs::remove_file(&file_path).await.expect("remove user copy file failed");
                                             debug!("remove the uncompleted request file: {}", file_path.display());
                                         }
