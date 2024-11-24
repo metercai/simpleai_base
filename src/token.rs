@@ -356,11 +356,11 @@ impl SimpleAI {
                     //let mut bits = Bits::new(Version::Normal(10));
                     //bits.push_byte_data(&encrypted_identity_qr);
                     //bits.push_terminator(EcLevel::L);
-                    //let mut bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
-                    //let qrcode = QrCode::with_bits(bits, EcLevel::L).unwrap();
-                    let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
+                    let mut bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
+                    let qrcode = QrCode::with_bits(bits, EcLevel::L).unwrap();
+                    //let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
                     let image = qrcode.render()
-                        .min_dimensions(500, 500)
+                        .min_dimensions(400, 400)
                         .dark_color(svg::Color("#800000"))
                         .light_color(svg::Color("#ffff80"))
                         .build();
