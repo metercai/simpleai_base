@@ -267,12 +267,29 @@ impl SimpleAI {
         certificates.get_register_cert(user_did)
     }
 
+    pub fn is_registered(&self, user_did: &str) -> bool {
+        let cert_str = self.get_register_cert(user_did);
+        if cert_str.is_empty() || cert_str == "Unknown" {
+            return false;
+        }
+        let parts: Vec<&str> = cert_str.split('|').collect();
+        if parts.len() != 4 {
+            return false;
+        }
+        let encrypt_item_key = parts[0].to_string();
+        let memo_base64 = parts[1].to_string();
+        let timestamp = parts[2].to_string();
+        let signature_str = parts[3].to_string();
+        let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
+        let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
+        token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
+    }
     pub fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
                        -> (String, String) {
         let nickname = nickname.chars().take(24).collect::<String>();
         let user_telephone = telephone.to_string();
         if !token_utils::is_valid_telephone(telephone) {
-            return ("unknown".to_string(), "unknown".to_string());
+            return ("Unknown".to_string(), "Unknown".to_string());
         }
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &user_telephone);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
@@ -512,7 +529,7 @@ impl SimpleAI {
         }
     }
 
-    pub fn check_sstoken_and_get_did(&self, sstoken: &str, ua_hash: &str) -> String {
+    pub fn check_sstoken_and_get_did(&mut self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
         if sstoken.len() != 44 || sstoken_bytes==[0; 32] {
             return String::from("Unknown")
@@ -541,7 +558,13 @@ impl SimpleAI {
         did_bytes.copy_from_slice(&result[11..]);
         let did_bytes_slice = &did_bytes[10..];
         if padded.iter().zip(did_bytes_slice.iter()).all(|(a, b)| a == b) {
-            did_bytes.to_base58()
+            let user_did = did_bytes.to_base58();
+            let context = self.get_user_context(&user_did);
+            if context.is_default() || context.is_expired(){
+                String::from("Unknown")
+            } else {
+                user_did
+            }
         } else {
             let text2 = token_utils::calc_sha256(format!("{}",now_sec/2000000 -1).as_bytes());
             let mut text_bytes: [u8; 64] = [0; 64];
@@ -558,7 +581,13 @@ impl SimpleAI {
             did_bytes.copy_from_slice(&result[11..]);
             let did_bytes_slice = &did_bytes[10..];
             if padded.iter().zip(did_bytes_slice.iter()).all(|(a, b)| a == b) {
-                did_bytes.to_base58()
+                let user_did = did_bytes.to_base58();
+                let context = self.get_user_context(&user_did);
+                if context.is_default() || context.is_expired(){
+                    String::from("Unknown")
+                } else {
+                    user_did
+                }
             } else {
                 String::from("Unknown")
             }
@@ -622,6 +651,7 @@ impl SimpleAI {
             true => {
                 if token_utils::is_original_user_key(&symbol_hash)  {
                     if self.ready_users.contains_key(&user_hash_id) {
+                        // 没有经过验证的如何处理
                         debug!("user_key is exist and the phrase hasn't been updated: {}, {}", nickname, user_hash_id);
                         "immature".to_string()
                     } else {
@@ -703,10 +733,8 @@ impl SimpleAI {
                         let mut certificates = self.certificates.lock().unwrap();
                         certificates.push_user_cert_text(&user_certificate_text)
                     };
-                    println!("[UserBase] The parsed_cert from Root is correct: symbol({}), did({}), cert({})", URL_SAFE_NO_PAD.encode(symbol_hash), did, user_certificate_text);
-                    // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp, sig
-
                     if user_did != "Unknown" {
+                        println!("[UserBase] The parsed_cert from Root is correct: symbol({}), did({}), cert({})", URL_SAFE_NO_PAD.encode(symbol_hash), did, user_certificate_text);
                         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(claim.get_symbol_hash());
                         let mut request: serde_json::Value = json!({});
                         request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
@@ -751,6 +779,10 @@ impl SimpleAI {
             let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, old_phrase);
             let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
             let did = claim.gen_did();
+            if !self.is_registered(&did) {
+                debug!("user_did hasn't been verified by root: {}, {}", nickname, did);
+                return self.get_guest_user_context()
+            }
             let exchange_crypt_secret = ready_data["exchange_crypt_secret"].as_str().unwrap_or("Unknown");
             let issue_crypt_secret = ready_data["issue_crypt_secret"].as_str().unwrap_or("Unknown");
             self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret.to_string());
@@ -821,10 +853,11 @@ impl SimpleAI {
                                     let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
                                     if user_copy_from_cloud_array.len() >= 3 {
                                         let encrypted_identity = user_copy_from_cloud_array[0];
+                                        println!("[UserBase] Download user encrypted_copy: {}, len={}", user_hash_id, encrypted_identity.len());
                                         let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
                                         let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                         fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-                                        println!("[UserBase] Download user encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
+                                        println!("[UserBase] Parsing encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
 
                                         if token_utils::exists_and_valid_user_key(&symbol_hash, phrase) {
                                             println!("[UserBase] The user encrypted copy is valid: {}", user_did);
@@ -929,6 +962,9 @@ impl SimpleAI {
     }
 
     pub fn get_user_context(&mut self, did: &str) -> UserContext {
+        if !IdClaim::validity(did) {
+            return UserContext::default();
+        }
         let key = format!("{}_{}", did, self.get_sys_did());
         if !self.blacklist.contains(&did.to_string()) {
             let context = {
@@ -962,7 +998,7 @@ impl SimpleAI {
     }
 
     pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
-        if self.blacklist.contains(&did.to_string()) {
+        if self.blacklist.contains(&did.to_string()) || (did != self.guest && !self.is_registered(did)) {
             return UserContext::default();
         }
         let claim = self.get_claim(did);
