@@ -833,9 +833,10 @@ impl SimpleAI {
                                     if result.len() > 32 && !self.get_upstream_did().is_empty() {
                                         let upstream_did = self.get_upstream_did();
                                         let user_certificate_text = self.decrypt_by_did(&result, &upstream_did, 0);
+                                        println!("[UserBase] Get user certificate : did({}), cert({})", user_did, user_certificate_text);
                                         let result_user_did = {
                                             let mut certificates = self.certificates.lock().unwrap();
-                                            certificates.push_user_cert_text(&user_certificate_text)
+                                            certificates.push_user_cert_text(&format!("{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", user_certificate_text))
                                         };
                                         if result_user_did != "Unknown" && result_user_did == user_did {
                                             return result_return;
