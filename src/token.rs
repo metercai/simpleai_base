@@ -3,6 +3,7 @@ use std::fs;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
 use serde_json::{self, json};
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -50,7 +51,7 @@ pub struct SimpleAI {
     device: String,
     guest: String,
     guest_phrase: String,
-    ready_users: HashMap<String, serde_json::Value>,
+    ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
     blacklist: Vec<String>, // 黑名单
     upstream_did: String,
     user_base_dir: String,
@@ -146,11 +147,12 @@ impl SimpleAI {
             let _ = certificates.load_certificates_from_local(&local_did);
             certificates.get_token_db()
         };
-        let authorized_tree = {
+        let (authorized_tree, ready_users_tree) = {
             let token_db = token_db.lock().unwrap();
-            token_db.open_tree("authorized").unwrap()
+            (token_db.open_tree("authorized").unwrap(), token_db.open_tree("ready_users").unwrap())
         };
         let authorized = Arc::new(Mutex::new(authorized_tree));
+        let ready_users = Arc::new(Mutex::new(ready_users_tree));
 
         let sysinfo = token_utils::TOKIO_RUNTIME.block_on(async {
             sysinfo_handle.await.expect("Sysinfo Task panicked")
@@ -189,7 +191,7 @@ impl SimpleAI {
             certificates,
             guest: guest_did,
             guest_phrase,
-            ready_users: HashMap::new(),
+            ready_users,
             blacklist,
             upstream_did,
             user_base_dir: String::new(),
@@ -236,6 +238,10 @@ impl SimpleAI {
 
     pub fn is_admin(&self, did: &str) -> bool {
         did == self.admin.as_str()
+    }
+
+    pub fn set_admin(&mut self, did: &str) {
+        self.admin = did.to_string();
     }
 
     pub fn absent_admin(&self) -> bool {
@@ -309,6 +315,38 @@ impl SimpleAI {
 
         (user_did, phrase)
     }
+
+    pub fn remove_user(&mut self, user_symbol_hash_base64: &str) -> String {
+        let user_symbol_hash = token_utils::convert_base64_to_key(user_symbol_hash_base64);
+        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+        let (user_did, claim) = {
+            let mut claims = self.claims.lock().unwrap();
+            let user_did = claims.reverse_lookup_did_by_symbol(&user_symbol_hash);
+            let claim = claims.get_claim_from_local(&user_did);
+            (user_did, claim)
+        };
+        println!("[UserBase] Remove user: {}, {}, {}", user_hash_id, user_did, claim.nickname);
+        if user_did != "Unknown" {
+            let _ = token_utils::remove_user_pem_and_claim(&user_symbol_hash, &user_did);
+            if !claim.is_default() {
+                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                if identity_file.exists() {
+                    if let Err(e) = fs::remove_file(identity_file.clone()) {
+                        debug!("delete identity_file error: {}", e);
+                    } else {
+                        debug!("identity_file was deleted: {:?}", identity_file);
+                    }
+                }
+                let exchange_key_value = self.crypt_secrets.remove(&exchange_key!(user_did));
+                let issue_key_value = self.crypt_secrets.remove(&issue_key!(user_did));
+                if exchange_key_value.is_some() || issue_key_value.is_some() {
+                    let _ = token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+                }
+            }
+        }
+        user_did
+    }
+
 
     pub fn import_user(&mut self, user_hash_id: &str, encrypted_identity: &str, phrase: &str) -> String {
         let user_claim = token_utils::import_identity(user_hash_id, &URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap(), phrase);
@@ -604,6 +642,23 @@ impl SimpleAI {
         self.user_base_dir = user_base_dir.to_string();
     }
 
+    pub fn get_user_path_outputs(&self, root_outputs: &str, user_did: &str) -> String {
+        let outputs_dir = PathBuf::from(root_outputs);
+        let did_path =
+            self.device.from_base58().expect("Failed to decode base58").iter()
+                .zip(user_did.from_base58().expect("Failed to decode base58").iter())
+                .map(|(&x, &y)| x ^ y).collect::<Vec<_>>().to_base58();
+
+        if !IdClaim::validity(user_did) || self.is_guest(user_did) {
+            outputs_dir.join("guest_user").to_string_lossy().to_string()
+        } else if self.is_admin(user_did) {
+            outputs_dir.join(format!("admin_{}", did_path)).to_string_lossy().to_string()
+        } else {
+            outputs_dir.join(did_path).to_string_lossy().to_string()
+        }
+    }
+
+
     pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
         let path_file = token_utils::get_path_in_user_dir(did, catalog, &self.user_base_dir);
         path_file.to_string_lossy().to_string()
@@ -646,15 +701,32 @@ impl SimpleAI {
             return "unknown".to_string();
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
+        let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
                 if token_utils::is_original_user_key(&symbol_hash)  {
-                    if self.ready_users.contains_key(&user_hash_id) {
-                        // 没有经过验证的如何处理
+                    let ready_data = {
+                        let ready_users = self.ready_users.lock().unwrap();
+                        match ready_users.get(&user_hash_id) {
+                            Ok(Some(ready_data)) => String::from_utf8(ready_data.to_vec()).unwrap(),
+                            _ => "Unknown".to_string(),
+                        }
+                    };
+                    if ready_data != "Unknown" {
+                        let parts: Vec<&str> = ready_data.split('|').collect();
+                        let old_user_did = match parts.len() >= 3 {
+                            true => parts[1].to_string(),
+                            false => "Unknown".to_string(),
+                        };
+                        if old_user_did != "Unknown" && !self.is_registered(&old_user_did) { // 没有经过身份验证的处理
+                            debug!("user_key is exist but the code is not verified : {}, {}", nickname, user_hash_id);
+                            return "remote".to_string();
+                        } // 经过验证但默认身份口令未改的处理
                         debug!("user_key is exist and the phrase hasn't been updated: {}, {}", nickname, user_hash_id);
                         "immature".to_string()
-                    } else {
+                    } else { // 身份预备数据丢失的处理
+                        self.remove_user(&symbol_hash_base64);
                         debug!("user_key is exist but the ready data is empty: {}, {}", nickname, user_hash_id);
                         "re_input".to_string()
                     }
@@ -668,43 +740,32 @@ impl SimpleAI {
                     true => "local".to_string(),
                     false => {
                         println!("[UserBase] The identity is not in local and generate ready_data for new user: {}", nickname);
-                        let new_claim = GlobalClaims::generate_did_claim
-                            ("User", &nickname, Some(telephone.to_string()), None, &user_phrase);
-                        self.push_claim(&new_claim);
-                        let exchange_crypt_secret =  URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
-                            "exchange", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
-                        let issue_crypt_secret = URL_SAFE_NO_PAD.encode(token_utils::get_specific_secret_key(
-                            "issue", new_claim.id_type.as_str(), &new_claim.get_symbol_hash(), &user_phrase));
-                        let mut ready_data: serde_json::Value = json!({});
-                        ready_data["user_phrase"] =  serde_json::to_value(user_phrase.clone()).unwrap_or(json!(""));
-                        ready_data["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
-                        ready_data["exchange_crypt_secret"] = serde_json::to_value(exchange_crypt_secret).unwrap_or(json!(""));
-                        ready_data["issue_crypt_secret"] = serde_json::to_value(issue_crypt_secret).unwrap_or(json!(""));
-                        ready_data["vcode_try_counts"] = json!(3);
-                        let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
-                        ready_data["user_copy_hash_id"] =  serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
-
-                        let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
-                        debug!("create new did and claim: symbol_hash_base64={}\n claim={:?}", symbol_hash_base64, new_claim);
+                        let (user_did, user_phrase) = self.create_user(&nickname, telephone, None, None);
+                        let new_claim = self.get_claim(&user_did);
+                        debug!("create new claim: symbol={}, claim_symbol={}",
+                            symbol_hash_base64, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
 
                         let mut request: serde_json::Value = json!({});
                         request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
                         request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
 
-                        let user_certificate = self.request_token_api(
-                            "apply",
+                        let user_claim_result = self.request_token_api(
+                            "apply2",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        println!("[UserBase] Apply to verify user: symbol({}), ready_cert({})", symbol_hash_base64, user_certificate);
-                        let parts: Vec<&str> = user_certificate.split('_').collect();
-                        let result = parts[0].to_string();
-                        if result != "Unknown".to_string()  {
-                            ready_data["user_certificate"] = serde_json::to_value(user_certificate.clone()).unwrap_or(json!(""));
-                            self.ready_users.insert(user_hash_id.clone(), ready_data);
-                            println!("[UserBase] User verification apply is ok, ready to verify with vcode: did({}), symbol({})", new_claim.gen_did(), symbol_hash_base64);
+                        println!("[UserBase] Apply to verify user: symbol({}), result({})", symbol_hash_base64, user_claim_result);
+                        if !user_claim_result.starts_with("Unknown") {
+                            let ready_data = format!("{}|{}|{}", 3, user_did, user_claim_result);
+                            let ready_data = serde_json::to_string(&ready_data).unwrap_or("Unknown".to_string());
+                            let ivec_data = sled::IVec::from(ready_data.as_bytes());
+                            {
+                                let ready_users = self.ready_users.lock().unwrap();
+                                let _ = ready_users.insert(&user_hash_id, ivec_data);
+                            }
+                            println!("[UserBase] User apply is ok, ready to verify with vcode: did({}), symbol({})", user_did, symbol_hash_base64);
                             "remote".to_string()
                         } else {
-                            println!("[UserBase] User verification apply is failure: did({}), symbol({})", new_claim.gen_did(), symbol_hash_base64);
-                            token_utils::remove_user_pem_and_claim(&symbol_hash, &new_claim.gen_did());
+                            println!("[UserBase] User apply is failure: did({}), symbol({})", user_did, symbol_hash_base64);
+                            self.remove_user(&symbol_hash_base64);
                             "unknown".to_string()
                         }
                     }
@@ -716,107 +777,151 @@ impl SimpleAI {
     pub fn check_user_verify_code(&mut self, nickname: &str, telephone: &str, vcode: &str)-> String {
         let nickname = nickname.chars().take(24).collect::<String>();
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
-        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-        if self.ready_users.contains_key(&user_hash_id) {
-            let mut ready_data = self.ready_users.get(&user_hash_id).cloned().unwrap_or_default();
-            let mut try_count = ready_data["vcode_try_counts"].as_i64().unwrap_or(0) as i32;
-            try_count -= 1;
-            if try_count >= 0 {
-                let result_certificate_string = ready_data["user_certificate"].as_str().unwrap_or("Unknown");
-                let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
-                let did = claim.gen_did();
-                let user_certificate = token_utils::decrypt_issue_cert_with_vcode(vcode, result_certificate_string);
-                if user_certificate.len() > 32 && !self.get_upstream_did().is_empty() {
-                    let upstream_did = self.get_upstream_did();
-                    let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
-                    let user_did = {
-                        let mut certificates = self.certificates.lock().unwrap();
-                        certificates.push_user_cert_text(&user_certificate_text)
-                    };
-                    if user_did != "Unknown" {
-                        println!("[UserBase] The parsed_cert from Root is correct: symbol({}), did({}), cert({})", URL_SAFE_NO_PAD.encode(symbol_hash), did, user_certificate_text);
-                        let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(claim.get_symbol_hash());
-                        let mut request: serde_json::Value = json!({});
-                        request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
-                        request["user_vcode"] = serde_json::to_value(vcode).unwrap();
-                        request["user_copy_hash_id"] = ready_data["user_copy_hash_id"].clone();
-                        let result = self.request_token_api(
-                            "confirm",
-                            &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        if result == "Confirmed_ok" {
-                            if did == user_did {
-                                println!("[UserBase] Identity confirmed and ready to create new user: {}", did);
-                                return "create".to_string();
-                            } else {
-                                println!("[UserBase] Identity confirmed and ready to recall from root: {}", user_did);
-                                token_utils::remove_user_pem_and_claim(&symbol_hash, &did);
-                                return "recall".to_string();
+        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
+        let ready_data = {
+            let ready_users = self.ready_users.lock().unwrap();
+            match ready_users.get(&user_hash_id) {
+                Ok(Some(ready_data)) => String::from_utf8(ready_data.to_vec()).unwrap(),
+                _ => "Unknown".to_string(),
+            }
+        };
+        if ready_data != "Unknown" {
+            let parts: Vec<&str> = ready_data.split('|').collect();
+            if parts.len() >= 3 {
+                let mut try_count = parts[0].parse::<i32>().unwrap_or(0);
+                let old_user_did = parts[1].to_string();
+                let encrypted_user_claim_string = parts[2].to_string();
+                try_count -= 1;
+                if try_count >= 0 {
+                    let encrypted_user_claim_base64 = token_utils::decrypt_text_with_vcode(vcode, &encrypted_user_claim_string);
+                    if encrypted_user_claim_base64 != "Unknown" {
+                        let _ = {
+                            let ready_users = self.ready_users.lock().unwrap();
+                            ready_users.remove(user_hash_id);
+                        };
+                        let upstream_did = self.get_upstream_did();
+                        let user_claim_text = self.decrypt_by_did(&encrypted_user_claim_base64, &upstream_did, 0);
+
+                        match serde_json::from_str::<IdClaim>(&user_claim_text) {
+                            Ok(user_claim) => {
+                                let user_did = user_claim.gen_did();
+                                println!("[UserBase] The decoding the claim from Root is correct: local_symbol({}), user_did({}), cert({})",
+                                         symbol_hash_base64, user_did, user_claim_text);
+                                let result_return = match old_user_did == user_did {
+                                    true => {
+                                        println!("[UserBase] Identity confirmed to create new user: create({})", user_did);
+                                        "create".to_string()
+                                    }
+                                    false => {
+                                        println!("[UserBase] Identity confirmed to recall user from root: remote({})", user_did);
+                                        self.remove_user(&symbol_hash_base64);
+                                        self.push_claim(&user_claim);
+                                        "recall".to_string()
+                                    }
+                                };
+                                let mut request: serde_json::Value = json!({});
+                                request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
+                                request["user_vcode"] = serde_json::to_value(vcode).unwrap();
+                                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
+                                request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
+
+                                let result = self.request_token_api(
+                                    "confirm2",
+                                    &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+                                if !result.starts_with("Unknown") {
+                                    if result.len() > 32 && !self.get_upstream_did().is_empty() {
+                                        let upstream_did = self.get_upstream_did();
+                                        let user_certificate_text = self.decrypt_by_did(&result, &upstream_did, 0);
+                                        let result_user_did = {
+                                            let mut certificates = self.certificates.lock().unwrap();
+                                            certificates.push_user_cert_text(&user_certificate_text)
+                                        };
+                                        if result_user_did != "Unknown" && result_user_did == user_did {
+                                            return result_return;
+                                        }
+                                    }
+                                }
+                                println!("[UserBase] Get user certificate fail: did({})", user_did);
+                                return "error in confirming".to_string();
                             }
-                        } else {
-                            println!("[UserBase] Identity confirm fail: did({}), error({})", did, result);
-                            return "error in confirming".to_string();
+                            Err(e) => {
+                                println!("[UserBase] Identity confirm fail: did({}), error({})", old_user_did, e);
+                                self.remove_user(&symbol_hash_base64);
+                                return "error in confirming".to_string();
+                            }
                         }
+                    } else {
+                        println!("[UserBase] The decoding the claim from Root is incorrect: symbol({}), old_did({})",
+                                 symbol_hash_base64, old_user_did);
+                        let ready_data = format!("{}|{}|{}", try_count, old_user_did, encrypted_user_claim_string);
+                        let ready_data = serde_json::to_string(&ready_data).unwrap_or("Unknown".to_string());
+                        let ivec_data = sled::IVec::from(ready_data.as_bytes());
+                        {
+                            let ready_users = self.ready_users.lock().unwrap();
+                            let _ = ready_users.insert(&user_hash_id, ivec_data);
+                        }
+                        return format!("error:{}", try_count).to_string();
                     }
+                } else {
+                    let _ = {
+                        let ready_users = self.ready_users.lock().unwrap();
+                        ready_users.remove(user_hash_id);
+                    };
+                    self.remove_user(&symbol_hash_base64);
+                    println!("[UserBase] The try_count of verify the code has run out: symbol({}), did({})", symbol_hash_base64, old_user_did);
                 }
-                println!("[UserBase] The parsed_cert from Root is incorrect : symbol({}), did({})", URL_SAFE_NO_PAD.encode(symbol_hash), did);
-                ready_data["vcode_try_counts"] = try_count.into();
-                self.ready_users.insert(user_hash_id.clone(), ready_data);
-                return format!("error:{}", try_count).to_string();
             }
         }
+        self.remove_user(&symbol_hash_base64);
         "error:0".to_string()
     }
 
 
+    // 检查本地身份：没有则提前create user，提交远端确认，返回claim
+    // 验证码验证：通过则保存claim，不通过则删除预创建用户，vcode提交确认，返回cert，解开，保存cert
+    // 设置口令：先检查是否已注册，然后用原始phrase改新的phrase，再提交backup，创建context
+    // 验证口令：检验本地身份key有效性，不行看本地身份文件，再不行从云端拉副本
 
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = nickname.chars().take(24).collect::<String>();
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
-        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-        if self.ready_users.contains_key(&user_hash_id) {
-            let ready_data = self.ready_users.get(&user_hash_id).unwrap();
-            let old_phrase = ready_data["user_phrase"].as_str().unwrap_or("Unknown");
-            let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, old_phrase);
-            let claim: IdClaim = serde_json::from_value(ready_data["claim"].clone()).unwrap_or_default();
-            let did = claim.gen_did();
-            if !self.is_registered(&did) {
-                debug!("user_did hasn't been verified by root: {}, {}", nickname, did);
-                return self.get_guest_user_context()
-            }
-            let exchange_crypt_secret = ready_data["exchange_crypt_secret"].as_str().unwrap_or("Unknown");
-            let issue_crypt_secret = ready_data["issue_crypt_secret"].as_str().unwrap_or("Unknown");
-            self.crypt_secrets.insert(exchange_key!(did.clone()), exchange_crypt_secret.to_string());
-            self.crypt_secrets.insert(issue_key!(did.clone()), issue_crypt_secret.to_string());
-            token_utils::change_phrase_for_pem(&claim.get_symbol_hash(), old_phrase, phrase);
-            self.push_claim(&claim);
-            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
-
-            let encrypted_identity = self.export_user(&nickname, &telephone, &phrase);
-            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-            fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-            println!("[UserBase] Create new user with phrase and save identity_file: {}", did);
-
-            let context = self.sign_user_context(&did, phrase);
-            let user_copy_to_cloud = self.get_user_copy_string(&did, phrase);
-            let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
-
-            let mut request: serde_json::Value = json!({});
-            request["old_user_copy_hash_id"] = serde_json::to_value(old_user_copy_hash_id).unwrap();
-            request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
-            request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
-            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-            let result = self.request_token_api("submit_user_copy", &params);
-            if result != "Backup_ok" {
-                let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
-                let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", did));
-                fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
-            }
-            println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", did, params);
-            context
-        } else {
-            debug!("user_did not exist in ready_users: {}, {}", nickname, user_hash_id);
-            self.get_guest_user_context()
+        let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
+        if user_did != "Unknown" && !self.is_registered(&user_did) {
+            println!("[UserBase] The user hasn't been verified by root: {}, {}.", nickname, user_did);
+            return self.get_guest_user_context()
         }
+
+        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        if token_utils::is_original_user_key(&symbol_hash)  {
+            let _ = token_utils::change_phrase_for_pem(&symbol_hash, &user_phrase, phrase);
+        } else {
+            println!("[UserBase] The user_key phrase has been changed and do not to be set: {}, {}.", nickname, user_did);
+            return self.get_guest_user_context()
+        }
+
+        let context = self.sign_user_context(&user_did, phrase);
+        if context.is_default() {
+            println!("[UserBase] The user maybe in blacklist: {}", user_did);
+            return self.get_guest_user_context()
+        }
+        let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
+        let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
+        let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
+
+        let mut request: serde_json::Value = json!({});
+        request["old_user_copy_hash_id"] = serde_json::to_value(old_user_copy_hash_id).unwrap();
+        request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
+        request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
+        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+        let result = self.request_token_api("submit_user_copy", &params);
+        if result != "Backup_ok" {
+            let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
+            let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", user_did));
+            fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
+        }
+        println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", user_did, params);
+        context
     }
     pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = nickname.chars().take(24).collect::<String>();
@@ -827,7 +932,11 @@ impl SimpleAI {
             match token_utils::exists_and_valid_user_key(&symbol_hash, phrase) && user_did != "Unknown" {
                 true => {
                     println!("[UserBase] Get user context:{} from local key file: .token_user_{}.pem", user_did, user_hash_id);
-                    self.sign_user_context(&user_did, phrase)
+                    let context = self.sign_user_context(&user_did, phrase);
+                    if context.is_default() {
+                        println!("[UserBase] The user hasn't been verified by root or in blacklist: {}", user_did);
+                        self.get_guest_user_context()
+                    } else { context }
                 },
                 false => {
                     let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
@@ -836,7 +945,11 @@ impl SimpleAI {
                             println!("[UserBase] Get user encrypted copy from identity file: {}, user_identity_{}.token", user_did, user_hash_id);
                             let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                             let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
-                            self.sign_user_context(&user_did, phrase)
+                            let context = self.sign_user_context(&user_did, phrase);
+                            if context.is_default() {
+                                println!("[UserBase] The user hasn't been verified by root or in blacklist: {}", user_did);
+                                self.get_guest_user_context()
+                            } else { context }
                         }
                         false => {
                             let mut request: serde_json::Value = json!({});
@@ -878,7 +991,12 @@ impl SimpleAI {
                                             //let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
                                             //    .unwrap_or(UserContext::default()), "add");
 
-                                            self.sign_user_context(&user_did, phrase)
+                                            let context = self.sign_user_context(&user_did, phrase);
+                                            if context.is_default() {
+                                                println!("[UserBase] The user hasn't been verified by root or in blacklist: {}", user_did);
+                                                self.get_guest_user_context()
+                                            } else { context }
+
                                         } else {
                                             println!("[UserBase] The user encrypted copy is not valid: {}", user_did);
                                             self.get_guest_user_context()

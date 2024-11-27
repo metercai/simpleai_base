@@ -748,7 +748,7 @@ pub(crate) fn gen_entry_point_of_service(point_id: &str) -> String {
     derive_key(&service_id, &salt).unwrap_or([0u8; 32]).to_base58()
 }
 
-pub(crate) fn check_entry_point_of_service(entry_point: &str) -> bool {
+pub(crate) fn check_entry_point_of_service(entry_point: &str) -> bool { // 带有效期的entry_point 600000秒
     let service_id = calc_sha256(std::process::id().to_string().as_bytes());
     let sysinfo = &SYSTEM_BASE_INFO;
     let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
@@ -996,6 +996,7 @@ pub(crate) fn import_identity(user_hash_id: &str, encrypted_identity: &Vec<u8>, 
         let identity_bytes = decrypt(&encrypted_identity[10..78], &secret_key, 0);
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap();
         println!("[UserBase] import_identity: nickname={}, identity_bytes({})={:?}", nickname, identity_bytes.len(), identity_bytes);
+
         let timestamp = u64::from_le_bytes(identity_bytes[..8].try_into().unwrap());
         let mut user_key = [0u8; 32];
         user_key.copy_from_slice(&identity_bytes[8..]);
@@ -1064,6 +1065,31 @@ pub(crate) fn decrypt_issue_cert_with_vcode(vcode: &str, issue_cert: &str) -> St
     key[..28].copy_from_slice(&result_certificate[..28]);
     key[28..].copy_from_slice(&vcode_bytes[..4]);
     String::from_utf8_lossy(decrypt(&result_certificate[28..], &key, 0).as_slice()).to_string()
+}
+
+pub(crate) fn encrypt_text_and_get_vcode(plain_text: &str) -> (String, String) {
+    let mut csprng = OsRng {};
+    let mut key = [0u8; 32];
+    csprng.fill_bytes(&mut key);
+    let mut key_1 = [0u8; 28];
+    key_1[..28].copy_from_slice(&key[..28]);
+    let mut key_2 = [0u8; 4];
+    key_2.copy_from_slice(&key[28..32]);
+    let encrypted_issue_cert = encrypt(plain_text.as_bytes(), &key, 0);
+    let mut new_encrypted_issue_cert: Vec<u8> = Vec::new();
+    new_encrypted_issue_cert.extend_from_slice(&key_1);
+    new_encrypted_issue_cert.extend_from_slice(&encrypted_issue_cert);
+    let result_issue_cert = URL_SAFE_NO_PAD.encode(new_encrypted_issue_cert);
+    (key_2.to_base58().to_string(), result_issue_cert)
+}
+
+pub(crate) fn decrypt_text_with_vcode(vcode: &str, encrypted_text: &str) -> String {
+    let encrypted_text_bytes = URL_SAFE_NO_PAD.decode(encrypted_text).unwrap_or([0; 32].to_vec());
+    let vcode_bytes = vcode.from_base58().unwrap_or([0; 4].to_vec());
+    let mut key = [0; 32];
+    key[..28].copy_from_slice(&encrypted_text_bytes[..28]);
+    key[28..].copy_from_slice(&vcode_bytes[..4]);
+    String::from_utf8_lossy(decrypt(&encrypted_text_bytes[28..], &key, 0).as_slice()).to_string()
 }
 
 pub(crate) fn is_valid_telephone(telephone: &str) -> bool {

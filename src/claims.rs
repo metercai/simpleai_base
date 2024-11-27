@@ -138,6 +138,9 @@ impl GlobalClaims {
     }
 
     pub fn get_claim_from_local(&mut self, did: &str) -> IdClaim {
+        if did=="Unknown" {
+            return IdClaim::default();
+        }
         if !self.claims.contains_key(did) {
             let claim = GlobalClaims::load_claim_from_local(did);
             if !claim.is_default() {
