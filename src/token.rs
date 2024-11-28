@@ -767,7 +767,7 @@ impl SimpleAI {
                         println!("[UserBase] Apply to verify user: symbol({}), result({})", symbol_hash_base64, user_claim_result);
                         if !user_claim_result.starts_with("Unknown") {
                             let ready_data = format!("{}|{}|{}", 3, user_did, user_claim_result);
-                            let ready_data = serde_json::to_string(&ready_data).unwrap_or("Unknown".to_string());
+                            //let ready_data = serde_json::to_string(&ready_data).unwrap_or("Unknown".to_string());
                             let ivec_data = sled::IVec::from(ready_data.as_bytes());
                             {
                                 let ready_users = self.ready_users.lock().unwrap();
