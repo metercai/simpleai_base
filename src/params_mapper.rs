@@ -1,9 +1,11 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use serde_json::Value;
 use serde_derive::{Serialize, Deserialize};
 use pyo3::prelude::*;
 use crate::token_utils;
+use crate::GlobalClaims;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
@@ -11,7 +13,6 @@ pub struct ComfyTaskParams {
     params: HashMap<String, Value>,
     fooo2node: HashMap<String, String>,
     user_did: String,
-    user_base_dir: String,
 }
 
 static FOOO2NODE_DATA: &[(&str, &str)] = &[
@@ -101,7 +102,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
 #[pymethods]
 impl ComfyTaskParams {
     #[new]
-    pub fn new(params: String, user_did: String, user_base_dir: String) -> Self {
+    pub fn new(params: String, user_did: String) -> Self {
         let fooo2node: HashMap<String, String> = FOOO2NODE_DATA.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let params: HashMap<String, Value> = match serde_json::from_str(&params) {
             Ok(json) => json,
@@ -110,8 +111,7 @@ impl ComfyTaskParams {
         Self {
             params,
             fooo2node,
-            user_did,
-            user_base_dir
+            user_did
         }
     }
 
@@ -146,11 +146,17 @@ impl ComfyTaskParams {
     pub fn convert2comfy(&self, flow_name: String) -> String {
         let filename = format!("{}_api.json", flow_name);
         let filename_with_path = format!("workflows/{}", filename);
-        let flow_file = token_utils::get_path_in_user_dir(&self.user_did, &filename_with_path, &self.user_base_dir);
+        let flow_file = {
+            let claims = GlobalClaims::instance();
+            let claims = claims.lock().unwrap();
+            claims.get_path_in_user_dir(&self.user_did, &filename_with_path)
+        };
+        let flow_file = Path::new(&flow_file);
         let flow_file = match flow_file.exists() {
-            true => flow_file,
+            true => PathBuf::from(flow_file),
             false => token_utils::get_path_in_root_dir("workflows", &filename)
         };
+
         let workflow = match fs::read_to_string(flow_file) {
             Ok(json_str) => json_str,
             Err(e) => {

@@ -45,12 +45,6 @@ pub(crate) static TOKEN_TM_DID: &str = "B2Xn77BbvKJEUPE5QgfavbJJDaKAQ";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
-    pub static ref VERBOSE_INFO: bool = {
-        match env::var("SIMPLEAI_VERBOSE") {
-            Ok(val) => if val=="on" {true} else {false},
-            Err(_) => false,
-        }
-    };
 }
 
 pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
@@ -153,9 +147,8 @@ pub(crate) fn save_user_certificates_to_file(sys_did: &str, certificates: &HashM
     let system_token_file = get_path_in_sys_key_dir(&format!("user_certs_{}.token", sys_did));
     let crypt_key = get_token_crypt_key();
     let token_raw_data = encrypt(json_string.as_bytes(), &crypt_key, 0);
-    if *VERBOSE_INFO {
-        println!("Save user_certificates to file: {}", json_string);
-    }
+    debug!("Save user_certificates to file: {}", json_string);
+
     fs::write(system_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", system_token_file.display()))
 }
 
@@ -448,24 +441,6 @@ pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> 
             } else { "Err".to_string() }
         }
     }
-}
-
-pub(crate) fn get_path_in_user_dir(did: &str, filename: &str, user_base_dir: &str) -> PathBuf {
-    let sysinfo = &SYSTEM_BASE_INFO;
-    let user_base_dir = match user_base_dir {
-        "" => match BaseDirs::new() {
-            Some(dirs) => dirs.home_dir().to_path_buf().join(".simpleai.vip").join("user"),
-            None => PathBuf::from(sysinfo.root_dir.clone()).join(".simpleai.vip").join("user"),
-        }
-        _ => PathBuf::from(user_base_dir),
-    };
-    if !user_base_dir.exists() {
-        if let Err(e) = fs::create_dir_all(&user_base_dir) {
-            eprintln!("Failed to create directory {}: {}", user_base_dir.display(), e);
-            // 可以根据需要处理错误，例如返回一个默认路径或抛出错误
-        }
-    }
-    user_base_dir.join(did).join(filename)
 }
 
 pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {

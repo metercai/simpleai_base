@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -11,6 +12,9 @@ use ripemd::Ripemd160;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use crate::token_utils;
+use directories_next::BaseDirs;
+
+
 
 use tracing::debug;
 use pyo3::prelude::*;
@@ -24,7 +28,10 @@ pub struct GlobalClaims {
     claims: HashMap<String, IdClaim>,       // 留存本地的身份自证
     sys_did: String,                      // 系统did
     device_did: String,                    // 设备id
+    admin: String,                        // 管理员账号
+    guest: String,                        // 游客账号
     file_crypt_key: [u8; 32],                // 文件加密密钥
+    user_base_dir: String,                // 用户目录
 }
 
 impl GlobalClaims {
@@ -85,14 +92,62 @@ impl GlobalClaims {
             claims,
             sys_did: String::new(),
             device_did: String::new(),
+            admin: String::new(),
+            guest: String::new(),
             file_crypt_key: [0u8; 32],
+            user_base_dir: String::new(),
         }
     }
 
-    pub(crate) fn set_system_device_did(&mut self, sys_did: &str, device_id: &str)  {
+    pub(crate) fn set_system_device_guest_did(&mut self, sys_did: &str, device: &str, guest: &str)   {
         self.sys_did = sys_did.to_string();
-        self.device_did = device_id.to_string();
+        self.device_did = device.to_string();
+        self.guest = guest.to_string();
     }
+
+    pub(crate) fn set_user_base_dir(&mut self, user_base_dir: &str) {
+        self.user_base_dir = user_base_dir.to_string();
+    }
+
+    pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
+        self.admin = admin_did.to_string();
+    }
+
+    pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
+        if !IdClaim::validity(did) {
+            return "Invalid_did".to_string();
+        }
+        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
+        let user_base_dir = if self.user_base_dir.is_empty() {
+            match BaseDirs::new() {
+                Some(dirs) => dirs.home_dir().to_path_buf().join(".simpleai.vip").join("user"),
+                None => PathBuf::from(sysinfo.root_dir.clone()).join(".simpleai.vip").join("user"),
+            }
+        } else {
+            PathBuf::from(self.user_base_dir.clone())
+        };
+        if !user_base_dir.exists() {
+            if let Err(e) = fs::create_dir_all(&user_base_dir) {
+                eprintln!("Failed to create directory {}: {}", user_base_dir.display(), e);
+                // 可以根据需要处理错误，例如返回一个默认路径或抛出错误
+            }
+        }
+
+        let did_path =
+            self.device_did.from_base58().expect("Failed to decode base58").iter()
+                .zip(did.from_base58().expect("Failed to decode base58").iter())
+                .map(|(&x, &y)| x ^ y).collect::<Vec<_>>().to_base58();
+
+        let path_file =  if did == self.admin {
+                user_base_dir.join(format!("admin_{}", did_path)).join(catalog)
+            } else if did == self.guest {
+                user_base_dir.join("guest_user").join(catalog)
+            } else {
+            user_base_dir.join(did_path).join(catalog)
+        };
+        path_file.to_string_lossy().to_string()
+    }
+
     pub fn instance() -> Arc<Mutex<GlobalClaims>> {
         GLOBAL_CLAIMS.clone()
     }

@@ -3,7 +3,7 @@ use std::fs;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde_json::{self, json};
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -123,7 +123,7 @@ impl SimpleAI {
                 }
                 _ => claims.get_claim_from_local(&guest_did),
             };
-            claims.set_system_device_did(&local_did, &device_did);
+            claims.set_system_device_guest_did(&local_did, &device_did, &guest_did);
             let claims_local_length = claims.local_len();
             debug!("init system/device/guest did and claim ok.");
             (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length)
@@ -175,8 +175,12 @@ impl SimpleAI {
         debug!("upstream_did: {}", upstream_did);
         debug!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
 
-
-        let admin = if guest_did == admin { "".to_string() } else { admin };
+        let admin = {
+            let admin = if guest_did == admin { "".to_string() } else { admin };
+            let mut claims = claims.lock().unwrap();
+            claims.set_admin_did(&admin);
+            admin
+        };
 
         Self {
             sys_name,
@@ -241,7 +245,11 @@ impl SimpleAI {
     }
 
     pub fn set_admin(&mut self, did: &str) {
-        self.admin = did.to_string();
+        self.admin = {
+            let mut claims = self.claims.lock().unwrap();
+            claims.set_admin_did(did);
+            did.to_string()
+        }
     }
 
     pub fn absent_admin(&self) -> bool {
@@ -269,7 +277,7 @@ impl SimpleAI {
     }
 
     pub fn get_register_cert(&self, user_did: &str) -> String {
-        let mut certificates = self.certificates.lock().unwrap();
+        let certificates = self.certificates.lock().unwrap();
         certificates.get_register_cert(user_did)
     }
 
@@ -318,7 +326,7 @@ impl SimpleAI {
 
     pub fn remove_user(&mut self, user_symbol_hash_base64: &str) -> String {
         let user_symbol_hash = token_utils::convert_base64_to_key(user_symbol_hash_base64);
-        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let (user_did, claim) = {
             let mut claims = self.claims.lock().unwrap();
             let user_did = claims.reverse_lookup_did_by_symbol(&user_symbol_hash);
@@ -411,7 +419,7 @@ impl SimpleAI {
                     //let mut bits = Bits::new(Version::Normal(10));
                     //bits.push_byte_data(&encrypted_identity_qr);
                     //bits.push_terminator(EcLevel::L);
-                    let mut bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
+                    let bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
                     let qrcode = QrCode::with_bits(bits, EcLevel::L).unwrap();
                     //let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
                     let image = qrcode.render()
@@ -639,7 +647,11 @@ impl SimpleAI {
     }
 
     pub fn set_user_base_dir(&mut self, user_base_dir: &str) {
-        self.user_base_dir = user_base_dir.to_string();
+        self.user_base_dir = {
+            let mut claims = self.claims.lock().unwrap();
+            claims.set_user_base_dir(user_base_dir);
+            user_base_dir.to_string()
+        };
     }
 
     pub fn get_user_path_outputs(&self, root_outputs: &str, user_did: &str) -> String {
@@ -660,20 +672,20 @@ impl SimpleAI {
 
 
     pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
-        let path_file = token_utils::get_path_in_user_dir(did, catalog, &self.user_base_dir);
-        path_file.to_string_lossy().to_string()
+        let claims = self.claims.lock().unwrap();
+        claims.get_path_in_user_dir(did, catalog)
     }
 
     pub fn get_private_paths_list(&self, did: &str, catalog: &str) -> Vec<String> {
-        let catalog_paths = token_utils::get_path_in_user_dir(did, catalog, &self.user_base_dir);
+        let catalog_paths = self.get_path_in_user_dir(did, catalog);
         let filters = &[];
         let suffixes = &[".json"];
-        token_utils::filter_files(&catalog_paths, filters, suffixes)
+        token_utils::filter_files(&Path::new(&catalog_paths), filters, suffixes)
     }
 
 
     pub fn get_private_paths_datas(&self, user_context: &UserContext, catalog: &str, filename: &str) -> String {
-        let file_paths = token_utils::get_path_in_user_dir(&user_context.get_did(), catalog, &self.user_base_dir).join(filename);
+        let file_paths = Path::new(&self.get_path_in_user_dir(&user_context.get_did(), catalog)).join(filename);
         match file_paths.exists() {
             true => {
                 let crypt_key = user_context.get_crypt_key();
@@ -702,7 +714,7 @@ impl SimpleAI {
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
-        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
                 if token_utils::is_original_user_key(&symbol_hash)  {
@@ -740,7 +752,7 @@ impl SimpleAI {
                     true => "local".to_string(),
                     false => {
                         println!("[UserBase] The identity is not in local and generate ready_data for new user: {}", nickname);
-                        let (user_did, user_phrase) = self.create_user(&nickname, telephone, None, None);
+                        let (user_did, _user_phrase) = self.create_user(&nickname, telephone, None, None);
                         let new_claim = self.get_claim(&user_did);
                         debug!("create new claim: symbol={}, claim_symbol={}",
                             symbol_hash_base64, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
@@ -798,7 +810,7 @@ impl SimpleAI {
                     if encrypted_user_claim_base64 != "Unknown" {
                         let _ = {
                             let ready_users = self.ready_users.lock().unwrap();
-                            ready_users.remove(user_hash_id);
+                            let _ = ready_users.remove(user_hash_id);
                         };
                         let upstream_did = self.get_upstream_did();
                         let user_claim_text = self.decrypt_by_did(&encrypted_user_claim_base64, &upstream_did, 0);
@@ -867,7 +879,7 @@ impl SimpleAI {
                 } else {
                     let _ = {
                         let ready_users = self.ready_users.lock().unwrap();
-                        ready_users.remove(user_hash_id);
+                        let _ = ready_users.remove(user_hash_id);
                     };
                     self.remove_user(&symbol_hash_base64);
                     println!("[UserBase] The try_count of verify the code has run out: symbol({}), did({})", symbol_hash_base64, old_user_did);
@@ -893,7 +905,7 @@ impl SimpleAI {
             return self.get_guest_user_context()
         }
 
-        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        let (_user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if token_utils::is_original_user_key(&symbol_hash)  {
             let _ = token_utils::change_phrase_for_pem(&symbol_hash, &user_phrase, phrase);
         } else {
