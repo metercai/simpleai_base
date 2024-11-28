@@ -807,14 +807,15 @@ impl SimpleAI {
                 let encrypted_user_claim_string = parts[2].to_string();
                 try_count -= 1;
                 if try_count >= 0 {
-                    let encrypted_user_claim_base64 = token_utils::decrypt_text_with_vcode(vcode, &encrypted_user_claim_string);
-                    if encrypted_user_claim_base64 != "Unknown" {
+                    let user_claim_text = token_utils::decrypt_text_with_vcode(vcode, &encrypted_user_claim_string);
+                    if user_claim_text != "Unknown" {
                         let _ = {
                             let ready_users = self.ready_users.lock().unwrap();
                             let _ = ready_users.remove(user_hash_id);
                         };
-                        let upstream_did = self.get_upstream_did();
-                        let user_claim_text = self.decrypt_by_did(&encrypted_user_claim_base64, &upstream_did, 0);
+                        debug!("user_claim_text: {}, symbol({})", user_claim_text, symbol_hash_base64);
+                        //let upstream_did = self.get_upstream_did();
+                        //let user_claim_text = self.decrypt_by_did(&encrypted_user_claim_base64, &upstream_did, 0);
 
                         match serde_json::from_str::<IdClaim>(&user_claim_text) {
                             Ok(user_claim) => {
