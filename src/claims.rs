@@ -120,8 +120,8 @@ impl GlobalClaims {
         let sysinfo = &token_utils::SYSTEM_BASE_INFO;
         let user_base_dir = if self.user_base_dir.is_empty() {
             match BaseDirs::new() {
-                Some(dirs) => dirs.home_dir().to_path_buf().join(".simpleai.vip").join("user"),
-                None => PathBuf::from(sysinfo.root_dir.clone()).join(".simpleai.vip").join("user"),
+                Some(dirs) => dirs.home_dir().to_path_buf().join(".simpleai.vip").join("users"),
+                None => PathBuf::from(sysinfo.root_dir.clone()).join(".simpleai.vip").join("users"),
             }
         } else {
             PathBuf::from(self.user_base_dir.clone())

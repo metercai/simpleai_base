@@ -654,19 +654,19 @@ impl SimpleAI {
         };
     }
 
-    pub fn get_user_path_outputs(&self, root_outputs: &str, user_did: &str) -> String {
-        let outputs_dir = PathBuf::from(root_outputs);
+    pub fn get_user_path_in_root(&self, root: &str, user_did: &str) -> String {
+        let root_dir = PathBuf::from(root);
         let did_path =
             self.device.from_base58().expect("Failed to decode base58").iter()
                 .zip(user_did.from_base58().expect("Failed to decode base58").iter())
                 .map(|(&x, &y)| x ^ y).collect::<Vec<_>>().to_base58();
 
         if !IdClaim::validity(user_did) || self.is_guest(user_did) {
-            outputs_dir.join("guest_user").to_string_lossy().to_string()
+            root_dir.join("guest_user").to_string_lossy().to_string()
         } else if self.is_admin(user_did) {
-            outputs_dir.join(format!("admin_{}", did_path)).to_string_lossy().to_string()
+            root_dir.join(format!("admin_{}", did_path)).to_string_lossy().to_string()
         } else {
-            outputs_dir.join(did_path).to_string_lossy().to_string()
+            root_dir.join(did_path).to_string_lossy().to_string()
         }
     }
 
