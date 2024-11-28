@@ -773,7 +773,7 @@ impl SimpleAI {
                                 let ready_users = self.ready_users.lock().unwrap();
                                 let _ = ready_users.insert(&user_hash_id, ivec_data);
                             }
-                            println!("[UserBase] User apply is ok, ready to verify with vcode: did({}), symbol({})", user_did, symbol_hash_base64);
+                            println!("[UserBase] User apply is ok, ready to verify with vcode: did({}), ready_data({})", user_did, ready_data);
                             "remote".to_string()
                         } else {
                             println!("[UserBase] User apply is failure: did({}), symbol({})", user_did, symbol_hash_base64);
@@ -800,6 +800,7 @@ impl SimpleAI {
         };
         if ready_data != "Unknown" {
             let parts: Vec<&str> = ready_data.split('|').collect();
+            debug!("ready_data: {:?}", parts);
             if parts.len() >= 3 {
                 let mut try_count = parts[0].parse::<i32>().unwrap_or(0);
                 let old_user_did = parts[1].to_string();
@@ -881,9 +882,10 @@ impl SimpleAI {
                         let ready_users = self.ready_users.lock().unwrap();
                         let _ = ready_users.remove(user_hash_id);
                     };
-                    self.remove_user(&symbol_hash_base64);
                     println!("[UserBase] The try_count of verify the code has run out: symbol({}), did({})", symbol_hash_base64, old_user_did);
                 }
+            } else {
+                println!("[UserBase] The ready data is error: symbol({}), ready_data({})", symbol_hash_base64, ready_data);
             }
         }
         self.remove_user(&symbol_hash_base64);
