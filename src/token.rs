@@ -767,7 +767,6 @@ impl SimpleAI {
                         println!("[UserBase] Apply to verify user: symbol({}), result({})", symbol_hash_base64, user_claim_result);
                         if !user_claim_result.starts_with("Unknown") {
                             let ready_data = format!("{}|{}|{}", 3, user_did, user_claim_result);
-                            //let ready_data = serde_json::to_string(&ready_data).unwrap_or("Unknown".to_string());
                             let ivec_data = sled::IVec::from(ready_data.as_bytes());
                             {
                                 let ready_users = self.ready_users.lock().unwrap();
@@ -814,8 +813,6 @@ impl SimpleAI {
                             let _ = ready_users.remove(user_hash_id);
                         };
                         debug!("user_claim_text: {}, symbol({})", user_claim_text, symbol_hash_base64);
-                        //let upstream_did = self.get_upstream_did();
-                        //let user_claim_text = self.decrypt_by_did(&encrypted_user_claim_base64, &upstream_did, 0);
 
                         match serde_json::from_str::<IdClaim>(&user_claim_text) {
                             Ok(user_claim) => {
@@ -893,11 +890,6 @@ impl SimpleAI {
         "error:0".to_string()
     }
 
-
-    // 检查本地身份：没有则提前create user，提交远端确认，返回claim
-    // 验证码验证：通过则保存claim，不通过则删除预创建用户，vcode提交确认，返回cert，解开，保存cert
-    // 设置口令：先检查是否已注册，然后用原始phrase改新的phrase，再提交backup，创建context
-    // 验证口令：检验本地身份key有效性，不行看本地身份文件，再不行从云端拉副本
 
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = nickname.chars().take(24).collect::<String>();
@@ -1141,7 +1133,7 @@ impl SimpleAI {
         let _ = context.signature(phrase);
         if token_utils::update_user_token_to_file(&context, "add") == "Ok"  {
             if self.admin.is_empty() && did != self.guest {
-                self.admin = did.to_string();
+                self.set_admin(did);
                 token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
                 println!("[UserBase] Set admin_did/设置系统管理 = {}", self.admin);
             }
