@@ -820,7 +820,7 @@ impl SimpleAI {
                         match serde_json::from_str::<IdClaim>(&user_claim_text) {
                             Ok(user_claim) => {
                                 let user_did = user_claim.gen_did();
-                                println!("[UserBase] The decoding the claim from Root is correct: local_symbol({}), user_did({}), cert({})",
+                                println!("[UserBase] The decoding the claim from Root is correct: local_symbol({}), user_did({}), claim({})",
                                          symbol_hash_base64, user_did, user_claim_text);
                                 let result_return = match old_user_did == user_did {
                                     true => {
@@ -850,7 +850,7 @@ impl SimpleAI {
                                         println!("[UserBase] Get user certificate : did({}), cert({})", user_did, user_certificate_text);
                                         let result_user_did = {
                                             let mut certificates = self.certificates.lock().unwrap();
-                                            certificates.push_user_cert_text(&format!("{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", user_certificate_text))
+                                            certificates.push_user_cert_text(&user_certificate_text)
                                         };
                                         if result_user_did != "Unknown" && result_user_did == user_did {
                                             return result_return;
