@@ -764,7 +764,7 @@ impl SimpleAI {
                         let user_claim_result = self.request_token_api(
                             "apply2",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        println!("[UserBase] Apply to verify user: symbol({}), result({})", symbol_hash_base64, user_claim_result);
+                        println!("[UserBase] Apply to verify user: symbol({})", symbol_hash_base64);
                         if !user_claim_result.starts_with("Unknown") {
                             let ready_data = format!("{}|{}|{}", 3, user_did, user_claim_result);
                             let ivec_data = sled::IVec::from(ready_data.as_bytes());
@@ -772,7 +772,8 @@ impl SimpleAI {
                                 let ready_users = self.ready_users.lock().unwrap();
                                 let _ = ready_users.insert(&user_hash_id, ivec_data);
                             }
-                            println!("[UserBase] User apply is ok, ready to verify with vcode: did({}), ready_data({})", user_did, ready_data);
+                            debug!("ready_data: {}", ready_data);
+                            println!("[UserBase] User apply is ok, ready to verify with vcode: did({})", user_did);
                             "remote".to_string()
                         } else {
                             println!("[UserBase] User apply is failure: did({}), symbol({})", user_did, symbol_hash_base64);
@@ -844,7 +845,8 @@ impl SimpleAI {
                                     if result.len() > 32 && !self.get_upstream_did().is_empty() {
                                         let upstream_did = self.get_upstream_did();
                                         let user_certificate_text = self.decrypt_by_did(&result, &upstream_did, 0);
-                                        println!("[UserBase] Get user certificate : did({}), cert({})", user_did, user_certificate_text);
+                                        debug!("user_certificate_text: {}", user_certificate_text);
+                                        println!("[UserBase] Get user certificate : did({})", user_did);
                                         let result_user_did = {
                                             let mut certificates = self.certificates.lock().unwrap();
                                             certificates.push_user_cert_text(&user_certificate_text)
@@ -867,7 +869,6 @@ impl SimpleAI {
                         println!("[UserBase] The decoding the claim from Root is incorrect: symbol({}), old_did({})",
                                  symbol_hash_base64, old_user_did);
                         let ready_data = format!("{}|{}|{}", try_count, old_user_did, encrypted_user_claim_string);
-                        let ready_data = serde_json::to_string(&ready_data).unwrap_or("Unknown".to_string());
                         let ivec_data = sled::IVec::from(ready_data.as_bytes());
                         {
                             let ready_users = self.ready_users.lock().unwrap();
@@ -971,6 +972,7 @@ impl SimpleAI {
                                 user_copy_from_cloud != "Unknown_user".to_string() &&
                                 user_copy_from_cloud != "Unknown_backup".to_string() {
                                 true => {
+                                    debug!("user_copy_from_cloud:{}", user_copy_from_cloud);
                                     let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
                                     if user_copy_from_cloud_array.len() >= 3 {
                                         let encrypted_identity = user_copy_from_cloud_array[0];
