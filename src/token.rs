@@ -959,8 +959,8 @@ impl SimpleAI {
                     let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                     match identity_file.exists() {
                         true => {
-                            println!("[UserBase] Get user encrypted copy from identity file: {}, user_identity_{}.token", user_did, user_hash_id);
                             let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
+                            println!("[UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}", user_did, user_hash_id, encrypted_identity.len(), encrypted_identity);
                             let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
                             let context = self.sign_user_context(&user_did, phrase);
                             if context.is_default() {
