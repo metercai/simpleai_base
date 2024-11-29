@@ -275,6 +275,11 @@ impl SimpleAI {
         }
     }
 
+    pub fn get_claim_from_local(&mut self, for_did: &str) -> IdClaim {
+        let mut claims = self.claims.lock().unwrap();
+        claims.get_claim_from_local(for_did)
+    }
+
     pub fn get_register_cert(&self, user_did: &str) -> String {
         let certificates = self.certificates.lock().unwrap();
         certificates.get_register_cert(user_did)
@@ -339,7 +344,6 @@ impl SimpleAI {
         if user_did != "Unknown" {
             if !claim.is_default() {
                 let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
-                debug!("symbol_hash: {}, remove user_key_file: {:?} and user_did: {}", URL_SAFE_NO_PAD.encode(user_symbol_hash), user_key_file, user_did);
                 if let Err(e) = fs::remove_file(user_key_file.clone()) {
                     debug!("delete user_key_file error: {}", e);
                 } else {
@@ -766,32 +770,53 @@ impl SimpleAI {
                     false => {
                         println!("[UserBase] The identity is not in local and generate ready_data for new user: {}", nickname);
                         let (user_did, _user_phrase) = self.create_user(&nickname, telephone, None, None);
-                        let new_claim = self.get_claim(&user_did);
-                        debug!("create new claim: symbol={}, claim_symbol={}",
-                            symbol_hash_base64, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
+                        let new_claim = self.get_claim_from_local(&user_did);
+                        debug!("create new claim: user_did={}, claim_symbol={}, symbol={}",
+                            user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()), symbol_hash_base64);
 
                         let mut request: serde_json::Value = json!({});
                         request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
                         request["claim"] = serde_json::to_value(new_claim.clone()).unwrap_or(json!(""));
 
-                        let user_claim_result = self.request_token_api(
-                            "apply2",
+                        let apply_result = self.request_token_api(
+                            "apply",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
                         println!("[UserBase] Apply to verify user: symbol({})", symbol_hash_base64);
-                        if !user_claim_result.starts_with("Unknown") {
-                            let ready_data = format!("{}|{}|{}", 3, user_did, user_claim_result);
-                            let ivec_data = sled::IVec::from(ready_data.as_bytes());
-                            {
-                                let ready_users = self.ready_users.lock().unwrap();
-                                let _ = ready_users.insert(&user_hash_id, ivec_data);
-                            }
-                            debug!("ready_data: {}", ready_data);
-                            println!("[UserBase] User apply is ok, ready to verify with vcode: did({})", user_did);
-                            "remote".to_string()
+                        if !apply_result.starts_with("Unknown") {
+                            let parts: Vec<&str> = apply_result.split('|').collect();
+                            if parts[0] == "user_claim" {
+                                match serde_json::from_str::<IdClaim>(&parts[1]) {
+                                    Ok(return_claim) => {
+                                        println!("[UserBase] The decoding the claim from Root is correct: user_did({}), claim_symbol({}), claim={}",
+                                                 return_claim.gen_did(), URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()), parts[1]);
+                                        if user_did != return_claim.gen_did() {
+                                            println!("[UserBase] Identity confirmed to recall user from root: remote({})", user_did);
+                                            self.remove_user(&symbol_hash_base64);
+                                            self.push_claim(&return_claim);
+                                            return "recall".to_string();
+                                        } else { return "unknown".to_string(); }
+                                    }
+                                    Err(e) => {
+                                        println!("[UserBase] The decoding the claim from Root is fail: did({}), error({})", user_did, e);
+                                        self.remove_user(&symbol_hash_base64);
+                                        return "unknown".to_string();
+                                    }
+                                }
+                            } else if parts[0] == "user_cert" {
+                                let ready_data = format!("{}|{}|{}", 3, user_did, parts[1]);
+                                let ivec_data = sled::IVec::from(ready_data.as_bytes());
+                                {
+                                    let ready_users = self.ready_users.lock().unwrap();
+                                    let _ = ready_users.insert(&user_hash_id, ivec_data);
+                                }
+                                debug!("ready_data: {}", ready_data);
+                                println!("[UserBase] User apply is ok, ready to verify user_cert with vcode: did({})", user_did);
+                                return "create".to_string();
+                            } else { return "unknown".to_string();  }
                         } else {
                             println!("[UserBase] User apply is failure: did({}), symbol({})", user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
-                            "unknown".to_string()
+                            return "unknown".to_string();
                         }
                     }
                 }
@@ -817,89 +842,61 @@ impl SimpleAI {
             if parts.len() >= 3 {
                 let mut try_count = parts[0].parse::<i32>().unwrap_or(0);
                 let old_user_did = parts[1].to_string();
-                let encrypted_user_claim_string = parts[2].to_string();
+                let encrypted_certificate_string = parts[2].to_string();
                 try_count -= 1;
                 if try_count >= 0 {
-                    let user_claim_text = token_utils::decrypt_text_with_vcode(vcode, &encrypted_user_claim_string);
-                    if user_claim_text != "Unknown" {
-                        let _ = {
-                            let ready_users = self.ready_users.lock().unwrap();
-                            let _ = ready_users.remove(user_hash_id);
+                    let user_certificate = token_utils::decrypt_text_with_vcode(vcode, &encrypted_certificate_string);
+                    if user_certificate.len() > 32 && !self.get_upstream_did().is_empty() {
+                        let upstream_did = self.get_upstream_did();
+                        let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
+                        debug!("UserBase] The parsed cert from Root is: cert({})", user_certificate_text);
+                        let cert_user_did = {
+                            let mut certificates = self.certificates.lock().unwrap();
+                            certificates.push_user_cert_text(&user_certificate_text)
                         };
-                        debug!("user_claim_text: {}, symbol({})", user_claim_text, symbol_hash_base64);
+                        if cert_user_did != "Unknown" && cert_user_did == old_user_did {
+                            let old_claim = self.get_claim_from_local(&old_user_did);
+                            let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(old_claim.get_symbol_hash());
+                            println!("[UserBase] The parsed cert from Root is correct: symbol({}), did({}), claim({})", symbol_hash_base64, cert_user_did, old_claim.to_json_string());
+                            let encrypted_claim = token_utils::encrypt(old_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0);
 
-                        match serde_json::from_str::<IdClaim>(&user_claim_text) {
-                            Ok(user_claim) => {
-                                let user_did = user_claim.gen_did();
-                                println!("[UserBase] The decoding the claim from Root is correct: local_symbol({}), user_did({}), claim({})",
-                                         symbol_hash_base64, user_did, user_claim_text);
-                                let result_return = match old_user_did == user_did {
-                                    true => {
-                                        println!("[UserBase] Identity confirmed to create new user: create({})", user_did);
-                                        "create".to_string()
-                                    }
-                                    false => {
-                                        println!("[UserBase] Identity confirmed to recall user from root: remote({})", user_did);
-                                        self.remove_user(&symbol_hash_base64);
-                                        self.push_claim(&user_claim);
-                                        "recall".to_string()
-                                    }
-                                };
-                                let mut request: serde_json::Value = json!({});
-                                request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
-                                request["user_vcode"] = serde_json::to_value(vcode).unwrap();
-                                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
-                                request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
+                            let mut request: serde_json::Value = json!({});
+                            request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
+                            request["encrypted_claim"] = serde_json::to_value(encrypted_claim).unwrap();
+                            let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
+                            request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
 
-                                let result = self.request_token_api(
-                                    "confirm2",
-                                    &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                                if !result.starts_with("Unknown") {
-                                    if result.len() > 32 && !self.get_upstream_did().is_empty() {
-                                        let upstream_did = self.get_upstream_did();
-                                        let user_certificate_text = self.decrypt_by_did(&result, &upstream_did, 0);
-                                        debug!("user_certificate_text: {}", user_certificate_text);
-                                        println!("[UserBase] Get user certificate : did({})", user_did);
-                                        let result_user_did = {
-                                            let mut certificates = self.certificates.lock().unwrap();
-                                            certificates.push_user_cert_text(&user_certificate_text)
-                                        };
-                                        if result_user_did != "Unknown" && result_user_did == user_did {
-                                            return result_return;
-                                        }
-                                    }
-                                }
-                                println!("[UserBase] Get user certificate fail: did({})", user_did);
-                                return "error in confirming".to_string();
-                            }
-                            Err(e) => {
-                                println!("[UserBase] Identity confirm fail: did({}), error({})", old_user_did, e);
-                                self.remove_user(&symbol_hash_base64);
+                            let result = self.request_token_api(
+                                "confirm",
+                                &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
+                            if !result.starts_with("Unknown") {
+                                return "create".to_string();
+                            } else {
+                                println!("[UserBase] The user confirm request is fail: did({})", old_user_did);
                                 return "error in confirming".to_string();
                             }
                         }
-                    } else {
-                        println!("[UserBase] The decoding the claim from Root is incorrect: symbol({}), old_did({})",
-                                 symbol_hash_base64, old_user_did);
-                        let ready_data = format!("{}|{}|{}", try_count, old_user_did, encrypted_user_claim_string);
-                        let ivec_data = sled::IVec::from(ready_data.as_bytes());
-                        {
-                            let ready_users = self.ready_users.lock().unwrap();
-                            let _ = ready_users.insert(&user_hash_id, ivec_data);
-                        }
-                        return format!("error:{}", try_count).to_string();
                     }
+                    println!("[UserBase] The decoding the claim from Root is incorrect: symbol({}), old_did({})",
+                             symbol_hash_base64, old_user_did);
+                    let ready_data = format!("{}|{}|{}", try_count, old_user_did, encrypted_certificate_string);
+                    let ivec_data = sled::IVec::from(ready_data.as_bytes());
+                    {
+                        let ready_users = self.ready_users.lock().unwrap();
+                        let _ = ready_users.insert(&user_hash_id, ivec_data);
+                    }
+                    return format!("error:{}", try_count).to_string();
                 } else {
                     let _ = {
                         let ready_users = self.ready_users.lock().unwrap();
                         let _ = ready_users.remove(user_hash_id);
                     };
                     println!("[UserBase] The try_count of verify the code has run out: symbol({}), did({})", symbol_hash_base64, old_user_did);
+                    return "error:0".to_string();
                 }
-            } else {
-                println!("[UserBase] The ready data is error: symbol({}), ready_data({})", symbol_hash_base64, ready_data);
             }
         }
+        println!("[UserBase] The ready data is error: symbol({}), ready_data({})", symbol_hash_base64, ready_data);
         self.remove_user(&symbol_hash_base64);
         "error:0".to_string()
     }
