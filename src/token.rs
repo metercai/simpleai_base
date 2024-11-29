@@ -337,14 +337,21 @@ impl SimpleAI {
         };
         println!("[UserBase] Remove user: {}, {}, {}", user_hash_id, user_did, claim.nickname);
         if user_did != "Unknown" {
-            let _ = token_utils::remove_user_pem_and_claim(&user_symbol_hash, &user_did);
             if !claim.is_default() {
+                let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+                debug!("symbol_hash: {}, remove user_key_file: {:?} and user_did: {}", URL_SAFE_NO_PAD.encode(user_symbol_hash), user_key_file, user_did);
+                if let Err(e) = fs::remove_file(user_key_file.clone()) {
+                    debug!("delete user_key_file error: {}", e);
+                } else {
+                    debug!("user_key_file was deleted: {}", user_key_file.display());
+                }
+                self.pop_claim(&user_did);
                 let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                 if identity_file.exists() {
                     if let Err(e) = fs::remove_file(identity_file.clone()) {
                         debug!("delete identity_file error: {}", e);
                     } else {
-                        debug!("identity_file was deleted: {:?}", identity_file);
+                        debug!("identity_file was deleted: {}", identity_file.display());
                     }
                 }
                 let exchange_key_value = self.crypt_secrets.remove(&exchange_key!(user_did));
