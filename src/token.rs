@@ -282,6 +282,9 @@ impl SimpleAI {
     }
 
     pub fn is_registered(&self, user_did: &str) -> bool {
+        if user_did == "Unknown" {
+            return false;
+        }
         let cert_str = self.get_register_cert(user_did);
         if cert_str.is_empty() || cert_str == "Unknown" {
             return false;
@@ -731,7 +734,11 @@ impl SimpleAI {
                             true => parts[1].to_string(),
                             false => "Unknown".to_string(),
                         };
-                        if old_user_did != "Unknown" && !self.is_registered(&old_user_did) { // 没有经过身份验证的处理
+                        if old_user_did == "Unknown" { // 身份预备数据格式错误
+                            self.remove_user(&symbol_hash_base64);
+                            debug!("user_key is exist but the ready data is error: {}, {}", nickname, user_hash_id);
+                            return "re_input".to_string();
+                        } else if !self.is_registered(&old_user_did) { // 没有经过身份验证的处理
                             debug!("user_key is exist but the code is not verified : {}, {}", nickname, user_hash_id);
                             return "remote".to_string();
                         } // 经过验证但默认身份口令未改的处理
@@ -896,8 +903,8 @@ impl SimpleAI {
         let nickname = nickname.chars().take(24).collect::<String>();
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
-        if user_did != "Unknown" && !self.is_registered(&user_did) {
-            println!("[UserBase] The user hasn't been verified by root: {}, {}.", nickname, user_did);
+        if user_did == "Unknown" || !self.is_registered(&user_did) {
+            println!("[UserBase] The user isn't in local or hasn't been verified by root: {}, {}.", nickname, user_did);
             return self.get_guest_user_context()
         }
 
@@ -932,6 +939,8 @@ impl SimpleAI {
         println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", user_did, params);
         context
     }
+
+
     pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = nickname.chars().take(24).collect::<String>();
         if Self::is_valid_telephone(telephone) {
@@ -977,6 +986,7 @@ impl SimpleAI {
                                     if user_copy_from_cloud_array.len() >= 3 {
                                         let encrypted_identity = user_copy_from_cloud_array[0];
                                         println!("[UserBase] Download user encrypted_copy: {}, len={}", user_hash_id, encrypted_identity.len());
+                                        debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
                                         let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
                                         let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                         fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
@@ -990,10 +1000,13 @@ impl SimpleAI {
 
                                             let certificate_string = certificate_string.replace(":", "|");
                                             let certs_array: Vec<&str> = certificate_string.split(",").collect();
-                                            for cert in &certs_array {
+                                            let _ = {
                                                 let mut certificates = self.certificates.lock().unwrap();
-                                                let _user_did = certificates.push_user_cert_text(cert);
-                                            }
+                                                for cert in &certs_array {
+                                                    debug!("user_copy_from_cloud, cert:{}", cert);
+                                                    let _user_did = certificates.push_user_cert_text(cert);
+                                                }
+                                            };
 
                                             let _context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
                                                 user_copy_from_cloud_array[1]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
@@ -1035,58 +1048,67 @@ impl SimpleAI {
     pub fn unbind_and_return_guest(&mut self, user_did: &str, phrase: &str) -> UserContext {
         if IdClaim::validity(user_did) {
             let claim = self.get_claim(user_did);
-            let symbol_hash =claim.get_symbol_hash();
-            let context = self.get_user_context(&user_did);
-            let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
-            let user_copy_hash_id = token_utils::get_user_copy_hash_id(&claim.nickname, &claim.telephone_hash, phrase);
-            let mut request: serde_json::Value = json!({});
-            request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
-            request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
-            request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
-            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-            let result = self.request_token_api("unbind_node", &params);
-            if result != "Unbind_ok" {
-                let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
-                let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
-                fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
+            if !claim.is_default() {
+                let symbol_hash = claim.get_symbol_hash();
+                let context = self.get_user_context(&user_did);
+                let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
+                let user_copy_hash_id = token_utils::get_user_copy_hash_id(&claim.nickname, &claim.telephone_hash, phrase);
+                let mut request: serde_json::Value = json!({});
+                request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
+                request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
+                let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+                let result = self.request_token_api("unbind_node", &params);
+                if result != "Unbind_ok" {
+                    let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone(), 0);
+                    let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
+                    fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
+                }
+                // release user token and conext
+                if user_did != self.admin {
+                    let key = format!("{}_{}", user_did, self.get_sys_did());
+                    let authorized = self.authorized.lock().unwrap();
+                    let _ = match authorized.contains_key(&key).unwrap() {
+                        false => {},
+                        true => {
+                            let _ = authorized.remove(&key);
+                        }
+                    };
+                    let _ = token_utils::update_user_token_to_file(&context, "remove");
+                }
+                println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
             }
-            // release user token and conext
-            if user_did != self.admin {
-                let key = format!("{}_{}", user_did, self.get_sys_did());
-                let authorized = self.authorized.lock().unwrap();
-                let _ = match authorized.contains_key(&key).unwrap() {
-                    false => {},
-                    true => {
-                        let _ = authorized.remove(&key);
-                    }
-                };
-                let _ = token_utils::update_user_token_to_file(&context, "remove");
-            }
-            println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
         }
         self.get_guest_user_context()
     }
 
     pub fn get_user_copy_string(&mut self, user_did: &str, phrase: &str) -> String {
-        let symbol_hash = self.get_claim(user_did).get_symbol_hash();
-        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-        let context = self.get_user_context(&user_did);
-        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-        let encrypted_identity = fs::read_to_string(identity_file).unwrap_or("".to_string());
-        let context_json = serde_json::to_string(&context).unwrap_or("Unknown".to_string());
-        let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context_json.as_bytes(), phrase.as_bytes(), 0));
-        let certificates = {
-            let certificates = self.certificates.lock().unwrap();
-            certificates.filter_user_certs(&user_did, "*")
-        };
-        let certificates_str = certificates
-            .iter()
-            .map(|(key, value)| format!("{}:{}", key, value))
-            .collect::<Vec<String>>()
-            .join(",");
-        let _ = certificates_str.replace("|", ":");
-        let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
-        format!("{}|{}|{}", encrypted_identity, context_crypt, certificate_crypt)
+        let claim = self.get_claim(user_did);
+        if !claim.is_default() {
+            let symbol_hash = claim.get_symbol_hash();
+            let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+            let encrypted_identity = fs::read_to_string(identity_file.clone()).unwrap_or("Unknown".to_string());
+            debug!("get_user_copy_string, identity_file({}), encrypted_identity: {}", identity_file.display(), encrypted_identity);
+            let context = self.get_user_context(&user_did);
+            let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context.to_json_string().as_bytes(), phrase.as_bytes(), 0));
+            debug!("get_user_copy_string, context_json: {}, context_crypt: {}", context.to_json_string(), context_crypt);
+            let certificates = {
+                let certificates = self.certificates.lock().unwrap();
+                certificates.filter_user_certs(&user_did, "*")
+            };
+            let certificates_str = certificates
+                .iter()
+                .map(|(key, value)| format!("{}:{}", key, value))
+                .collect::<Vec<String>>()
+                .join(",");
+            let _ = certificates_str.replace("|", ":");
+            let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
+            debug!("get_user_copy_string, certificates_str: {}, certificate_crypt: {}", certificates_str, certificate_crypt);
+            format!("{}|{}|{}", encrypted_identity, context_crypt, certificate_crypt)
+        } else {
+            "Unknown".to_string()
+        }
     }
 
     pub fn get_user_context(&mut self, did: &str) -> UserContext {

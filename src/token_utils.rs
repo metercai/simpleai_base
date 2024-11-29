@@ -970,6 +970,7 @@ pub(crate) fn import_identity(user_hash_id: &str, encrypted_identity: &Vec<u8>, 
         let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
         let identity_bytes = decrypt(&encrypted_identity[10..78], &secret_key, 0);
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap();
+        debug!("import_identity: nickname: {}, telephone: {}, identity_bytes: {:?}", nickname, telephone, identity_bytes);
         let timestamp = u64::from_le_bytes(identity_bytes[..8].try_into().unwrap());
         let mut user_key = [0u8; 32];
         user_key.copy_from_slice(&identity_bytes[8..]);
