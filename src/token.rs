@@ -271,7 +271,6 @@ impl SimpleAI {
         if self.admin == token_utils::TOKEN_TM_DID {
             claims.get_claim_from_local(for_did)
         } else {
-            debug!("get_claim_from_global: {}, admin={},{}", for_did, self.admin, token_utils::TOKEN_TM_DID);
             claims.get_claim_from_global(for_did)
         }
     }
@@ -1102,7 +1101,7 @@ impl SimpleAI {
                 .map(|(key, value)| format!("{}:{}", key, value))
                 .collect::<Vec<String>>()
                 .join(",");
-            let _ = certificates_str.replace("|", ":");
+            let certificates_str = certificates_str.replace("|", ":");
             let certificate_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(certificates_str.as_bytes(), phrase.as_bytes(), 0));
             debug!("get_user_copy_string, certificates_str: {}, certificate_crypt: {}", certificates_str, certificate_crypt);
             format!("{}|{}|{}", encrypted_identity, context_crypt, certificate_crypt)
