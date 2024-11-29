@@ -127,6 +127,9 @@ def free(all=False):
     comfyclient_pipeline.free(all)
     return
 
+def modify_variable(vars):
+    comfyclient_pipeline.setvars(vars)
+    return
 
 def interrupt():
     global comfyd_process

@@ -43,13 +43,6 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
 }
 
-#[pyfunction]
-pub fn get_comfyd_path_in_user_dir(catalog: &str) -> String {
-    let claims = GlobalClaims::instance();
-    let claims = claims.lock().unwrap();
-    claims.get_comfyd_path_in_user_dir(catalog)
-}
-
 
 #[pyfunction]
 fn export_identity_qrcode_svg(user_did: &str) -> String {
@@ -79,7 +72,6 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cert_verify_by_did, m)?)?;
     m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
-    m.add_function(wrap_pyfunction!(get_comfyd_path_in_user_dir, m)?)?;
     m.add_function(wrap_pyfunction!(export_identity_qrcode_svg, m)?)?;
     m.add_function(wrap_pyfunction!(import_identity_qrcode, m)?)?;
     m.add_class::<SimpleAI>()?;

@@ -249,6 +249,19 @@ def free(all=False):
         print(f"httpx.RequestError: {e}")
         return
 
+def setvars(vars):
+    if not vars or not isinstance(vars, dict) or len(vars) == 0:
+        return
+    p = vars
+    data = json.dumps(p).encode('utf-8')
+    try:
+        with httpx.Client() as client:
+            response = client.post("http://{}/setvars".format(server_address()), data=data)
+            return
+    except httpx.RequestError as e:
+        print(f"httpx.RequestError: {e}")
+        return
+
 
 WORKFLOW_DIR = 'workflows'
 COMFYUI_ENDPOINT_IP = '127.0.0.1'

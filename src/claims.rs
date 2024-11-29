@@ -113,14 +113,6 @@ impl GlobalClaims {
         self.admin = admin_did.to_string();
     }
 
-    pub fn get_comfyd_path_in_user_dir(&self, catalog: &str) -> String {
-        if self.admin.is_empty() {
-            self.get_path_in_user_dir(&self.guest, catalog)
-        } else {
-            self.get_path_in_user_dir(&self.admin, catalog)
-        }
-    }
-
     pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
         if !IdClaim::validity(did) {
             return "Invalid_did".to_string();
