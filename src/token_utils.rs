@@ -951,6 +951,7 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
     identity_secret.extend_from_slice(&timestamp_bytes);
     identity_secret.extend_from_slice(&user_key);
     let encrypted_secret  = encrypt(&identity_secret, &secret_key, 0);
+    debug!("export_identity: encrypted_secret: len={}", encrypted_secret.len());
     let length = telephone_bytes.len() + encrypted_secret.len() + nickname_bytes.len();
     let mut encrypted_identity = Vec::with_capacity(length);
     encrypted_identity.extend_from_slice(&telephone_bytes);
