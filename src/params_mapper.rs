@@ -89,6 +89,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("i2i_uov_tiled_width", "easy int:i2i_uov_tiled_width:value"),
     ("i2i_uov_tiled_height", "easy int:i2i_uov_tiled_height:value"),
     ("i2i_uov_tiled_steps", "easy int:i2i_uov_tiled_steps:value"),
+    ("i2i_uov_multiple", "easy float:i2i_uov_multiple:value"),
     ("i2i_uov_hires_fix_blurred", "easy float:i2i_uov_hires_fix_blurred:value"),
     ("i2i_uov_hires_fix_w", "easy float:i2i_uov_hires_fix_w:value"),
     ("i2i_uov_hires_fix_s", "easy float:i2i_uov_hires_fix_s:value"),
