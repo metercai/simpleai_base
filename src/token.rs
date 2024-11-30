@@ -920,7 +920,7 @@ impl SimpleAI {
 
         let (_user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         if token_utils::is_original_user_key(&symbol_hash)  {
-            let _ = token_utils::change_phrase_for_pem(&symbol_hash, &user_phrase, phrase);
+            let _ = token_utils::change_phrase_for_pem_and_identity_files(&symbol_hash, &user_phrase, phrase);
         } else {
             println!("[UserBase] The user_key phrase has been changed and do not to be set: {}, {}.", nickname, user_did);
             return self.get_guest_user_context()

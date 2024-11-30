@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs;
-use std::env;
 use std::io::Write;
 use std::time::{Duration, SystemTime};
 use serde_json::{json, Value};
@@ -624,7 +623,7 @@ pub(crate) fn get_user_copy_hash_id(nickname: &str, telephone_base64: &str, phra
 }
 
 
-pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, new_phrase: &str) {
+pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], old_phrase: &str, new_phrase: &str) {
     let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
     let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
     let id_hash = [0u8; 32];
@@ -638,29 +637,72 @@ pub(crate) fn change_phrase_for_pem(symbol_hash: &[u8; 32], old_phrase: &str, ne
 
     let old_phrase_bytes = hkdf_key_deadline(&old_phrase_text.as_bytes(), 0);
     let new_phrase_bytes = hkdf_key_deadline(&new_phrase_text.as_bytes(), 0);
-    match user_key_file.exists() {
-        true => {
-            let Ok((_, s_doc)) = SecretDocument::read_pem_file(user_key_file.clone()) else { todo!() };
-            let priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&old_phrase_bytes) {
-                Ok(key) => {
-                    let mut pkey: [u8; 32] = [0; 32];
-                    pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
-                    pkey
-                },
-                Err(_e) => {
-                    println!("[UserBase] Read key file error: {}", _e);
-                    let pkey: [u8; 32] = [0; 32];
-                    pkey
-                },
-            };
-            let pem_label = "SIMPLE_AI_KEY";
-            let csprng = OsRng {};
-            PrivateKeyInfo::new(ALGORITHM_ID, &priv_key)
-                .encrypt(csprng, &new_phrase_bytes).unwrap()
-                .write_pem_file(user_key_file.clone(), pem_label, LineEnding::default()).unwrap();
-        }
-        false => {
-            println!("[UserBase] User key file not found: {}", user_key_file.display());
+    if user_key_file.exists() {
+        let Ok((_, s_doc)) = SecretDocument::read_pem_file(user_key_file.clone()) else { todo!() };
+        let priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&old_phrase_bytes) {
+            Ok(key) => {
+                let mut pkey: [u8; 32] = [0; 32];
+                pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
+                pkey
+            },
+            Err(_e) => {
+                println!("[UserBase] Read key file error: {}", _e);
+                let pkey: [u8; 32] = [0; 32];
+                pkey
+            },
+        };
+        let pem_label = "SIMPLE_AI_KEY";
+        let csprng = OsRng {};
+        PrivateKeyInfo::new(ALGORITHM_ID, &priv_key)
+            .encrypt(csprng, &new_phrase_bytes).unwrap()
+            .write_pem_file(user_key_file.clone(), pem_label, LineEnding::default()).unwrap();
+        println!("[UserBase] Change phrase for user_key_file: {}", user_key_file.display());
+    }
+    let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+    if identity_file.exists() {
+        let encrypted_identity_base64 = fs::read_to_string(identity_file.clone()).unwrap_or("Unknown".to_string());
+        let encrypted_identity = URL_SAFE_NO_PAD.decode(encrypted_identity_base64.clone()).unwrap_or("Unknown".as_bytes().to_vec());
+        debug!("import, encrypted_identity: len={}, {}", encrypted_identity.len(), encrypted_identity_base64);
+        let vcode = &encrypted_identity[..2];
+        let identity = &encrypted_identity[2..];
+        if  *vcode == calc_sha256(identity)[..2] {
+            let telephone_bytes = &encrypted_identity[2..10];
+            let telephone = u64::from_le_bytes(telephone_bytes.try_into().unwrap()).to_string();
+            let nickname_bytes = &encrypted_identity[78..];
+            let nickname = std::str::from_utf8(nickname_bytes).unwrap();
+            let encrypted_secret = &encrypted_identity[10..78];
+            debug!("import, identity: nickname: {}, telephone: {}, len={}, {}", nickname, telephone, identity.len(), URL_SAFE_NO_PAD.encode(identity));
+            let secret_key = derive_key(old_phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
+            let identity_secret = decrypt(encrypted_secret, &secret_key, 0);
+            debug!("import, identity_secret: user_hash_id={}, phrase={}, secret_key={}, len={}, {}",
+                    user_hash_id, old_phrase, URL_SAFE_NO_PAD.encode(secret_key), encrypted_secret.len(), URL_SAFE_NO_PAD.encode(encrypted_secret));
+            let timestamp_bytes = &identity_secret[..8];
+            let mut user_key = [0u8; 32];
+            user_key.copy_from_slice(&identity_secret[8..]);
+
+            let secret_key = derive_key(new_phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
+            let mut identity_secret = Vec::with_capacity(timestamp_bytes.len() + user_key.len());
+            identity_secret.extend_from_slice(&timestamp_bytes);
+            identity_secret.extend_from_slice(&user_key);
+            let encrypted_secret = encrypt(&identity_secret, &secret_key, 0);
+            debug!("export, identity_secret: user_hash_id={}, phrase={}, secret_key={}, len={}, {}",
+                    user_hash_id, new_phrase, URL_SAFE_NO_PAD.encode(secret_key), encrypted_secret.len(), URL_SAFE_NO_PAD.encode(encrypted_secret.clone()));
+            let length = telephone_bytes.len() + encrypted_secret.len() + nickname_bytes.len();
+            let mut identity = Vec::with_capacity(length);
+            identity.extend_from_slice(&telephone_bytes);
+            identity.extend_from_slice(&encrypted_secret);
+            identity.extend_from_slice(nickname_bytes);
+            debug!("export, identity: nickname={}, telephone={}, len={}, {}", nickname, telephone, identity.len(), URL_SAFE_NO_PAD.encode(identity.clone()));
+            let vcode = &calc_sha256(&identity)[..2];
+            let mut encrypted_identity = Vec::with_capacity(vcode.len() + identity.len());
+            encrypted_identity.extend_from_slice(&vcode);
+            encrypted_identity.extend_from_slice(&identity);
+            let encrypted_identity_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity.clone());
+            debug!("export, encrypted_identity: len={}, {}", encrypted_identity.len(), encrypted_identity_base64);
+            fs::write(identity_file.clone(), encrypted_identity_base64).expect(&format!("Unable to write file: {}", identity_file.display()));
+            println!("[UserBase] Change phrase for identity_file: {}", identity_file.display());
+        } else {
+            println!("[UserBase] Change phrase for identity_file, parsing encrypted_identity error: {}", identity_file.display());
         }
     }
 }
@@ -961,7 +1003,7 @@ pub(crate) fn import_identity(user_hash_id: &str, encrypted_identity: &Vec<u8>, 
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap()).to_string();
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap();
         let encrypted_secret = &encrypted_identity[10..78];
-        debug!("import, identity: nickname: {}, telephone: {}, len={}, {}", nickname, telephone, identity.len(), URL_SAFE_NO_PAD.encode(identity.clone()));
+        debug!("import, identity: nickname: {}, telephone: {}, len={}, {}", nickname, telephone, identity.len(), URL_SAFE_NO_PAD.encode(identity));
         let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
         let identity_secret = decrypt(encrypted_secret, &secret_key, 0);
         debug!("import, identity_secret: user_hash_id={}, phrase={}, secret_key={}, len={}, {}",
