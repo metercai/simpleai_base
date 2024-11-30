@@ -858,7 +858,10 @@ pub(crate) fn exists_and_valid_user_key(symbol_hash: &[u8; 32], phrase: &str) ->
         let key = read_key_or_generate_key("User", symbol_hash, &phrase, false);
         debug!("user_key exists: {}, valid: {}", key_file.display(), key != [0u8; 32]);
         key != [0u8; 32]
-    } else { false  }
+    } else {
+        debug!("user_key do not exists: {}", key_file.display());
+        false
+    }
 }
 
 pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], TokenError> {

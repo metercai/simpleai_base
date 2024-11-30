@@ -787,10 +787,11 @@ impl SimpleAI {
                             if parts[0] == "user_claim" {
                                 match serde_json::from_str::<IdClaim>(&parts[1]) {
                                     Ok(return_claim) => {
+                                        let return_did = return_claim.gen_did();
                                         println!("[UserBase] The decoding the claim from Root is correct: user_did({}), claim_symbol({}), claim={}",
-                                                 return_claim.gen_did(), URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()), parts[1]);
+                                                 return_did, URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()), parts[1]);
                                         if user_did != return_claim.gen_did() {
-                                            println!("[UserBase] Identity confirmed to recall user from root: remote({})", user_did);
+                                            println!("[UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})", user_did, return_did);
                                             self.remove_user(&symbol_hash_base64);
                                             self.push_claim(&return_claim);
                                             return "recall".to_string();
@@ -858,7 +859,7 @@ impl SimpleAI {
                             let old_claim = self.get_claim_from_local(&old_user_did);
                             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(old_claim.get_symbol_hash());
                             println!("[UserBase] The parsed cert from Root is correct: symbol({}), did({}), claim({})", symbol_hash_base64, cert_user_did, old_claim.to_json_string());
-                            let encrypted_claim = token_utils::encrypt(old_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0);
+                            let encrypted_claim = URL_SAFE_NO_PAD.encode(token_utils::encrypt(old_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0));
 
                             let mut request: serde_json::Value = json!({});
                             request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
