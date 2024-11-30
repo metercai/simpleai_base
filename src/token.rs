@@ -842,7 +842,7 @@ impl SimpleAI {
             debug!("ready_data: {:?}", parts);
             if parts.len() >= 3 {
                 let mut try_count = parts[0].parse::<i32>().unwrap_or(0);
-                let old_user_did = parts[1].to_string();
+                let ready_user_did = parts[1].to_string();
                 let encrypted_certificate_string = parts[2].to_string();
                 try_count -= 1;
                 if try_count >= 0 {
@@ -855,14 +855,19 @@ impl SimpleAI {
                             let mut certificates = self.certificates.lock().unwrap();
                             certificates.push_user_cert_text(&user_certificate_text)
                         };
-                        if cert_user_did != "Unknown" && cert_user_did == old_user_did {
-                            let old_claim = self.get_claim_from_local(&old_user_did);
-                            let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(old_claim.get_symbol_hash());
-                            println!("[UserBase] The parsed cert from Root is correct: symbol({}), did({}), claim({})", symbol_hash_base64, cert_user_did, old_claim.to_json_string());
-                            let encrypted_claim = URL_SAFE_NO_PAD.encode(token_utils::encrypt(old_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0));
+                        if cert_user_did != "Unknown" {
+                            let ready_claim = self.get_claim_from_local(&ready_user_did);
+                            let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(ready_claim.get_symbol_hash());
+                            if cert_user_did != ready_user_did {
+                                println!("[UserBase] The parsed cert from Root is not match: cert_did({}), ready_did({})", cert_user_did, ready_user_did);
+                                self.remove_user(&symbol_hash_base64);
+                                return "error in confirming".to_string();
+                            }
+                            println!("[UserBase] The parsed cert from Root is correct: symbol({}), did({}), claim({})", symbol_hash_base64, ready_user_did, ready_claim.to_json_string());
+                            let encrypted_claim = URL_SAFE_NO_PAD.encode(token_utils::encrypt(ready_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0));
 
                             let mut request: serde_json::Value = json!({});
-                            request["user_symbol"] = serde_json::to_value(symbol_hash_base64).unwrap();
+                            request["user_symbol"] = serde_json::to_value(symbol_hash_base64.clone()).unwrap();
                             request["encrypted_claim"] = serde_json::to_value(encrypted_claim).unwrap();
                             let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
                             request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
@@ -873,14 +878,15 @@ impl SimpleAI {
                             if !result.starts_with("Unknown") {
                                 return "create".to_string();
                             } else {
-                                println!("[UserBase] The user confirm request is fail: did({})", old_user_did);
+                                println!("[UserBase] The user confirm request is fail: did({})", ready_user_did);
+                                self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
                         }
                     }
                     println!("[UserBase] The decoding the claim from Root is incorrect: symbol({}), old_did({})",
-                             symbol_hash_base64, old_user_did);
-                    let ready_data = format!("{}|{}|{}", try_count, old_user_did, encrypted_certificate_string);
+                             symbol_hash_base64, ready_user_did);
+                    let ready_data = format!("{}|{}|{}", try_count, ready_user_did, encrypted_certificate_string);
                     let ivec_data = sled::IVec::from(ready_data.as_bytes());
                     {
                         let ready_users = self.ready_users.lock().unwrap();
@@ -892,7 +898,7 @@ impl SimpleAI {
                         let ready_users = self.ready_users.lock().unwrap();
                         let _ = ready_users.remove(user_hash_id);
                     };
-                    println!("[UserBase] The try_count of verify the code has run out: symbol({}), did({})", symbol_hash_base64, old_user_did);
+                    println!("[UserBase] The try_count of verify the code has run out: symbol({}), did({})", symbol_hash_base64, ready_user_did);
                     return "error:0".to_string();
                 }
             }
@@ -935,13 +941,20 @@ impl SimpleAI {
         request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
         let result = self.request_token_api("submit_user_copy", &params);
-        if result != "Backup_ok" {
-            let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
-            let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", user_did));
-            fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
+        if result.starts_with("Backup_ok") {
+            println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", user_did, params);
+            context
+        } else if result.starts_with("Unknown") {
+            //let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
+            //let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", user_did));
+            //fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
+            println!("[UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", user_did, result);
+            self.get_guest_user_context() //context
+        }  else {
+            println!("[UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", user_did, result);
+            self.get_guest_user_context()
         }
-        println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", user_did, params);
-        context
+
     }
 
 
