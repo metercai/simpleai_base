@@ -749,8 +749,9 @@ impl SimpleAI {
                             debug!("user_key is exist but the ready data is error: {}, {}", nickname, user_hash_id);
                             return "re_input".to_string();
                         } else if !self.is_registered(&old_user_did) { // 没有经过身份验证的处理
-                            debug!("user_key is exist but the code is not verified : {}, {}", nickname, user_hash_id);
-                            return "remote".to_string();
+                            self.remove_user(&symbol_hash_base64);
+                            debug!("user_key is exist but the vcode is not verified : {}, {}", nickname, user_hash_id);
+                            return "re_input".to_string();
                         } // 经过验证但默认身份口令未改的处理
                         debug!("user_key is exist and the phrase hasn't been updated: {}, {}", nickname, user_hash_id);
                         "immature".to_string()
