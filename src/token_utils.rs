@@ -962,6 +962,7 @@ pub fn filter_files(work_paths: &Path, filters: &[&str], suffixes: &[&str]) -> V
 }
 
 pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, phrase: &str) -> Vec<u8>  {
+    let nickname = truncate_nickname(nickname);
     let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &telephone);
     let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
     let telephone_bytes = match telephone.parse::<u64>() {
@@ -973,7 +974,7 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
     }.to_le_bytes();
     let timestamp_bytes = timestamp.to_le_bytes();
     let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, false);
-    let nickname_bytes = nickname.as_bytes().get(..24).unwrap_or(nickname.as_bytes());
+    let nickname_bytes = nickname.as_bytes();
     let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
     let mut identity_secret = Vec::with_capacity(timestamp_bytes.len() + user_key.len());
     identity_secret.extend_from_slice(&timestamp_bytes);
@@ -1114,4 +1115,21 @@ pub(crate) fn is_valid_telephone(telephone: &str) -> bool {
         return false;
     }
     true
+}
+
+pub(crate) fn truncate_nickname(nickname: &str) -> String {
+    let max_bytes = 24;
+    let mut byte_count = 0;
+    let mut result = String::new();
+
+    for c in nickname.chars() {
+        let char_bytes = c.len_utf8();
+        if byte_count + char_bytes > max_bytes {
+            break;
+        }
+        result.push(c);
+        byte_count += char_bytes;
+    }
+
+    result
 }

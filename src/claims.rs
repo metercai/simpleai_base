@@ -186,7 +186,7 @@ impl GlobalClaims {
 
     pub(crate) fn generate_did_claim(id_type: &str, nickname: &str, telephone: Option<String>, id_card: Option<String>,  phrase: &str)
                                      -> IdClaim {
-        let nickname = nickname.chars().take(24).collect::<String>();
+        let nickname = token_utils::truncate_nickname(nickname);
         let id_card = id_card.unwrap_or("-".to_string());
         let telephone = telephone.unwrap_or("-".to_string());
         let id_card_hash = token_utils::calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
@@ -340,7 +340,7 @@ impl IdClaim {
     #[new]
     pub fn new(id_type: &str, phrase: &str, nickname: &str, telephone_hash: [u8; 32], id_card_hash: [u8; 32],
                face_image_hash: [u8; 32], file_hash_hash: [u8; 32]) -> Self{
-        let nickname = nickname.chars().take(24).collect::<String>();
+        let nickname = token_utils::truncate_nickname(nickname);
         let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
         let id_card_base64 = URL_SAFE_NO_PAD.encode(id_card_hash);
         let face_image_base64 = URL_SAFE_NO_PAD.encode(face_image_hash);
