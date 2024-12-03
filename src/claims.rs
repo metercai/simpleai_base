@@ -358,10 +358,16 @@ impl IdClaim {
 
         let crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_crypt_key(crypt_secret));
         let cert_verify_key = URL_SAFE_NO_PAD.encode(token_utils::get_cert_verify_key(&cert_secret));
-        let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
+        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+        let claim_time = match id_type {
+            "User" => SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs(),
+            "Device" => sysinfo.os_time,
+            "System" => sysinfo.root_time,
+            _ => 0,
+        };
         let text_sig = format!("nickname:{},verify_key:{},cert_verify_key:{},crypt_key:{},fingerprint:{},timestamp:{}",
-                               nickname, verify_key, cert_verify_key, crypt_key, fingerprint, now_sec);
+                               nickname, verify_key, cert_verify_key, crypt_key, fingerprint, claim_time);
         let signature = URL_SAFE_NO_PAD.encode(token_utils::get_signature(&text_sig, id_type, &symbol_hash, phrase));
 
         Self{
@@ -371,7 +377,7 @@ impl IdClaim {
             cert_verify_key,
             crypt_key,
             fingerprint,
-            timestamp: now_sec,
+            timestamp: claim_time,
             signature,
             telephone_hash: telephone_base64,
             id_card_hash: id_card_base64,

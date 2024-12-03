@@ -3,12 +3,16 @@ use pyo3::prelude::*;
 use std::process::Command;
 use std::env;
 use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tokio::join;
 use sysinfo::System;
+use tracing::debug;
 
 use crate::token_utils;
 use crate::env_utils;
@@ -36,7 +40,9 @@ pub struct SystemBaseInfo {
     pub disk_uuid: String,
     pub root_dir: String,
     pub exe_dir: String,
-    pub exe_name: String
+    pub exe_name: String,
+    pub os_time: u64,
+    pub root_time: u64,
 }
 
 impl SystemBaseInfo {
@@ -68,6 +74,14 @@ impl SystemBaseInfo {
             }
         };
         let exe_name = env::args().nth(1).unwrap_or_else(|| "SimpleAI".to_string());
+        let os_sys_path = match env::consts::OS {
+            "windows" => "C:\\Windows\\System32\\",
+            "linux" => "/usr/lib/",
+            "macos" => "/usr/lib/",
+            _ => "",
+        };
+        let os_time = find_oldest_file(os_sys_path);
+        let root_time = find_oldest_file(root_dir.to_str().unwrap());
 
         Self {
             os_type,
@@ -91,6 +105,8 @@ impl SystemBaseInfo {
             root_dir: root_dir.to_string_lossy().into_owned(),
             exe_dir: exe_dir.to_string_lossy().into_owned(),
             exe_name,
+            os_time,
+            root_time
         }
     }
 }
@@ -127,6 +143,8 @@ pub struct SystemInfo {
     pub exe_name: String,
     pub pyhash: String,
     pub uihash: String,
+    pub os_time: u64,
+    pub root_time: u64,
 }
 
 
@@ -162,6 +180,8 @@ impl SystemInfo {
             exe_name: base.exe_name,
             pyhash: "Unknown".to_string(),
             uihash: "Unknown".to_string(),
+            os_time: base.os_time,
+            root_time: base.root_time,
         }
     }
     pub async fn generate() -> SystemInfo {
@@ -440,10 +460,43 @@ fn run_command(command: &str, args: &[&str]) -> String {
             if output.status.success() {
                 String::from_utf8_lossy(&output.stdout).into_owned()
             } else {
-                println!("Failed to run command: {} {:?}, error: {:?}", command, args, output); //String::from_utf8_lossy(&output.stderr));
+                debug!("Failed to run command: {} {:?}, error: {:?}", command, args, output); //String::from_utf8_lossy(&output.stderr));
                 "".to_string()
             }
         }
         Err(_) => "".to_string(),
     }
+}
+
+fn find_oldest_file(path: &str) -> u64 {
+    let dir = Path::new(path);
+
+    if !dir.exists() || !dir.is_dir() {
+        eprintln!("路径不存在或不是一个目录: {}", path);
+        return 0;
+    }
+
+    let mut oldest_time: u64 = 0;
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Ok(metadata) = fs::metadata(&path) {
+                        if let Ok(modified) = metadata.modified() {
+                            if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+                                let timestamp = duration.as_secs();
+                                if timestamp < oldest_time {
+                                    oldest_time = timestamp;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    oldest_time
 }
