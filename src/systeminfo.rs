@@ -76,8 +76,8 @@ impl SystemBaseInfo {
         let exe_name = env::args().nth(1).unwrap_or_else(|| "SimpleAI".to_string());
         let os_sys_path = match env::consts::OS {
             "windows" => "C:\\Windows\\System32\\",
-            "linux" => "/usr/lib/",
-            "macos" => "/usr/lib/",
+            "linux" => "/bin/",
+            "macos" => "/bin/",
             _ => "",
         };
         let os_time = find_oldest_file(os_sys_path);
