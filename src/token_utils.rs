@@ -812,23 +812,54 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool) -> [u8
     let private_key = match file_path.exists() {
         false => generate_new_key_and_save_pem(file_path, &phrase_bytes),
         true => {
-            let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
-            let priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&phrase_bytes) {
-                Ok(key) => {
-                    let mut pkey: [u8; 32] = [0; 32];
-                    pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
-                    pkey
-                },
-                Err(_e) => {
-                    if regen {
-                        debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
-                        generate_new_key_and_save_pem(file_path, &phrase_bytes)
-                    } else {
-                        debug!("[UserBase] Read private key error and return 0 key: {}", file_path.display());
-                        [0; 32]
+            let mut priv_key: [u8; 32];
+            if let Some(file_name) = file_path.file_name() {
+                let file_name_str = file_name.to_string_lossy();
+                let claims =GlobalClaims::instance();
+                let mut claims =claims.lock().unwrap();
+                if file_name_str.contains("device") {
+                    priv_key = claims.get_device_key()
+                } else if file_name_str.contains("system") {
+                    priv_key = claims.get_system_key()
+                } else {
+                    priv_key = [0; 32]
+                }
+            } else {
+                priv_key = [0; 32]
+            }
+            if priv_key == [0; 32] {
+                let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
+                priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&phrase_bytes) {
+                    Ok(key) => {
+                        let mut pkey: [u8; 32] = [0; 32];
+                        pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
+                        pkey
+                    },
+                    Err(_e) => {
+                        if regen {
+                            debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
+                            generate_new_key_and_save_pem(file_path, &phrase_bytes)
+                        } else {
+                            debug!("[UserBase] Read private key error and return 0 key: {}", file_path.display());
+                            [0; 32]
+                        }
+                    },
+                };
+            }
+            if let Some(file_name) = file_path.file_name() {
+                let file_name_str = file_name.to_string_lossy();
+                let claims =GlobalClaims::instance();
+                let mut claims =claims.lock().unwrap();
+                if file_name_str.contains("device") {
+                    if  claims.get_device_key() == [0; 32] {
+                        claims.set_device_key(priv_key)
                     }
-                },
-            };
+                } else if file_name_str.contains("system") {
+                    if  claims.get_system_key() == [0; 32] {
+                        claims.set_system_key(priv_key)
+                    }
+                }
+            }
             priv_key
         }
     };

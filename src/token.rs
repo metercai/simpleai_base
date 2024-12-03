@@ -88,45 +88,14 @@ impl SimpleAI {
         let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
 
         let claims = GlobalClaims::instance();
-        let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length) = {
+        let (local_did, device_did, guest_did) = {
             let mut claims = claims.lock().unwrap();
-            let mut local_did = claims.reverse_lookup_did_by_nickname("System", &system_name);
-            let mut device_did = claims.reverse_lookup_did_by_nickname("Device", &device_name);
-            let mut guest_did = claims.reverse_lookup_did_by_nickname("User", &guest_name);
-            let local_claim = match local_did.as_str() {
-                "Unknown" => {
-                    let local_claim = GlobalClaims::generate_did_claim
-                        ("System", &system_name, None, Some(root_dir), &sys_phrase);
-                    local_did = local_claim.gen_did();
-                    claims.push_claim(&local_claim);
-                    local_claim
-                }
-                _ => claims.get_claim_from_local(&local_did),
-            };
-            let device_claim = match device_did.as_str() {
-                "Unknown" => {
-                    let device_claim = GlobalClaims::generate_did_claim
-                        ("Device", &device_name, None, Some(disk_uuid), &device_phrase);
-                    device_did = device_claim.gen_did();
-                    claims.push_claim(&device_claim);
-                    device_claim
-                }
-                _ => claims.get_claim_from_local(&device_did),
-            };
-            let guest_claim = match guest_did.as_str() {
-                "Unknown" => {
-                    let guest_claim = GlobalClaims::generate_did_claim
-                        ("User", &guest_name, None, None, &guest_phrase);
-                    guest_did = guest_claim.gen_did();
-                    claims.push_claim(&guest_claim);
-                    guest_claim
-                }
-                _ => claims.get_claim_from_local(&guest_did),
-            };
-            claims.set_system_device_guest_did(&local_did, &device_did, &guest_did);
-            let claims_local_length = claims.local_len();
-            debug!("init system/device/guest did and claim ok.");
-            (local_did, local_claim, device_did, device_claim, guest_did, guest_claim, claims_local_length)
+            claims.init_sys_dev_guest_did()
+        };
+
+        let (local_claim, device_claim, guest_claim) = {
+            let mut claims = claims.lock().unwrap();
+            (claims.get_claim_from_local(&local_did), claims.get_claim_from_local(&device_did), claims.get_claim_from_local(&guest_did))
         };
 
         let mut crypt_secrets = HashMap::new();
@@ -173,7 +142,7 @@ impl SimpleAI {
         };
         let upstream_did = if upstream_did != "Unknown" { upstream_did } else { "".to_string() };
         debug!("upstream_did: {}", upstream_did);
-        debug!("init context finished: claims.len={}, crypt_secrets.len={}", claims_local_length, crypt_secrets.len());
+        debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
         let admin = {
             let admin = if guest_did == admin { "".to_string() } else { admin };

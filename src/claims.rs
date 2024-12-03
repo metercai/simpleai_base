@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -32,10 +32,20 @@ pub struct GlobalClaims {
     guest: String,                        // 游客账号
     file_crypt_key: [u8; 32],                // 文件加密密钥
     user_base_dir: String,                // 用户目录
+    system_key: [u8; 32],
+    device_key: [u8; 32],
 }
 
 impl GlobalClaims {
     fn new() -> Self {
+
+        let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+            = GlobalClaims::get_system_vars();
+
+        let mut sys_did = "Unknown".to_string();
+        let mut device_did = "Unknown".to_string();
+        let mut guest = "Unknown".to_string();
+
         let mut claims = HashMap::new();
         let did_file_path = token_utils::get_path_in_sys_key_dir("user_xxxxx.did");
         let root_path = match did_file_path.parent() {
@@ -61,7 +71,15 @@ impl GlobalClaims {
                                         Ok(content) => {
                                             match serde_json::from_str::<IdClaim>(&content) {
                                                 Ok(claim) => {
-                                                    claims.insert(claim.gen_did(), claim.clone());
+                                                    let did = claim.gen_did();
+                                                    claims.insert(did.clone(), claim.clone());
+                                                    if claim.id_type == "System" && claim.nickname == system_name  {
+                                                        sys_did = did;
+                                                    } else if claim.id_type == "Device" && claim.nickname == device_name {
+                                                        device_did = did;
+                                                    } else if claim.id_type == "User" && claim.nickname == guest_name {
+                                                        guest = did;
+                                                    }
                                                     debug!("Load did_claim({}): {}", claim.gen_did(), claim.to_json_string());
                                                 },
                                                 Err(e) => {
@@ -88,29 +106,95 @@ impl GlobalClaims {
         }
         debug!("Loaded claims.len={}", claims.len());
 
+
+
+
         GlobalClaims {
             claims,
-            sys_did: String::new(),
-            device_did: String::new(),
+            sys_did,
+            device_did,
             admin: String::new(),
-            guest: String::new(),
+            guest,
             file_crypt_key: [0u8; 32],
             user_base_dir: String::new(),
+            system_key: [0u8; 32],
+            device_key: [0u8; 32],
         }
     }
 
-    pub(crate) fn set_system_device_guest_did(&mut self, sys_did: &str, device: &str, guest: &str)   {
-        self.sys_did = sys_did.to_string();
-        self.device_did = device.to_string();
-        self.guest = guest.to_string();
+    pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, String, String) {
+        let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+            = GlobalClaims::get_system_vars();
+
+        if self.sys_did == "Unknown"  {
+            let local_claim = GlobalClaims::generate_did_claim
+                ("System", &system_name, None, Some(root_dir), &sys_phrase);
+            self.sys_did = local_claim.gen_did();
+            self.claims.insert(self.sys_did.clone(), local_claim.clone());
+        }
+        if self.device_did == "Unknown" {
+            let device_claim = GlobalClaims::generate_did_claim
+                ("Device", &device_name, None, Some(disk_uuid), &device_phrase);
+            self.device_did = device_claim.gen_did();
+            self.claims.insert(self.device_did.clone(), device_claim);
+        }
+        if  self.guest == "Unknown"  {
+            let guest_claim = GlobalClaims::generate_did_claim
+                ("User", &guest_name, None, None, &guest_phrase);
+            self.guest = guest_claim.gen_did();
+            self.claims.insert(self.guest.clone(), guest_claim);
+        }
+        (self.sys_did.clone(), self.device_did.clone(), self.guest.clone())
     }
 
-    pub(crate) fn set_user_base_dir(&mut self, user_base_dir: &str) {
-        self.user_base_dir = user_base_dir.to_string();
+    pub(crate) fn get_system_vars() -> (String, String, String, String, String, String, String, String) {
+        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+        let zeroed_key: [u8; 32] = [0; 32];
+        let root_dir = sysinfo.root_dir.clone();
+        let disk_uuid = sysinfo.disk_uuid.clone();
+        let host_name = sysinfo.host_name.clone();
+        let root_name = match Path::new(&root_dir.clone()).file_name() {
+            Some(file_name) => match file_name.to_str() {
+                Some(name) => name.to_string(),
+                None => "root".to_string(),
+            },
+            None => "root".to_string(),
+        };
+
+        let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
+        let (device_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
+        let system_name = format!("{}{}", root_name, &sys_hash_id[..4]).chars().take(24).collect::<String>();
+        let device_name = format!("{}{}", host_name, &device_hash_id[..4]).chars().take(24).collect::<String>();
+        let guest_name = format!("guest{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
+        debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
+
+        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, "Unknown");
+        let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+        (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+    }
+
+    pub fn get_device_key(&self) -> [u8; 32] {
+        self.device_key.clone()
+    }
+
+    pub fn get_system_key(&self) -> [u8; 32] {
+        self.system_key.clone()
+    }
+
+    pub(crate) fn set_device_key(&mut self, device_key: [u8; 32]) {
+        self.device_key = device_key;
+    }
+
+    pub(crate) fn set_system_key(&mut self, system_key: [u8; 32]) {
+        self.system_key = system_key;
     }
 
     pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
         self.admin = admin_did.to_string();
+    }
+
+    pub(crate) fn set_user_base_dir(&mut self, user_base_dir: &str) {
+        self.user_base_dir = user_base_dir.to_string();
     }
 
     pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
