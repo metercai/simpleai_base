@@ -123,6 +123,7 @@ impl GlobalClaims {
     }
 
     pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, String, String) {
+        self.get_file_crypt_key();
         let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
 
@@ -145,6 +146,25 @@ impl GlobalClaims {
             self.claims.insert(self.guest.clone(), guest_claim);
         }
         (self.sys_did.clone(), self.device_did.clone(), self.guest.clone())
+    }
+
+    pub fn get_file_crypt_key(&mut self) -> [u8; 32] {
+        if self.file_crypt_key.is_empty() {
+            let id_hash = [0u8; 32];
+            if self.device_key == [0u8; 32] {
+                self.device_key = token_utils::read_key_or_generate_key("Device", &id_hash, "None", false, true);
+            }
+            if self.system_key == [0u8; 32] {
+                self.system_key = token_utils::read_key_or_generate_key("System", &id_hash, "None", false, true);
+            }
+            let device_key = token_utils::calc_sha256(&self.device_key);
+            let local_key = token_utils::calc_sha256(&self.system_key);
+            let mut com_hash = [0u8; 64];
+            com_hash[..32].copy_from_slice(&device_key);
+            com_hash[32..].copy_from_slice(&local_key);
+            self.file_crypt_key = token_utils::calc_sha256(com_hash.as_ref())
+        };
+        self.file_crypt_key.clone()
     }
 
     pub(crate) fn get_system_vars() -> (String, String, String, String, String, String, String, String) {
@@ -236,12 +256,7 @@ impl GlobalClaims {
         GLOBAL_CLAIMS.clone()
     }
 
-    pub fn get_file_crypt_key(&mut self) -> [u8; 32] {
-        if self.file_crypt_key.is_empty() {
-            self.file_crypt_key = token_utils::get_file_crypt_key();
-        };
-        self.file_crypt_key.clone()
-    }
+
 
     pub fn local_len(&self) -> usize {
         self.claims.len()
