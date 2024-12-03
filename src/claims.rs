@@ -30,15 +30,11 @@ pub struct GlobalClaims {
     device_did: String,                    // 设备id
     admin: String,                        // 管理员账号
     guest: String,                        // 游客账号
-    file_crypt_key: [u8; 32],                // 文件加密密钥
     user_base_dir: String,                // 用户目录
-    system_key: [u8; 32],
-    device_key: [u8; 32],
 }
 
 impl GlobalClaims {
     fn new() -> Self {
-
         let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
 
@@ -106,24 +102,17 @@ impl GlobalClaims {
         }
         debug!("Loaded claims.len={}", claims.len());
 
-
-
-
         GlobalClaims {
             claims,
             sys_did,
             device_did,
             admin: String::new(),
             guest,
-            file_crypt_key: [0u8; 32],
             user_base_dir: String::new(),
-            system_key: [0u8; 32],
-            device_key: [0u8; 32],
         }
     }
 
     pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, String, String) {
-        self.get_file_crypt_key();
         let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
 
@@ -146,25 +135,6 @@ impl GlobalClaims {
             self.claims.insert(self.guest.clone(), guest_claim);
         }
         (self.sys_did.clone(), self.device_did.clone(), self.guest.clone())
-    }
-
-    pub fn get_file_crypt_key(&mut self) -> [u8; 32] {
-        if self.file_crypt_key.is_empty() {
-            let id_hash = [0u8; 32];
-            if self.device_key == [0u8; 32] {
-                self.device_key = token_utils::read_key_or_generate_key("Device", &id_hash, "None", false, true);
-            }
-            if self.system_key == [0u8; 32] {
-                self.system_key = token_utils::read_key_or_generate_key("System", &id_hash, "None", false, true);
-            }
-            let device_key = token_utils::calc_sha256(&self.device_key);
-            let local_key = token_utils::calc_sha256(&self.system_key);
-            let mut com_hash = [0u8; 64];
-            com_hash[..32].copy_from_slice(&device_key);
-            com_hash[32..].copy_from_slice(&local_key);
-            self.file_crypt_key = token_utils::calc_sha256(com_hash.as_ref())
-        };
-        self.file_crypt_key.clone()
     }
 
     pub(crate) fn get_system_vars() -> (String, String, String, String, String, String, String, String) {
@@ -191,22 +161,6 @@ impl GlobalClaims {
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, "Unknown");
         let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
         (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
-    }
-
-    pub fn get_device_key(&self) -> [u8; 32] {
-        self.device_key.clone()
-    }
-
-    pub fn get_system_key(&self) -> [u8; 32] {
-        self.system_key.clone()
-    }
-
-    pub(crate) fn set_device_key(&mut self, device_key: [u8; 32]) {
-        self.device_key = device_key;
-    }
-
-    pub(crate) fn set_system_key(&mut self, system_key: [u8; 32]) {
-        self.system_key = system_key;
     }
 
     pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
@@ -255,8 +209,6 @@ impl GlobalClaims {
     pub fn instance() -> Arc<Mutex<GlobalClaims>> {
         GLOBAL_CLAIMS.clone()
     }
-
-
 
     pub fn local_len(&self) -> usize {
         self.claims.len()

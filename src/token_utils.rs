@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs;
+use std::sync::{Arc, Mutex};
 use std::io::Write;
 use std::time::{Duration, SystemTime};
 use serde_json::{json, Value};
@@ -73,6 +74,49 @@ macro_rules! issue_key {
         format!("{}_issue", $did)
     };
 }
+
+lazy_static::lazy_static! {
+    static ref SYSTEM_KEYS: Arc<Mutex<SystemKeys>> = Arc::new(Mutex::new(SystemKeys::new()));
+}
+
+#[derive(Clone, Debug)]
+struct SystemKeys {
+    system_key: [u8; 32],
+    device_key: [u8; 32],
+    file_crypt_key: [u8; 32],
+}
+impl SystemKeys {
+    fn new() -> Self {
+        let id_hash = [0u8; 32];
+        let device_key = read_key_or_generate_key("Device", &id_hash, "None", false, true);
+        let system_key = read_key_or_generate_key("System", &id_hash, "None", false, true);
+        let device_key_hash = calc_sha256(&device_key);
+        let local_key_hash = calc_sha256(&system_key);
+        let mut com_hash = [0u8; 64];
+        com_hash[..32].copy_from_slice(&device_key_hash);
+        com_hash[32..].copy_from_slice(&local_key_hash);
+        let file_crypt_key = calc_sha256(com_hash.as_ref());
+        Self {
+            system_key,
+            device_key,
+            file_crypt_key,
+        }
+    }
+    pub fn instance() -> Arc<Mutex<SystemKeys>> {
+        SYSTEM_KEYS.clone()
+    }
+
+    pub fn get_file_crypt_key(&mut self) -> [u8; 32] {
+        self.file_crypt_key
+    }
+    pub fn get_device_key(&mut self) -> [u8; 32] {
+        self.device_key
+    }
+    pub fn get_system_key(&mut self) -> [u8; 32] {
+        self.system_key
+    }
+}
+
 
 pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>, claim: &IdClaim, phrase: &str) {
     let did = claim.gen_did();
@@ -816,12 +860,12 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, throug
             if !through {
                 if let Some(file_name) = file_path.file_name() {
                     let file_name_str = file_name.to_string_lossy();
-                    let claims =GlobalClaims::instance();
-                    let mut claims =claims.lock().unwrap();
+                    let keys =SystemKeys::instance();
+                    let mut keys =keys.lock().unwrap();
                     if file_name_str.contains("device") {
-                        priv_key = claims.get_device_key()
+                        priv_key = keys.get_device_key()
                     } else if file_name_str.contains("system") {
-                        priv_key = claims.get_system_key()
+                        priv_key = keys.get_system_key()
                     } else {
                         priv_key = [0; 32]
                     }
@@ -953,9 +997,9 @@ pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], Token
 }
 
 fn get_token_crypt_key() -> [u8; 32] {
-    let claims =GlobalClaims::instance();
-    let mut claims =claims.lock().unwrap();
-    claims.get_file_crypt_key()
+    let keys =SystemKeys::instance();
+    let mut keys =keys.lock().unwrap();
+    keys.get_file_crypt_key()
 }
 
 
