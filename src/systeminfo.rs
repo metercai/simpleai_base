@@ -82,6 +82,7 @@ impl SystemBaseInfo {
         };
         let os_time = find_oldest_file(os_sys_path);
         let root_time = find_oldest_file(root_dir.to_str().unwrap());
+        debug!("os_time: {}, root_time: {}", os_time, root_time);
 
         Self {
             os_type,

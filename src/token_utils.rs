@@ -26,6 +26,7 @@ use crate::systeminfo::SystemBaseInfo;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
+use tracing_subscriber::fmt::format;
 
 use crate::error::TokenError;
 use crate::claims::{GlobalClaims, IdClaim, UserContext};
@@ -842,9 +843,31 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
         }
     }
     debug!("generate new key and save pem file: {}", file_path.display());
+    let sysinfo = &SYSTEM_BASE_INFO;
+
     let pem_label = "SIMPLE_AI_KEY";
     let mut csprng = OsRng {};
-    let secret_key = SigningKey::generate(&mut csprng).to_bytes();
+    let secret_key: [u8; 32];
+    if let Some(file_name) = file_path.file_name() {
+        let file_name_str = file_name.to_string_lossy();
+
+        if file_name_str.contains("device") {
+            let seed = derive_key(&calc_sha256(format!("{}{}", sysinfo.disk_uuid,sysinfo.os_time).as_bytes()),
+                                  &calc_sha256(format!("{}{}", sysinfo.host_name, sysinfo.os_time).as_bytes()))
+                .unwrap_or([0u8; 32]);
+            secret_key = SigningKey::from_bytes(&seed).to_bytes();
+        } else if file_name_str.contains("system") {
+            let seed = derive_key(&calc_sha256(format!("{}{}", sysinfo.root_dir,sysinfo.root_time).as_bytes()),
+                                  &calc_sha256(format!("{}{}", sysinfo.exe_name, sysinfo.root_time).as_bytes()))
+                .unwrap_or([0u8; 32]);
+            secret_key = SigningKey::from_bytes(&seed).to_bytes();
+        } else {
+            secret_key = SigningKey::generate(&mut csprng).to_bytes();
+        }
+    } else {
+        secret_key = SigningKey::generate(&mut csprng).to_bytes();
+    }
+
     PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
         .encrypt(csprng, &phrase).unwrap()
         .write_pem_file(file_path, pem_label, LineEnding::default()).unwrap();
