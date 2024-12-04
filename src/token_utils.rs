@@ -889,11 +889,11 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, throug
                         }
                     },
                 };
+                debug!("read private key: {}", file_path.display());
             }
             priv_key
         }
     };
-    debug!("read private key: {}", file_path.display());
     private_key.try_into().unwrap()
 }
 
@@ -1051,7 +1051,7 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
     let timestamp_bytes = timestamp.to_le_bytes();
     let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, false, false);
     let nickname_bytes = nickname.as_bytes();
-    let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
+    let secret_key = derive_key(phrase.as_bytes(), &symbol_hash).unwrap();
     let mut identity_secret = Vec::with_capacity(timestamp_bytes.len() + user_key.len());
     identity_secret.extend_from_slice(&timestamp_bytes);
     identity_secret.extend_from_slice(&user_key);
@@ -1072,7 +1072,7 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
     encrypted_identity
 }
 
-pub(crate) fn import_identity(user_hash_id: &str, encrypted_identity: &Vec<u8>, phrase: &str) -> IdClaim  {
+pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec<u8>, phrase: &str) -> IdClaim  {
     debug!("import, encrypted_identity: len={}, {}", encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity.clone()));
     let vcode = &encrypted_identity[..2];
     let identity = &encrypted_identity[2..];
@@ -1081,10 +1081,10 @@ pub(crate) fn import_identity(user_hash_id: &str, encrypted_identity: &Vec<u8>, 
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap();
         let encrypted_secret = &encrypted_identity[10..78];
         debug!("import, identity: nickname: {}, telephone: {}, len={}, {}", nickname, telephone, identity.len(), URL_SAFE_NO_PAD.encode(identity));
-        let secret_key = derive_key(phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
+        let secret_key = derive_key(phrase.as_bytes(), &URL_SAFE_NO_PAD.decode(symbol_hash_base64).unwrap()).unwrap();
         let identity_secret = decrypt(encrypted_secret, &secret_key, 0);
-        debug!("import, identity_secret: user_hash_id={}, phrase={}, secret_key={}, len={}, {}",
-            user_hash_id, phrase, URL_SAFE_NO_PAD.encode(secret_key), encrypted_secret.len(), URL_SAFE_NO_PAD.encode(encrypted_secret));
+        debug!("import, identity_secret: symbol_hash={}, phrase={}, secret_key={}, len={}, {}",
+            symbol_hash_base64, phrase, URL_SAFE_NO_PAD.encode(secret_key), encrypted_secret.len(), URL_SAFE_NO_PAD.encode(encrypted_secret));
         let timestamp = u64::from_le_bytes(identity_secret[..8].try_into().unwrap());
         let mut user_key = [0u8; 32];
         user_key.copy_from_slice(&identity_secret[8..]);

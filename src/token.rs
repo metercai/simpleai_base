@@ -72,20 +72,8 @@ impl SimpleAI {
             SystemInfo::generate().await
         });
 
-        let zeroed_key: [u8; 32] = [0; 32];
-        let root_dir = sys_base_info.root_dir.clone();
-        let disk_uuid = sys_base_info.disk_uuid.clone();
-        let host_name = sys_base_info.host_name.clone();
-
-        let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
-        let (device_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
-        let system_name = format!("{}{}", sys_name, &sys_hash_id[..4]).chars().take(24).collect::<String>();
-        let device_name = format!("{}{}", host_name, &device_hash_id[..4]).chars().take(24).collect::<String>();
-        let guest_name = format!("guest{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
-        debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
-
-        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, "Unknown");
-        let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+        let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+            = GlobalClaims::get_system_vars();
 
         let claims = GlobalClaims::instance();
         let (local_did, device_did, guest_did) = {
@@ -338,8 +326,8 @@ impl SimpleAI {
     }
 
 
-    pub fn import_user(&mut self, user_hash_id: &str, encrypted_identity: &str, phrase: &str) -> String {
-        let user_claim = token_utils::import_identity(user_hash_id, &URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap(), phrase);
+    pub fn import_user(&mut self, symbol_hash_base64: &str, encrypted_identity: &str, phrase: &str) -> String {
+        let user_claim = token_utils::import_identity(symbol_hash_base64, &URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap(), phrase);
         self.push_claim(&user_claim);
         let user_did = user_claim.gen_did();
         let crypt_secrets_len = self.crypt_secrets.len();
@@ -931,6 +919,7 @@ impl SimpleAI {
         let nickname = token_utils::truncate_nickname(nickname);
         if Self::is_valid_telephone(telephone) {
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
+            let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
             let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
             let user_did = {
@@ -944,14 +933,14 @@ impl SimpleAI {
                         match identity_file.exists() {
                             true => {
                                 let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
-                                println!("[UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}", user_did, user_hash_id, encrypted_identity.len(), encrypted_identity);
-                                self.import_user(&user_hash_id, &encrypted_identity, phrase)
+                                println!("[UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}", user_did, symbol_hash_base64, encrypted_identity.len(), encrypted_identity);
+                                self.import_user(&symbol_hash_base64.clone(), &encrypted_identity, phrase)
                             }
                             false => {
                                 let mut request: serde_json::Value = json!({});
                                 let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
                                 request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
-                                request["user_symbol"] = serde_json::to_value(URL_SAFE_NO_PAD.encode(symbol_hash)).unwrap();
+                                request["user_symbol"] = serde_json::to_value(symbol_hash_base64.clone()).unwrap();
                                 let user_copy_from_cloud =
                                     self.request_token_api("get_user_copy", &serde_json::to_string(&request).unwrap_or("{}".to_string()), );
 
@@ -963,9 +952,9 @@ impl SimpleAI {
                                         let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
                                         if user_copy_from_cloud_array.len() >= 3 {
                                             let encrypted_identity = user_copy_from_cloud_array[0];
-                                            println!("[UserBase] Download user encrypted_copy: {}, len={}", user_hash_id, encrypted_identity.len());
+                                            println!("[UserBase] Download user encrypted_copy: {}, len={}", symbol_hash_base64, encrypted_identity.len());
                                             debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
-                                            let user_did = self.import_user(&user_hash_id, &encrypted_identity, phrase);
+                                            let user_did = self.import_user(&symbol_hash_base64, &encrypted_identity, phrase);
                                             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                             fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
                                             println!("[UserBase] Parsing encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
