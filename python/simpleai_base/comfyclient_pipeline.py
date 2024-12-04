@@ -149,10 +149,10 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 if prompt[current_node]['class_type'] == 'SaveImageWebsocket':
                     images_output = output_images.get(prompt[current_node]['_meta']['title'], [])
                     images_output.append(out[8:])
-                    output_images[prompt[current_node]['_meta']['title']] = images_output[0]
+                    output_images[prompt[current_node]['_meta']['title']] = images_output
             continue
 
-    output_images = {k: np.array(Image.open(BytesIO(v))) for k, v in output_images.items()}
+    output_images = {k: np.array(Image.open(BytesIO(v[-1]))) for k, v in output_images.items()}
     print(f'[ComfyClient] The ComfyTask:{prompt_id} has finished: {len(output_images)}')
     return output_images
 

@@ -1125,7 +1125,8 @@ impl SimpleAI {
     }
 
     pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
-        if self.blacklist.contains(&did.to_string()) || (did != self.guest && !self.is_registered(did)) {
+        if self.blacklist.contains(&did.to_string()) ||
+            (did != self.guest && !self.is_registered(did) && did!=token_utils::TOKEN_TM_DID.to_string()) {
             return UserContext::default();
         }
         let claim = self.get_claim(did);
