@@ -771,8 +771,16 @@ impl SimpleAI {
                                 println!("[UserBase] User apply is ok, ready to verify user_cert with vcode: did({})", user_did);
                                 return "create".to_string();
                             } else { return "unknown".to_string();  }
+                        } else if apply_result.starts_with("Unknown_Repeat") {
+                            println!("[UserBase] User apply is failure({}): did({}), symbol({})", apply_result, user_did, symbol_hash_base64);
+                            self.remove_user(&symbol_hash_base64);
+                            return "unknown_repeat".to_string();
+                        } else if apply_result.starts_with("Unknown_Exceeded") {
+                            println!("[UserBase] User apply is failure({}): did({}), symbol({})", apply_result, user_did, symbol_hash_base64);
+                            self.remove_user(&symbol_hash_base64);
+                            return "unknown_exceeded".to_string();
                         } else {
-                            println!("[UserBase] User apply is failure: did({}), symbol({})", user_did, symbol_hash_base64);
+                            println!("[UserBase] User apply is failure({}): did({}), symbol({})", apply_result, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown".to_string();
                         }
