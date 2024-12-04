@@ -717,7 +717,7 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
             let nickname = std::str::from_utf8(nickname_bytes).unwrap();
             let encrypted_secret = &encrypted_identity[10..78];
             debug!("import, identity: nickname: {}, telephone: {}, len={}, {}", nickname, telephone, identity.len(), URL_SAFE_NO_PAD.encode(identity));
-            let secret_key = derive_key(old_phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
+            let secret_key = derive_key(old_phrase.as_bytes(), symbol_hash).unwrap();
             let identity_secret = decrypt(encrypted_secret, &secret_key, 0);
             debug!("import, identity_secret: user_hash_id={}, phrase={}, secret_key={}, len={}, {}",
                     user_hash_id, old_phrase, URL_SAFE_NO_PAD.encode(secret_key), encrypted_secret.len(), URL_SAFE_NO_PAD.encode(encrypted_secret));
@@ -725,7 +725,7 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
             let mut user_key = [0u8; 32];
             user_key.copy_from_slice(&identity_secret[8..]);
 
-            let secret_key = derive_key(new_phrase.as_bytes(), &calc_sha256(user_hash_id.as_bytes())).unwrap();
+            let secret_key = derive_key(new_phrase.as_bytes(), symbol_hash).unwrap();
             let mut identity_secret = Vec::with_capacity(timestamp_bytes.len() + user_key.len());
             identity_secret.extend_from_slice(&timestamp_bytes);
             identity_secret.extend_from_slice(&user_key);
