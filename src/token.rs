@@ -188,6 +188,9 @@ impl SimpleAI {
             };
             self.upstream_did = SimpleAI::request_token_api_register(&local_claim, &device_claim);
 
+            if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
+                println!("[UserBase] obtain upstream: upstream_did={}, self_did={}", self.upstream_did, self.did);
+            }
             if start_time.elapsed() >= timeout {
                 println!("[UserBase] Unable to obtain upstream address: self_did={}", self.did);
                 return "".to_string();
