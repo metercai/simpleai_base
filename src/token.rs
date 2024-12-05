@@ -128,7 +128,7 @@ impl SimpleAI {
         } else {
             token_utils::TOKEN_TM_DID.to_string()
         };
-        let upstream_did = if upstream_did != "Unknown" { upstream_did } else { "".to_string() };
+        let upstream_did = if upstream_did.starts_with("Unknown") { upstream_did } else { "".to_string() };
         debug!("upstream_did: {}", upstream_did);
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
@@ -174,7 +174,27 @@ impl SimpleAI {
     }
     pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
     pub fn get_sys_did(&self) -> String { self.did.clone() }
-    pub fn get_upstream_did(&self) -> String { self.upstream_did.clone() }
+    pub fn get_upstream_did(&mut self) -> String {
+        let start_time = Instant::now();
+        let timeout = Duration::from_secs(60);
+
+        loop {
+            if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown"){
+                return self.upstream_did.clone();
+            }
+            let (local_claim, device_claim) = {
+                let mut claims = self.claims.lock().unwrap();
+                (claims.get_claim_from_local(&self.did), claims.get_claim_from_local(&self.device))
+            };
+            self.upstream_did = SimpleAI::request_token_api_register(&local_claim, &device_claim);
+
+            if start_time.elapsed() >= timeout {
+                println!("[UserBase] Unable to obtain upstream address: self_did={}", self.did);
+                return "".to_string();
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
 
     pub fn get_sysinfo(&self) -> SystemInfo {
         self.sysinfo.clone()
@@ -812,8 +832,8 @@ impl SimpleAI {
                 try_count -= 1;
                 if try_count >= 0 {
                     let user_certificate = token_utils::decrypt_text_with_vcode(vcode, &encrypted_certificate_string);
-                    if user_certificate.len() > 32 && !self.get_upstream_did().is_empty() {
-                        let upstream_did = self.get_upstream_did();
+                    let upstream_did = self.get_upstream_did();
+                    if user_certificate.len() > 32 && !upstream_did.is_empty() {
                         let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
                         debug!("UserBase] The parsed cert from Root is: cert({})", user_certificate_text);
                         let cert_user_did = {
@@ -1035,9 +1055,10 @@ impl SimpleAI {
                 request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap();
                 request["data"] = serde_json::to_value(user_copy_to_cloud).unwrap();
                 let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+                let upstream_did = self.get_upstream_did();
                 let result = self.request_token_api("unbind_node", &params);
                 if result != "Unbind_ok" {
-                    let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone(), 0);
+                    let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did, 0);
                     let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
                     fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
                 }
@@ -1180,7 +1201,7 @@ impl SimpleAI {
     }
 
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
-        let upstream_did = self.upstream_did.clone();
+        let upstream_did = self.get_upstream_did();
         if upstream_did.is_empty() {
             return "Unknown".to_string()
         }
