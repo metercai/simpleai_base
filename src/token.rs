@@ -728,11 +728,11 @@ impl SimpleAI {
                             self.remove_user(&symbol_hash_base64);
                             debug!("user_key is exist but the ready data is error: {}, {}", nickname, user_hash_id);
                             return "re_input".to_string();
-                        } else if !self.is_registered(&old_user_did) { // 没有经过身份验证的处理
+                        } else if !self.is_registered(&old_user_did) { // 没有经过身份验证
                             self.remove_user(&symbol_hash_base64);
                             debug!("user_key is exist but the vcode is not verified : {}, {}", nickname, user_hash_id);
                             return "re_input".to_string();
-                        } // 经过验证但默认身份口令未改的处理
+                        } // 已经过身份验证
                         debug!("user_key is exist and the phrase hasn't been updated: {}, {}", nickname, user_hash_id);
                         "immature".to_string()
                     } else { // 身份预备数据丢失的处理
@@ -776,10 +776,15 @@ impl SimpleAI {
                                             println!("[UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})", user_did, return_did);
                                             self.push_claim(&return_claim);
                                             return "recall".to_string();
-                                        } else { return "unknown".to_string(); }
+                                        } else {
+                                            println!("[UserBase] Identity confirmed to recall user from root is same the new before: local_did({}), remote_did({})", user_did, return_did);
+                                            self.remove_user(&symbol_hash_base64);
+                                            return "unknown".to_string();
+                                        }
                                     }
                                     Err(e) => {
                                         println!("[UserBase] The decoding the claim from Root is fail: did({}), error({})", user_did, e);
+                                        self.remove_user(&symbol_hash_base64);
                                         return "unknown".to_string();
                                     }
                                 }
@@ -793,7 +798,11 @@ impl SimpleAI {
                                 debug!("ready_data: {}", ready_data);
                                 println!("[UserBase] User apply is ok, ready to verify user_cert with vcode: did({})", user_did);
                                 return "create".to_string();
-                            } else { return "unknown".to_string();  }
+                            } else {
+                                self.remove_user(&symbol_hash_base64);
+                                println!("[UserBase] User apply is ok, but the feedback is undefined: {}",apply_result);
+                                return "unknown".to_string();
+                            }
                         } else if apply_result.starts_with("Unknown_Repeat") {
                             println!("[UserBase] User apply is failure({}): did({}), symbol({})", apply_result, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
