@@ -67,6 +67,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("i2i_model_type", "easy int:i2i_model_type:value"),
     ("i2i_canny_low", "easy int:i2i_canny_low:value"),
     ("i2i_canny_hight", "easy int:i2i_canny_hight:value"),
+    ("i2i_skip_preprocessors", "easy boolean:i2i_skip_preprocessors:value"),
     ("i2i_ip_image1", "LoadImage:i2i_ip_image1:image"),
     ("i2i_ip_image2", "LoadImage:i2i_ip_image2:image"),
     ("i2i_ip_image3", "LoadImage:i2i_ip_image3:image"),

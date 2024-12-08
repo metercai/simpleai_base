@@ -542,6 +542,7 @@ impl SimpleAI {
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
             let context = self.get_user_context(did);
             if context.is_default() || context.is_expired(){
+                println!("[UserBase] debug: get_user_sstoken, context is default or expired: did={}", did);
                 return String::from("Unknown")
             }
             let text1 = token_utils::calc_sha256(
@@ -561,9 +562,10 @@ impl SimpleAI {
                 .map(|(&a, &b)| a ^ b)
                 .collect::<Vec<u8>>()
                 .try_into()
-                .expect("Failed to convert Vec<u8> to [u8; 32]");
+                .expect("get_user_sstoken, Failed to convert Vec<u8> to [u8; 32]");
             result.to_base58()
         } else {
+            println!("[UserBase] debug: get_user_sstoken, did is incorrect format: {}", did);
             String::from("Unknown")
         }
     }
@@ -571,6 +573,7 @@ impl SimpleAI {
     pub fn check_sstoken_and_get_did(&mut self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
         if sstoken.len() != 44 || sstoken_bytes==[0; 32] {
+            println!("[UserBase] debug: check_sstoken_and_get_did, sstoken is incorrect format: {}", sstoken);
             return String::from("Unknown")
         }
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
@@ -590,7 +593,7 @@ impl SimpleAI {
             .map(|(&a, &b)| a ^ b)
             .collect::<Vec<u8>>()
             .try_into()
-            .expect("Failed to convert Vec<u8> to [u8; 32]");
+            .expect("check_sstoken_and_get_did, 1, Failed to convert Vec<u8> to [u8; 32]");
         let mut did_bytes: [u8; 21] = [0; 21];
         let mut padded: [u8; 11] = [0; 11];
         padded.copy_from_slice(&result[..11]);
@@ -600,6 +603,7 @@ impl SimpleAI {
             let user_did = did_bytes.to_base58();
             let context = self.get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
+                println!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
                 String::from("Unknown")
             } else {
                 user_did
@@ -615,7 +619,7 @@ impl SimpleAI {
                 .map(|(&a, &b)| a ^ b)
                 .collect::<Vec<u8>>()
                 .try_into()
-                .expect("Failed to convert Vec<u8> to [u8; 32]");
+                .expect("check_sstoken_and_get_did, 2, Failed to convert Vec<u8> to [u8; 32]");
             padded.copy_from_slice(&result[..11]);
             did_bytes.copy_from_slice(&result[11..]);
             let did_bytes_slice = &did_bytes[10..];
@@ -623,11 +627,13 @@ impl SimpleAI {
                 let user_did = did_bytes.to_base58();
                 let context = self.get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
+                    println!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
                     String::from("Unknown")
                 } else {
                     user_did
                 }
             } else {
+                println!("[UserBase] debug: check_sstoken_and_get_did, sstoken is not validity: sstoken={},ua={}", sstoken, ua_hash);
                 String::from("Unknown")
             }
         }

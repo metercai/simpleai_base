@@ -59,6 +59,11 @@ fn gen_entry_point_id(pid: u32) -> String {
     calc_sha256(pid.to_string().as_bytes()).to_base58()
 }
 
+#[pyfunction]
+fn gen_ua_session(client_ip: &str, client_port: &str, ua_agent: &str) -> String {
+    calc_sha256(format!("{}:{}:{}", client_ip, client_port, ua_agent).as_bytes()).to_base58()
+}
+
 
 #[pyfunction]
 fn check_entry_point(entry_point: String) -> bool {
@@ -71,6 +76,7 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_local, m)?)?;
     m.add_function(wrap_pyfunction!(cert_verify_by_did, m)?)?;
     m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_ua_session, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_function(wrap_pyfunction!(export_identity_qrcode_svg, m)?)?;
     m.add_function(wrap_pyfunction!(import_identity_qrcode, m)?)?;
