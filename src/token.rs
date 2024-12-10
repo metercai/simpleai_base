@@ -711,6 +711,9 @@ impl SimpleAI {
         if !token_utils::is_valid_telephone(telephone) {
             return "unknown".to_string();
         }
+        if nickname.to_lowercase().starts_with("guest") {
+            return "unknown".to_string();
+        }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
@@ -899,14 +902,14 @@ impl SimpleAI {
                 } else {
                     let _ = {
                         let ready_users = self.ready_users.lock().unwrap();
-                        let _ = ready_users.remove(user_hash_id);
+                        let _ = ready_users.remove(user_hash_id.clone());
                     };
-                    println!("[UserBase] The try_count of verify the code has run out: symbol({}), did({})", symbol_hash_base64, ready_user_did);
+                    println!("[UserBase] The try_count of verify the code has run out: symbol({}), user_hash_id({}), did({})", symbol_hash_base64, user_hash_id, ready_user_did);
                     return "error:0".to_string();
                 }
             }
         }
-        println!("[UserBase] The ready data is error: symbol({}), ready_data({})", symbol_hash_base64, ready_data);
+        println!("[UserBase] The ready data is not exist or incorrect: symbol({}), user_hash_id({}), ready_data({})", symbol_hash_base64, user_hash_id, ready_data);
         self.remove_user(&symbol_hash_base64);
         "error:0".to_string()
     }
