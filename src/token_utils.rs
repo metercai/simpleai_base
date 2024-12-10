@@ -497,8 +497,14 @@ pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
 pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {
     let sysinfo = &SYSTEM_BASE_INFO;
     match key_type {
-        "Device" => _get_key_hash_id_and_phrase(&format!("{}{}", sysinfo.host_name, sysinfo.disk_uuid).into_bytes(), 0),
-        "System" => _get_key_hash_id_and_phrase(&format!("{}{}", sysinfo.root_dir, sysinfo.disk_uuid).into_bytes(), 0),
+        "Device" => {
+            let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
+            _get_key_hash_id_and_phrase(&device_symbol_hash.to_vec(), 0)
+        },
+        "System" => {
+            let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.root_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
+            _get_key_hash_id_and_phrase(&system_symbol_hash.to_vec(), 0)
+        },
         _ => {
             let (device_hash_id, _device_phrase) = _get_key_hash_id_and_phrase
                 (&format!("{}{}", sysinfo.host_name, sysinfo.disk_uuid).into_bytes(), 0);
@@ -1039,8 +1045,6 @@ pub fn filter_files(work_paths: &Path, filters: &[&str], suffixes: &[&str]) -> V
 
 pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, phrase: &str) -> Vec<u8>  {
     let nickname = truncate_nickname(nickname);
-    let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &telephone);
-    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
     let telephone_bytes = match telephone.parse::<u64>() {
         Ok(number) => number,
         Err(_) => {
@@ -1048,6 +1052,8 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
             0
         }
     }.to_le_bytes();
+    let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
+    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
     let timestamp_bytes = timestamp.to_le_bytes();
     let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, false, false);
     let nickname_bytes = nickname.as_bytes();
@@ -1112,7 +1118,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8])).to_string();
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap_or("").to_string();
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
         let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), URL_SAFE_NO_PAD.encode(encrypted_identity)).expect(&format!("Unable to write file: {}", identity_file.display()));

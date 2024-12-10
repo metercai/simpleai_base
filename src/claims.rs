@@ -9,6 +9,7 @@ use base64::Engine;
 use base58::*;
 use sha2::Digest;
 use ripemd::Ripemd160;
+use rand::Rng;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use crate::token_utils;
@@ -35,8 +36,16 @@ pub struct GlobalClaims {
 
 impl GlobalClaims {
     fn new() -> Self {
-        let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+        let root_dir = sysinfo.root_dir.clone();
+        let disk_uuid = sysinfo.disk_uuid.clone();
+
+        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
+        let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(root_dir.clone()));
+        let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&device_name, None, Some(disk_uuid.clone()));
+        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(root_dir.clone()));
+
 
         let mut sys_did = "Unknown".to_string();
         let mut device_did = "Unknown".to_string();
@@ -69,11 +78,11 @@ impl GlobalClaims {
                                                 Ok(claim) => {
                                                     let did = claim.gen_did();
                                                     claims.insert(did.clone(), claim.clone());
-                                                    if claim.id_type == "System" && claim.nickname == system_name  {
+                                                    if claim.id_type == "System" && claim.nickname == system_name && claim.get_symbol_hash() == system_symbol_hash  {
                                                         sys_did = did;
-                                                    } else if claim.id_type == "Device" && claim.nickname == device_name {
+                                                    } else if claim.id_type == "Device" && claim.nickname == device_name && claim.get_symbol_hash() == device_symbol_hash {
                                                         device_did = did;
-                                                    } else if claim.id_type == "User" && claim.nickname == guest_name {
+                                                    } else if claim.id_type == "User" && claim.nickname == guest_name && claim.get_symbol_hash() == guest_symbol_hash {
                                                         guest = did;
                                                     }
                                                     debug!("Load did_claim({}): {}", claim.gen_did(), claim.to_json_string());
@@ -113,54 +122,66 @@ impl GlobalClaims {
     }
 
     pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, String, String) {
-        let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+        let root_dir = sysinfo.root_dir.clone();
+        let disk_uuid = sysinfo.disk_uuid.clone();
+        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
 
         if self.sys_did == "Unknown"  {
             let local_claim = GlobalClaims::generate_did_claim
-                ("System", &system_name, None, Some(root_dir), &sys_phrase);
+                ("System", &system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &sys_phrase);
             self.sys_did = local_claim.gen_did();
             self.claims.insert(self.sys_did.clone(), local_claim.clone());
         }
         if self.device_did == "Unknown" {
             let device_claim = GlobalClaims::generate_did_claim
-                ("Device", &device_name, None, Some(disk_uuid), &device_phrase);
+                ("Device", &device_name, None, Some(disk_uuid.clone()), &device_phrase);
             self.device_did = device_claim.gen_did();
             self.claims.insert(self.device_did.clone(), device_claim);
         }
         if  self.guest == "Unknown"  {
             let guest_claim = GlobalClaims::generate_did_claim
-                ("User", &guest_name, None, None, &guest_phrase);
+                ("User", &guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &guest_phrase);
             self.guest = guest_claim.gen_did();
             self.claims.insert(self.guest.clone(), guest_claim);
         }
         (self.sys_did.clone(), self.device_did.clone(), self.guest.clone())
     }
 
-    pub(crate) fn get_system_vars() -> (String, String, String, String, String, String, String, String) {
+    pub(crate) fn get_system_vars() -> (String, String, String, String, String, String) {
         let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
         let zeroed_key: [u8; 32] = [0; 32];
         let root_dir = sysinfo.root_dir.clone();
         let disk_uuid = sysinfo.disk_uuid.clone();
         let host_name = sysinfo.host_name.clone();
-        let root_name = match Path::new(&root_dir.clone()).file_name() {
-            Some(file_name) => match file_name.to_str() {
-                Some(name) => name.to_string(),
-                None => "root".to_string(),
-            },
-            None => "root".to_string(),
-        };
+        let root_name = sysinfo.root_name.clone();
 
-        let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
-        let (device_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
-        let system_name = format!("{}{}", root_name, &sys_hash_id[..4]).chars().take(24).collect::<String>();
-        let device_name = format!("{}{}", host_name, &device_hash_id[..4]).chars().take(24).collect::<String>();
+        let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&root_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
+        let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&host_name, None, Some(disk_uuid.clone()));
+        let (sys_hash_id, system_phrase) = token_utils::get_key_hash_id_and_phrase("System", &system_symbol_hash);
+        let (_, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &device_symbol_hash);
         let guest_name = format!("guest{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
-        debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
-
-        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, "Unknown");
+        debug!("system_name:{}, device_name:{}, guest_name:{}", root_name, host_name, guest_name);
+        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
         let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
-        (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+        (root_name, system_phrase, host_name, device_phrase, guest_name, guest_phrase)
+    }
+
+    fn generate_random_string(length: usize) -> String {
+        let mut rng = rand::thread_rng();
+        let chars: String = (0..length)
+            .map(|_| {
+                let idx = rng.gen_range(0..62);
+                match idx {
+                    0..=9 => (b'0' + idx) as char,
+                    10..=35 => (b'a' + idx - 10) as char,
+                    36..=61 => (b'A' + idx - 36) as char,
+                    _ => unreachable!(),
+                }
+            })
+            .collect();
+        chars
     }
 
     pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
@@ -492,14 +513,18 @@ impl IdClaim {
     }
 
     #[staticmethod]
-    pub fn get_symbol_hash_by_source(nickname: &str, telephone: &str) -> [u8; 32] {
+    pub fn get_symbol_hash_by_source(nickname: &str, telephone: Option<String>, id_card: Option<String>) -> [u8; 32] {
+        let id_card = id_card.unwrap_or("-".to_string());
+        let telephone = telephone.unwrap_or("-".to_string());
+        let id_card_hash = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(
+            format!("{}:id_card:{}", nickname, id_card).as_bytes()));
         let telephone_hash = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(
             format!("{}:telephone:{}", nickname, telephone).as_bytes()));
-        token_utils::calc_sha256(format!("{}|{}", nickname, telephone_hash).as_bytes())
+        token_utils::calc_sha256(format!("{}|{}|{}", nickname, telephone_hash, id_card_hash).as_bytes())
     }
 
     pub fn get_symbol_hash(&self) -> [u8; 32] {
-        token_utils::calc_sha256(format!("{}|{}", self.nickname, self.telephone_hash).as_bytes())
+        token_utils::calc_sha256(format!("{}|{}|{}", self.nickname, self.telephone_hash, self.id_card_hash).as_bytes())
     }
 
     pub(crate) fn to_json_string(&self) -> String {

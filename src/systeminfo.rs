@@ -39,6 +39,7 @@ pub struct SystemBaseInfo {
     pub disk_free: u64,
     pub disk_uuid: String,
     pub root_dir: String,
+    pub root_name: String,
     pub exe_dir: String,
     pub exe_name: String,
     pub os_time: u64,
@@ -54,7 +55,8 @@ impl SystemBaseInfo {
         let mut sys = System::new_all();
         sys.refresh_all();
         let os_type = env::consts::OS.to_string();
-        let (os_name, host_name) = (format!("{} {}", System::name().expect("Unknown"), System::os_version().expect("Unknown")), System::host_name());
+        let os_name = format!("{} {}", System::name().unwrap_or("Unknown".to_string()), System::os_version().unwrap_or("Unknown".to_string()));
+        let host_name = System::host_name().unwrap_or("Unknown".to_string());
         let cpu_arch = env::consts::ARCH.to_string();
         let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
@@ -66,6 +68,14 @@ impl SystemBaseInfo {
                 PathBuf::from("/")
             }
         };
+        let root_name = match Path::new(&root_dir.clone()).file_name() {
+            Some(file_name) => match file_name.to_str() {
+                Some(name) => name.to_string(),
+                None => "root".to_string(),
+            },
+            None => "root".to_string(),
+        };
+
         let exe_dir = match env::current_exe() {
             Ok(dir) => dir,
             Err(e) => {
@@ -88,7 +98,7 @@ impl SystemBaseInfo {
             os_type,
             os_name: os_name,
             host_type,
-            host_name: host_name.expect("Unknown"),
+            host_name,
             cpu_arch,
             cpu_brand: cpu_brand.to_string(),
             cpu_cores: cpu_cores.unwrap_or(0) as u32,
@@ -104,6 +114,7 @@ impl SystemBaseInfo {
             disk_free,
             disk_uuid,
             root_dir: root_dir.to_string_lossy().into_owned(),
+            root_name,
             exe_dir: exe_dir.to_string_lossy().into_owned(),
             exe_name,
             os_time,
@@ -140,6 +151,7 @@ pub struct SystemInfo {
     pub disk_free: u64,
     pub disk_uuid: String,
     pub root_dir: String,
+    pub root_name: String,
     pub exe_dir: String,
     pub exe_name: String,
     pub pyhash: String,
@@ -177,6 +189,7 @@ impl SystemInfo {
             disk_free: base.disk_free,
             disk_uuid: base.disk_uuid,
             root_dir: base.root_dir,
+            root_name: base.root_name,
             exe_dir: base.exe_dir,
             exe_name: base.exe_name,
             pyhash: "Unknown".to_string(),

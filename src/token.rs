@@ -72,7 +72,7 @@ impl SimpleAI {
             SystemInfo::generate().await
         });
 
-        let (root_dir, disk_uuid, system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
 
         let claims = GlobalClaims::instance();
@@ -292,7 +292,7 @@ impl SimpleAI {
         if !token_utils::is_valid_telephone(telephone) {
             return ("Unknown".to_string(), "Unknown".to_string());
         }
-        let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &user_telephone);
+        let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(user_telephone.clone()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
         let user_claim = GlobalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase);
@@ -365,7 +365,7 @@ impl SimpleAI {
 
     pub fn export_user(&self, nickname: &str, telephone: &str, phrase: &str) -> String {
         let nickname = token_utils::truncate_nickname(nickname);
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, &telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let (user_did, claim) = {
             let mut claims = self.claims.lock().unwrap();
             let user_did = claims.reverse_lookup_did_by_symbol(&symbol_hash);
@@ -714,7 +714,7 @@ impl SimpleAI {
         if nickname.to_lowercase().starts_with("guest") {
             return "unknown".to_string();
         }
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
@@ -833,7 +833,7 @@ impl SimpleAI {
 
     pub fn check_user_verify_code(&mut self, nickname: &str, telephone: &str, vcode: &str)-> String {
         let nickname = token_utils::truncate_nickname(nickname);
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let ready_data = {
@@ -917,7 +917,7 @@ impl SimpleAI {
 
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         if user_did == "Unknown" || !self.is_registered(&user_did) {
             println!("[UserBase] The user isn't in local or hasn't been verified by root: {}, {}.", nickname, user_did);
@@ -967,7 +967,7 @@ impl SimpleAI {
     pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
         if Self::is_valid_telephone(telephone) {
-            let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, telephone);
+            let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
             let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
