@@ -52,6 +52,38 @@ impl GlobalClaims {
         let mut guest = "Unknown".to_string();
 
         let mut claims = HashMap::new();
+
+        let root_did_path = PathBuf::from(root_dir.clone()).join(".did");
+        if root_did_path.exists() {
+            match fs::read_dir(root_did_path) {
+                Ok(entries) => {
+                    for entry in entries {
+                        match entry {
+                            Ok(entry) => {
+                                let path = entry.path();
+                                if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
+                                    if file_name.ends_with(".did") {
+                                        let claim = IdClaim::from_file(path.to_str().unwrap_or(""));
+                                        if !claim.is_default(){
+                                            let did = claim.gen_did();
+                                            claims.insert(did.clone(), claim.clone());
+                                            debug!("Load root_did_claim({}): {}", did, claim.to_json_string());
+                                        }
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Failed to read root_did_claim: {}", e);
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to read root_did_claim: {}", e);
+                }
+            }
+        }
+
         let did_file_path = token_utils::get_path_in_sys_key_dir("user_xxxxx.did");
         let root_path = match did_file_path.parent() {
             Some(parent) => {
@@ -72,28 +104,17 @@ impl GlobalClaims {
                             let path = entry.path();
                             if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
                                 if file_name.ends_with(".did") {
-                                    match fs::read_to_string(path) {
-                                        Ok(content) => {
-                                            match serde_json::from_str::<IdClaim>(&content) {
-                                                Ok(claim) => {
-                                                    let did = claim.gen_did();
-                                                    claims.insert(did.clone(), claim.clone());
-                                                    if claim.id_type == "System" && claim.nickname == system_name && claim.get_symbol_hash() == system_symbol_hash  {
-                                                        sys_did = did;
-                                                    } else if claim.id_type == "Device" && claim.nickname == device_name && claim.get_symbol_hash() == device_symbol_hash {
-                                                        device_did = did;
-                                                    } else if claim.id_type == "User" && claim.nickname == guest_name && claim.get_symbol_hash() == guest_symbol_hash {
-                                                        guest = did;
-                                                    }
-                                                    debug!("Load did_claim({}): {}", claim.gen_did(), claim.to_json_string());
-                                                },
-                                                Err(e) => {
-                                                    eprintln!("Failed to parse JSON: {}", e);
-                                                }
-                                            }
-                                        },
-                                        Err(e) => {
-                                            eprintln!("Failed to read file: {}", e);
+                                    let claim = IdClaim::from_file(path.to_str().unwrap_or(""));
+                                    if !claim.is_default() {
+                                        let did = claim.gen_did();
+                                        claims.insert(did.clone(), claim.clone());
+                                        debug!("Load did_claim({}): {}", did, claim.to_json_string());
+                                        if claim.id_type == "System" && claim.nickname == system_name && claim.get_symbol_hash() == system_symbol_hash  {
+                                            sys_did = did;
+                                        } else if claim.id_type == "Device" && claim.nickname == device_name && claim.get_symbol_hash() == device_symbol_hash {
+                                            device_did = did;
+                                        } else if claim.id_type == "User" && claim.nickname == guest_name && claim.get_symbol_hash() == guest_symbol_hash {
+                                            guest = did;
                                         }
                                     }
                                 }
@@ -120,6 +141,8 @@ impl GlobalClaims {
             user_base_dir: String::new(),
         }
     }
+
+
 
     pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, String, String) {
         let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
@@ -455,6 +478,31 @@ impl IdClaim {
             id_card_hash: id_card_base64,
             face_image_hash: face_image_base64,
             file_hash_hash: file_hash_base64,
+        }
+    }
+
+    #[staticmethod]
+    pub fn from_file(path_str: &str) -> IdClaim {
+        if path_str.is_empty() {
+            return IdClaim::default()
+        }
+        let did_path = PathBuf::from(path_str);
+        match fs::read_to_string(did_path) {
+            Ok(content) => {
+                match serde_json::from_str::<IdClaim>(&content) {
+                    Ok(claim) => {
+                        claim
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to parse JSON: {}", e);
+                        IdClaim::default()
+                    }
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to read file: {}", e);
+                IdClaim::default()
+            }
         }
     }
 

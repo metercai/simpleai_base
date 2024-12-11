@@ -1091,17 +1091,22 @@ pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec
         let identity_secret = decrypt(encrypted_secret, &secret_key, 0);
         debug!("import, identity_secret: symbol={}, phrase={}, secret_key={}, len={}, {}",
             symbol_hash_base64, phrase, URL_SAFE_NO_PAD.encode(secret_key), encrypted_secret.len(), URL_SAFE_NO_PAD.encode(encrypted_secret));
-        let timestamp = u64::from_le_bytes(identity_secret[..8].try_into().unwrap());
-        let mut user_key = [0u8; 32];
-        user_key.copy_from_slice(&identity_secret[8..]);
+        if identity_secret.len() > "Unknown".len() {
+            let timestamp = u64::from_le_bytes(identity_secret[..8].try_into().unwrap());
+            let mut user_key = [0u8; 32];
+            user_key.copy_from_slice(&identity_secret[8..]);
 
-        let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
-        let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
-        let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
-        save_key_to_pem(&symbol_hash, &user_key, &phrase);
-        let mut user_claim = GlobalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
-        user_claim.update_timestamp(timestamp, phrase);
-        user_claim
+            let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
+            let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
+            let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
+            save_key_to_pem(&symbol_hash, &user_key, &phrase);
+            let mut user_claim = GlobalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
+            user_claim.update_timestamp(timestamp, phrase);
+            user_claim
+        } else {
+            println!("[UserBase] import_identity: Invalid identity secret");
+            IdClaim::default()
+        }
     } else {
         println!("[UserBase] import_identity: Invalid identity string");
         IdClaim::default()
