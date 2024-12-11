@@ -496,18 +496,17 @@ pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
 
 pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {
     let sysinfo = &SYSTEM_BASE_INFO;
+    let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
+    let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.root_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
     match key_type {
         "Device" => {
-            let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
             _get_key_hash_id_and_phrase(&device_symbol_hash.to_vec(), 0)
         },
         "System" => {
-            let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.root_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
             _get_key_hash_id_and_phrase(&system_symbol_hash.to_vec(), 0)
         },
         _ => {
-            let (device_hash_id, _device_phrase) = _get_key_hash_id_and_phrase
-                (&format!("{}{}", sysinfo.host_name, sysinfo.disk_uuid).into_bytes(), 0);
+            let (device_hash_id, _device_phrase) = _get_key_hash_id_and_phrase(&device_symbol_hash.to_vec(), 0);
             let mut com_symbol = Vec::new();
             com_symbol.extend_from_slice(symbol_hash);
             com_symbol.extend_from_slice(device_hash_id.as_bytes());
@@ -1053,7 +1052,6 @@ pub(crate) fn export_identity(nickname: &str, telephone: &str, timestamp: u64, p
         }
     }.to_le_bytes();
     let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
-    let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
     let timestamp_bytes = timestamp.to_le_bytes();
     let user_key = read_key_or_generate_key("User", &symbol_hash, phrase, false, false);
     let nickname_bytes = nickname.as_bytes();
