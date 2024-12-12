@@ -852,6 +852,7 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
         "System" => system_key,
         "User" => {
             let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
+            debug!("read_key_or_generate_key: user_symbol_hash={}, user_hash_id={}, user_phrase={}", URL_SAFE_NO_PAD.encode(symbol_hash), user_hash_id, user_phrase);
             let user_key_file = get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
             let phrase_text = format!("{}|{}|{}",
                                       URL_SAFE_NO_PAD.encode(device_key.as_slice()),
