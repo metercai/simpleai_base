@@ -235,7 +235,8 @@ impl SimpleAI {
             let mut claims = self.claims.lock().unwrap();
             claims.set_admin_did(did);
             did.to_string()
-        }
+        };
+        token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
     }
 
     pub fn absent_admin(&self) -> bool {
@@ -1192,7 +1193,6 @@ impl SimpleAI {
         if token_utils::update_user_token_to_file(&context, "add") == "Ok"  {
             if self.admin.is_empty() && did != self.guest {
                 self.set_admin(did);
-                token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
                 println!("[UserBase] Set admin_did/设置系统管理 = {}", self.admin);
             }
             {
