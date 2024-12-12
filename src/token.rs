@@ -76,14 +76,9 @@ impl SimpleAI {
             = GlobalClaims::get_system_vars();
 
         let claims = GlobalClaims::instance();
-        let (local_did, device_did, guest_did) = {
+        let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
             let mut claims = claims.lock().unwrap();
             claims.init_sys_dev_guest_did()
-        };
-
-        let (local_claim, device_claim, guest_claim) = {
-            let mut claims = claims.lock().unwrap();
-            (claims.get_claim_from_local(&local_did), claims.get_claim_from_local(&device_did), claims.get_claim_from_local(&guest_did))
         };
 
         let mut crypt_secrets = HashMap::new();

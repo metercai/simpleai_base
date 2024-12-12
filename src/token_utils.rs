@@ -813,6 +813,16 @@ pub(crate) fn check_entry_point_of_service(entry_point: &str) -> bool { // å¸¦æœ
 }
 
 pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str, regen: bool, through: bool) -> [u8; 32] {
+    if !through && (key_type == "Device" || key_type == "System"){
+        let keys =SystemKeys::instance();
+        let mut keys =keys.lock().unwrap();
+        if key_type == "Device" {
+            return keys.get_device_key();
+        } else if key_type == "System" {
+            return keys.get_system_key();
+        }
+    }
+
     let sysinfo = &SYSTEM_BASE_INFO;
     let (device_hash_id, _device_phrase) = get_key_hash_id_and_phrase("Device", symbol_hash);
     let device_key_file = get_path_in_sys_key_dir(&format!(".token_device_{}.pem", device_hash_id));

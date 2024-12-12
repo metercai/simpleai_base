@@ -42,10 +42,6 @@ impl GlobalClaims {
 
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
-        let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(root_dir.clone()));
-        let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&device_name, None, Some(disk_uuid.clone()));
-        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(root_dir.clone()));
-
 
         let mut sys_did = "Unknown".to_string();
         let mut device_did = "Unknown".to_string();
@@ -96,6 +92,9 @@ impl GlobalClaims {
             },
             None => panic!("{}", format!("File path does not have a parent directory: {:?}", did_file_path)),
         };
+        let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&device_name, None, Some(disk_uuid.clone()));
+        let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
+        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
         match fs::read_dir(root_path) {
             Ok(entries) => {
                 for entry in entries {
@@ -109,11 +108,11 @@ impl GlobalClaims {
                                         let did = claim.gen_did();
                                         claims.insert(did.clone(), claim.clone());
                                         debug!("Load did_claim({}): {}", did, claim.to_json_string());
-                                        if claim.id_type == "System" && claim.nickname == system_name && claim.get_symbol_hash() == system_symbol_hash  {
+                                        if claim.id_type == "System" && claim.get_symbol_hash() == system_symbol_hash  {
                                             sys_did = did;
-                                        } else if claim.id_type == "Device" && claim.nickname == device_name && claim.get_symbol_hash() == device_symbol_hash {
+                                        } else if claim.id_type == "Device" && claim.get_symbol_hash() == device_symbol_hash {
                                             device_did = did;
-                                        } else if claim.id_type == "User" && claim.nickname == guest_name && claim.get_symbol_hash() == guest_symbol_hash {
+                                        } else if claim.id_type == "User" && claim.get_symbol_hash() == guest_symbol_hash {
                                             guest = did;
                                         }
                                     }
@@ -144,32 +143,41 @@ impl GlobalClaims {
 
 
 
-    pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, String, String) {
+    pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, IdClaim, String, IdClaim, String, IdClaim) {
         let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
         let root_dir = sysinfo.root_dir.clone();
         let disk_uuid = sysinfo.disk_uuid.clone();
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
 
-        if self.sys_did == "Unknown"  {
+        let mut sys_did = self.sys_did.clone();
+        let mut device_did = self.device_did.clone();
+        let mut guest = self.guest.clone();
+        if sys_did == "Unknown"  {
             let local_claim = GlobalClaims::generate_did_claim
                 ("System", &system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &sys_phrase);
-            self.sys_did = local_claim.gen_did();
-            self.claims.insert(self.sys_did.clone(), local_claim.clone());
+            sys_did = local_claim.gen_did();
+            self.claims.insert(sys_did.clone(), local_claim.clone());
         }
-        if self.device_did == "Unknown" {
+        if device_did == "Unknown" {
             let device_claim = GlobalClaims::generate_did_claim
                 ("Device", &device_name, None, Some(disk_uuid.clone()), &device_phrase);
-            self.device_did = device_claim.gen_did();
-            self.claims.insert(self.device_did.clone(), device_claim);
+            device_did = device_claim.gen_did();
+            self.claims.insert(device_did.clone(), device_claim);
         }
-        if  self.guest == "Unknown"  {
+        if  guest == "Unknown"  {
             let guest_claim = GlobalClaims::generate_did_claim
                 ("User", &guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &guest_phrase);
-            self.guest = guest_claim.gen_did();
-            self.claims.insert(self.guest.clone(), guest_claim);
+            guest = guest_claim.gen_did();
+            self.claims.insert(guest.clone(), guest_claim);
         }
-        (self.sys_did.clone(), self.device_did.clone(), self.guest.clone())
+        self.sys_did = sys_did.clone();
+        self.device_did = device_did.clone();
+        self.guest = guest.clone();
+
+        (sys_did.clone(), self.get_claim_from_local(&sys_did),
+         device_did.clone(), self.get_claim_from_local(&device_did),
+         guest.clone(), self.get_claim_from_local(&guest))
     }
 
     pub(crate) fn get_system_vars() -> (String, String, String, String, String, String) {
@@ -180,11 +188,9 @@ impl GlobalClaims {
         let host_name = sysinfo.host_name.clone();
         let root_name = sysinfo.root_name.clone();
 
-        let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&root_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
-        let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&host_name, None, Some(disk_uuid.clone()));
-        let (sys_hash_id, system_phrase) = token_utils::get_key_hash_id_and_phrase("System", &system_symbol_hash);
-        let (_, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &device_symbol_hash);
-        let guest_name = format!("guest{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
+        let (_, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
+        let (sys_hash_id, system_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
+        let guest_name = format!("guest{}", &sys_hash_id[..5]).chars().take(24).collect::<String>();
         debug!("system_name:{}, device_name:{}, guest_name:{}", root_name, host_name, guest_name);
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
         let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
