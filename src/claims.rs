@@ -157,21 +157,19 @@ impl GlobalClaims {
             let device_claim = GlobalClaims::generate_did_claim
                 ("Device", &device_name, None, Some(disk_uuid.clone()), &device_phrase);
             device_did = device_claim.gen_did();
-            self.claims.insert(device_did.clone(), device_claim.clone());
+            self.push_claim(&device_claim);
             }
         if sys_did == "Unknown"  {
             let local_claim = GlobalClaims::generate_did_claim
                 ("System", &system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &sys_phrase);
             sys_did = local_claim.gen_did();
-            self.claims.insert(sys_did.clone(), local_claim.clone());
+            self.push_claim(&local_claim);
             }
         if  guest == "Unknown"  {
-
             let guest_claim = GlobalClaims::generate_did_claim
                 ("User", &guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &guest_phrase);
             guest = guest_claim.gen_did();
-            self.claims.insert(guest.clone(), guest_claim.clone());
-            let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_claim.get_symbol_hash());
+            self.push_claim(&guest_claim);
             }
         self.sys_did = sys_did.clone();
         self.device_did = device_did.clone();
