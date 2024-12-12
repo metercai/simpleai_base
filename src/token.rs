@@ -182,7 +182,7 @@ impl SimpleAI {
     pub fn get_sys_did(&self) -> String { self.did.clone() }
     pub fn get_upstream_did(&mut self) -> String {
         let start_time = Instant::now();
-        let timeout = Duration::from_secs(60);
+        let timeout = Duration::from_secs(30);
 
         loop {
             if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown"){
@@ -195,10 +195,10 @@ impl SimpleAI {
             self.upstream_did = SimpleAI::request_token_api_register(&local_claim, &device_claim);
 
             if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
-                println!("[UserBase] obtain upstream: upstream_did={}, self_did={}", self.upstream_did, self.did);
+                debug!("[UserBase] obtain upstream: upstream_did={}, self_did={}", self.upstream_did, self.did);
             }
             if start_time.elapsed() >= timeout {
-                println!("[UserBase] Unable to obtain upstream address: self_did={}", self.did);
+                debug!("[UserBase] Unable to obtain upstream address: self_did={}", self.did);
                 return "".to_string();
             }
             std::thread::sleep(Duration::from_secs(1));
@@ -551,7 +551,7 @@ impl SimpleAI {
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
             let context = self.get_user_context(did);
             if context.is_default() || context.is_expired(){
-                println!("[UserBase] debug: get_user_sstoken, context is default or expired: did={}", did);
+                debug!("[UserBase] debug: get_user_sstoken, context is default or expired: did={}", did);
                 return String::from("Unknown")
             }
             let text1 = token_utils::calc_sha256(
@@ -574,7 +574,7 @@ impl SimpleAI {
                 .expect("get_user_sstoken, Failed to convert Vec<u8> to [u8; 32]");
             result.to_base58()
         } else {
-            println!("[UserBase] debug: get_user_sstoken, did is incorrect format: {}", did);
+            debug!("[UserBase] debug: get_user_sstoken, did is incorrect format: {}", did);
             String::from("Unknown")
         }
     }
@@ -582,7 +582,7 @@ impl SimpleAI {
     pub fn check_sstoken_and_get_did(&mut self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
         if sstoken.len() != 44 || sstoken_bytes==[0; 32] {
-            println!("[UserBase] debug: check_sstoken_and_get_did, sstoken is incorrect format: {}", sstoken);
+            debug!("[UserBase] debug: check_sstoken_and_get_did, sstoken is incorrect format: {}", sstoken);
             return String::from("Unknown")
         }
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
@@ -612,7 +612,7 @@ impl SimpleAI {
             let user_did = did_bytes.to_base58();
             let context = self.get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
-                println!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
+                debug!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
                 String::from("Unknown")
             } else {
                 user_did
@@ -636,13 +636,13 @@ impl SimpleAI {
                 let user_did = did_bytes.to_base58();
                 let context = self.get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
-                    println!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
+                    debug!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
                     String::from("Unknown")
                 } else {
                     user_did
                 }
             } else {
-                println!("[UserBase] debug: check_sstoken_and_get_did, sstoken is not validity: sstoken={},ua={}", sstoken, ua_hash);
+                debug!("[UserBase] debug: check_sstoken_and_get_did, sstoken is not validity: sstoken={},ua={}", sstoken, ua_hash);
                 String::from("Unknown")
             }
         }

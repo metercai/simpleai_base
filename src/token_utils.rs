@@ -124,14 +124,12 @@ pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
             "exchange",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
         crypt_secrets.insert(exchange_key!(did), crypt_secret.clone());
-        debug!("Init {}({}) exchange secret: {}", claim.id_type.as_str(), did, crypt_secret);
-    }
+        }
     if !crypt_secrets.contains_key(&issue_key!(did)) {
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
             "issue",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
         crypt_secrets.insert(issue_key!(did), crypt_secret.clone());
-        debug!("Init {}({}) issue secret: {}", claim.id_type.as_str(), did, crypt_secret);
-    }
+        }
 }
 
 
@@ -360,7 +358,7 @@ pub(crate) fn load_did_blacklist_from_file() -> Vec<String>  {
 pub(crate) fn get_or_create_user_context_token(did: &str, sys_did: &str, nickname: &str, id_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> UserContext {
     let context = get_user_token_from_file(did, sys_did);
     if context.is_default() {
-        println!("[UserBase] Create user context token: {}", did);
+        debug!("[UserBase] Create user context token: {}", did);
         let default_permissions = "standard".to_string();
         let default_private_paths = serde_json::to_string(
             &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
