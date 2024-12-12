@@ -958,7 +958,7 @@ impl SimpleAI {
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
         let result = self.request_token_api("submit_user_copy", &params);
         if result.starts_with("Backup_ok") {
-            println!("[UserBase] After set phrase, then upload encrypted_user_copy: {}, {}", user_did, params);
+            println!("[UserBase] After set phrase, then upload encrypted_user_copy: user_did={}", user_did);
             context
         } else if result.starts_with("Unknown") {
             //let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
