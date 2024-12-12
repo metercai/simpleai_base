@@ -41,7 +41,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
     parameters: None,
 };
 
-pub(crate) static TOKEN_TM_URL: &str = "http://120.79.179.136/api_";
+pub(crate) static TOKEN_TM_URL: &str = "http://120.79.179.136:3030/api_";
 pub(crate) static TOKEN_TM_DID: &str = "6eR3Pzp9e2VSUC6suwPSycQ93qi6T";
 
 lazy_static! {
