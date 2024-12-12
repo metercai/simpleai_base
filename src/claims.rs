@@ -95,6 +95,7 @@ impl GlobalClaims {
         let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&device_name, None, Some(disk_uuid.clone()));
         let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
+        debug!("guest_name({}): guest_symbol_hash={}", guest_name, URL_SAFE_NO_PAD.encode(guest_symbol_hash));
         match fs::read_dir(root_path) {
             Ok(entries) => {
                 for entry in entries {
@@ -173,6 +174,8 @@ impl GlobalClaims {
             guest = guest_claim.gen_did();
             self.claims.insert(guest.clone(), guest_claim.clone());
             debug!("create guest_claim({}): {}", guest, guest_claim.to_json_string());
+            debug!("guest_name({}): guest_symbol_hash={}", guest_name, URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()));
+
         }
         self.sys_did = sys_did.clone();
         self.device_did = device_did.clone();
