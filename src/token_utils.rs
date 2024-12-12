@@ -124,11 +124,13 @@ pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
             "exchange",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
         crypt_secrets.insert(exchange_key!(did), crypt_secret.clone());
+        debug!("Init {}({}) exchange secret: {}", claim.id_type.as_str(), did, crypt_secret);
     }
     if !crypt_secrets.contains_key(&issue_key!(did)) {
         let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
             "issue",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
         crypt_secrets.insert(issue_key!(did), crypt_secret.clone());
+        debug!("Init {}({}) issue secret: {}", claim.id_type.as_str(), did, crypt_secret);
     }
 }
 
@@ -535,6 +537,7 @@ pub(crate) fn get_cert_verify_key(cert_secret: &[u8; 32]) -> [u8; 32] {
 }
 
 pub(crate) fn get_specific_secret_key(key_name: &str, key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
+    debug!("Get specific secret key: {} {} {} {}", key_name, key_type, URL_SAFE_NO_PAD.encode(symbol_hash), phrase);
     let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase, false, false));
     let key_name_bytes = calc_sha256(key_name.as_bytes());
     let mut com_phrase = [0u8; 64];
@@ -546,6 +549,7 @@ pub(crate) fn get_specific_secret_key(key_name: &str, key_type: &str, symbol_has
 
 
 pub(crate) fn get_random_secret_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
+    debug!("Get random secret key: {} {} {}", key_type, URL_SAFE_NO_PAD.encode(symbol_hash), phrase);
     let key_hash = calc_sha256(&read_key_or_generate_key(key_type, symbol_hash, phrase, false, false));
     let mut csprng = OsRng {};
     let mut random_number = [0u8; 16];
