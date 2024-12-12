@@ -85,6 +85,8 @@ impl SimpleAI {
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
         let blacklist = token_utils::load_did_blacklist_from_file();
 
+        debug!("get admin and blacklist: admin={}, blacklist={:?}", admin, blacklist);
+
         let crypt_secrets_len = crypt_secrets.len();
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
