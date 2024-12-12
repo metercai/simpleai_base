@@ -1109,7 +1109,8 @@ pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec
 
             let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
             let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
-            let symbol_hash = calc_sha256(format!("{}|{}", nickname, telephone_base64).as_bytes());
+            let id_card__base64 = URL_SAFE_NO_PAD.encode(calc_sha256(format!("{}:id_card:{}", nickname, "-").as_bytes()));
+            let symbol_hash = calc_sha256(format!("{}|{}|{}", nickname, telephone_base64, id_card__base64).as_bytes());
             save_key_to_pem(&symbol_hash, &user_key, &phrase);
             let mut user_claim = GlobalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
             user_claim.update_timestamp(timestamp, phrase);
