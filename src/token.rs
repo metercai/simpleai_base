@@ -74,6 +74,7 @@ impl SimpleAI {
 
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
+        debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
@@ -356,6 +357,9 @@ impl SimpleAI {
 
     pub fn import_user(&mut self, symbol_hash_base64: &str, encrypted_identity: &str, phrase: &str) -> String {
         let user_claim = token_utils::import_identity(symbol_hash_base64, &URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap(), phrase);
+        if user_claim.is_default() {
+            return "Unknown".to_string();
+        }
         self.push_claim(&user_claim);
         let user_did = user_claim.gen_did();
         let crypt_secrets_len = self.crypt_secrets.len();
@@ -1009,42 +1013,47 @@ impl SimpleAI {
                                             println!("[UserBase] Download user encrypted_copy: {}, len={}", symbol_hash_base64, encrypted_identity.len());
                                             debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
                                             let user_did = self.import_user(&symbol_hash_base64, &encrypted_identity, phrase);
-                                            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-                                            fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-                                            println!("[UserBase] Parsing encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
+                                            if user_did != "Unknown" {
+                                                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                                                fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
+                                                println!("[UserBase] Parsing encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
 
-                                            if token_utils::exists_and_valid_user_key(&symbol_hash, phrase) {
-                                                println!("[UserBase] The user encrypted copy is valid: {}", user_did);
+                                                if token_utils::exists_and_valid_user_key(&symbol_hash, phrase) {
+                                                    println!("[UserBase] The user encrypted copy is valid: {}", user_did);
 
-                                                let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                                    user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+                                                    let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                                        user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
 
-                                                let certificate_string = certificate_string.replace(":", "|");
-                                                let certs_array: Vec<&str> = certificate_string.split(",").collect();
-                                                let _ = {
-                                                    let mut certificates = self.certificates.lock().unwrap();
-                                                    for cert in &certs_array {
-                                                        debug!("user_copy_from_cloud, cert:{}", cert);
-                                                        let _user_did = certificates.push_user_cert_text(cert);
-                                                    }
-                                                };
-                                                let _context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
-                                                    user_copy_from_cloud_array[1]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
-                                                // 取回的context里的sys_did不一定是本地系统的sys_did，需要考虑如何迁移context
-                                                //let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
-                                                //    .unwrap_or(UserContext::default()), "add");
-                                                user_did
+                                                    let certificate_string = certificate_string.replace(":", "|");
+                                                    let certs_array: Vec<&str> = certificate_string.split(",").collect();
+                                                    let _ = {
+                                                        let mut certificates = self.certificates.lock().unwrap();
+                                                        for cert in &certs_array {
+                                                            debug!("user_copy_from_cloud, cert:{}", cert);
+                                                            let _user_did = certificates.push_user_cert_text(cert);
+                                                        }
+                                                    };
+                                                    let _context_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
+                                                        user_copy_from_cloud_array[1]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
+                                                    // 取回的context里的sys_did不一定是本地系统的sys_did，需要考虑如何迁移context
+                                                    //let _ = token_utils::update_user_token_to_file(&serde_json::from_str::<UserContext>(&context_string)
+                                                    //    .unwrap_or(UserContext::default()), "add");
+                                                    user_did
+                                                } else {
+                                                    println!("[UserBase] The user encrypted copy is not valid: {}, user_key is error.", user_did);
+                                                    "guest".to_string()
+                                                }
                                             } else {
-                                                println!("[UserBase] The user encrypted copy is not valid: {}", user_did);
+                                                println!("[UserBase] The user encrypted copy is not valid: {}, import_user is error.", user_hash_id);
                                                 "guest".to_string()
                                             }
                                         } else {
-                                            println!("[UserBase] The user encrypted copy is not valid: {}", user_hash_id);
+                                            println!("[UserBase] The user encrypted copy is not valid: {}, user_copy_from_cloud is error.", user_hash_id);
                                             "guest".to_string()
                                         }
                                     },
                                     false => {
-                                        println!("[UserBase] The user encrypted copy is not valid: {}", user_hash_id);
+                                        println!("[UserBase] The user encrypted copy is not valid: {}, get_user_copy response is error", user_hash_id);
                                         "guest".to_string()
                                     }
                                 }
@@ -1053,7 +1062,7 @@ impl SimpleAI {
                     }
                 }
             };
-            if user_did != "guest" && user_did != "Unknown"{
+            if user_did != "guest" && user_did != "Unknown" {
                 let context = self.sign_user_context(&user_did, phrase);
                 if context.is_default() {
                     println!("[UserBase] The user hasn't been verified by root or in blacklist: {}", user_did);
