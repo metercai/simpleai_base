@@ -67,7 +67,7 @@ impl SimpleAI {
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        let sys_base_info = token_utils::SYSTEM_BASE_INFO.clone();
+        let sysbaseinfo = token_utils::SYSTEM_BASE_INFO.clone();
         let sysinfo_handle = token_utils::TOKIO_RUNTIME.spawn(async move {
             SystemInfo::generate().await
         });
@@ -90,6 +90,14 @@ impl SimpleAI {
         let crypt_secrets_len = crypt_secrets.len();
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
+
+        let root_dir = sysbaseinfo.root_dir.clone();
+        let disk_uuid = sysbaseinfo.disk_uuid.clone();
+        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
+        debug!("guest_symbol_hash=by_source{}, by_claim({})", URL_SAFE_NO_PAD.encode(guest_symbol_hash), URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()));
+        let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_claim.get_symbol_hash());
+        debug!("guest_name({}): guest_symbol_hash={}, guest_hash_id={}, guest_phrase={}", guest_claim.nickname, URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()), guest_hash_id, guest_phrase);
+
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &guest_claim, &guest_phrase);
         if crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);

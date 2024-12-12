@@ -174,8 +174,8 @@ impl GlobalClaims {
             guest = guest_claim.gen_did();
             self.claims.insert(guest.clone(), guest_claim.clone());
             debug!("create guest_claim({}): {}", guest, guest_claim.to_json_string());
-            debug!("guest_name({}): guest_symbol_hash={}", guest_name, URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()));
-
+            let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_claim.get_symbol_hash());
+            debug!("init_sys_dev_guest_did, guest_name({}): guest_symbol_hash={}, guest_hash_id={}, guest_phrase={}", guest_name, URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()), guest_hash_id, guest_phrase);
         }
         self.sys_did = sys_did.clone();
         self.device_did = device_did.clone();
@@ -199,7 +199,8 @@ impl GlobalClaims {
         let guest_name = format!("guest_{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
         debug!("system_name:{}, device_name:{}, guest_name:{}", root_name, host_name, guest_name);
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
-        let (_, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+        let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+        debug!("get_system_vars, guest_name({}): guest_symbol_hash={}, guest_hash_id={}, guest_phrase={}", guest_name, URL_SAFE_NO_PAD.encode(guest_symbol_hash), guest_hash_id, guest_phrase);
         (root_name, system_phrase, host_name, device_phrase, guest_name, guest_phrase)
     }
 
