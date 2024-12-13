@@ -880,7 +880,7 @@ impl SimpleAI {
                                 self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
-                            println!("[UserBase] The parsed cert from Root is correct: symbol({}), did({}), claim({})", symbol_hash_base64, ready_user_did, ready_claim.to_json_string());
+                            println!("[UserBase] The parsed cert from Root is correct: symbol({}), did({}), nickname({})", symbol_hash_base64, ready_user_did, ready_claim.nickname);
                             let encrypted_claim = URL_SAFE_NO_PAD.encode(token_utils::encrypt(ready_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0));
 
                             let mut request: serde_json::Value = json!({});
