@@ -129,7 +129,7 @@ impl GlobalClaims {
                 eprintln!("Failed to read directory: {}", e);
             }
         }
-        debug!("Loaded claims.len={}", claims.len());
+        println!("[UserBase] Loaded claims from local: len={}", claims.len());
 
         GlobalClaims {
             claims,
