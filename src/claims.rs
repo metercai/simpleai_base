@@ -365,15 +365,23 @@ impl GlobalClaims {
     }
 
     pub(crate) fn load_claim_from_local(did: &str) -> IdClaim {
+        let user_did_file_path_root = token_utils::get_path_in_root_dir( ".did",
+            format!("user_{}.did", did).as_str());
         let user_did_file_path = token_utils::get_path_in_sys_key_dir(
             format!("user_{}.did", did).as_str());
+        let sys_did_file_path_root = token_utils::get_path_in_root_dir(".did",
+            format!("system_{}.did", did).as_str());
         let sys_did_file_path = token_utils::get_path_in_sys_key_dir(
             format!("system_{}.did", did).as_str());
         let device_did_file_path = token_utils::get_path_in_sys_key_dir(
             format!("device_{}.did", did).as_str());
 
-        let did_file_path = if user_did_file_path.exists() {
+        let did_file_path = if user_did_file_path_root.exists() {
+            user_did_file_path_root
+        } else if user_did_file_path.exists() {
             user_did_file_path
+        } else if sys_did_file_path_root.exists() {
+            sys_did_file_path_root
         } else if sys_did_file_path.exists() {
             sys_did_file_path
         } else if device_did_file_path.exists() {

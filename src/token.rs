@@ -274,17 +274,14 @@ impl SimpleAI {
 
     pub fn is_registered(&self, user_did: &str) -> bool {
         if user_did == "Unknown" {
-            println!("did is unknown: {}", user_did);
             return false;
         }
         let cert_str = self.get_register_cert(user_did);
         if cert_str.is_empty() || cert_str == "Unknown" {
-            println!("did({}) cert_str is empty or unknown: {}", user_did, cert_str);
             return false;
         }
         let parts: Vec<&str> = cert_str.split('|').collect();
         if parts.len() != 4 {
-            println!("did({}) cert_str format is incorrect: {}", user_did, cert_str);
             return false;
         }
         let encrypt_item_key = parts[0].to_string();
@@ -293,7 +290,7 @@ impl SimpleAI {
         let signature_str = parts[3].to_string();
         let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
         let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
-        println!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
+        debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
         token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
     }
     pub fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
