@@ -682,10 +682,10 @@ class ModelsInfo:
         result_reverse = []
         for f in self.m_info.keys():
             cata = f.split('/')[0]
-            m_path_or_file_org = f[len(cata) + 1:].replace('/', os.sep)
+            m_path_or_file_org = f[len(cata) + 1:]
             m_path_or_file = m_path_or_file_org if casesensitive else m_path_or_file_org.lower()
             if catalog and cata == catalog:
-                result_reverse.append(m_path_or_file_org)
+                result_reverse.append(m_path_or_file_org.replace('/', os.sep))
                 if len(filters) > 0:
                     for item in filters:
                         if isinstance(item, list):
@@ -696,16 +696,16 @@ class ModelsInfo:
                                     ex_flag = True
                                     break
                             if not ex_flag:
-                                result.append(m_path_or_file_org)
+                                result.append(m_path_or_file_org.replace('/', os.sep))
                                 result_reverse.pop()
                                 break
                         else:
                             if item in m_path_or_file:
-                                result.append(m_path_or_file_org)
+                                result.append(m_path_or_file_org.replace('/', os.sep))
                                 result_reverse.pop()
                                 break
                 else:
-                    result.append(m_path_or_file_org)
+                    result.append(m_path_or_file_org.replace('/', os.sep))
                     result_reverse.pop()
         if reverse:
             return sorted(result_reverse, key=str.casefold)
