@@ -13,7 +13,7 @@ pub(crate) struct EnvData;
 
 impl EnvData {
 
-    const BASEPKG: [(&'static str, u64); 78] = [
+    const BASEPKG: [(&'static str, u64); 81] = [
         ("upscale_models/fooocus_upscaler_s409985e5.bin", 33636613),
         ("layer_model/layer_xl_transparent_conv.safetensors", 3619745776),
         ("layer_model/vae_transparent_decoder.safetensors", 208266320),
@@ -39,6 +39,7 @@ impl EnvData {
         ("llms/bert-base-uncased/tokenizer_config.json", 28),
         ("llms/bert-base-uncased/tokenizer.json", 466062),
         ("unet/iclight_sd15_fc_unet_ldm.safetensors", 1719144856),
+        ("clip/clip_l.safetensors", 246144152),
         ("clip_vision/wd-v1-4-moat-tagger-v2.onnx", 326197340),
         ("clip_vision/clip_vision_vit_h.safetensors", 1972298538),
         ("clip_vision/model_base_caption_capfilt_large.pth", 896081425),
@@ -47,6 +48,7 @@ impl EnvData {
         ("clip_vision/clip-vit-large-patch14/special_tokens_map.json", 389),
         ("clip_vision/clip-vit-large-patch14/tokenizer_config.json", 905),
         ("rembg/RMBG-1.4.pth", 176718373),
+        ("vae/ponyDiffusionV6XL_vae.safetensors", 334641162),
         ("vae_approx/xlvaeapp.pth", 213777),
         ("vae_approx/xl-to-v1_interposer-v4.0.safetensors", 5667280),
         ("vae_approx/vaeapp_sd15.pth", 213777),
@@ -71,9 +73,10 @@ impl EnvData {
         ("prompt_expansion/fooocus_expansion/tokenizer_config.json", 255),
         ("prompt_expansion/fooocus_expansion/tokenizer.json", 2107625),
         ("loras/ip-adapter-faceid-plusv2_sdxl_lora.safetensors", 371842896),
-        ("loras/sdxl_hyper_sd_4step_lora.safetensors", 787359648),
+        ("loras/Hyper-SDXL-8steps-lora.safetensors", 787359648),
         ("loras/sd_xl_offset_example-lora_1.0.safetensors", 49553604),
         ("loras/sdxl_lightning_4step_lora.safetensors", 393854592),
+        ("controlnet/xinsir_cn_openpose_sdxl_1.0.safetensors", 2502139104),
         ("controlnet/ip-adapter-plus_sdxl_vit-h.bin", 1013454427),
         ("controlnet/fooocus_xl_cpds_128.safetensors", 395706528),
         ("controlnet/parsing_parsenet.pth", 85331193),
