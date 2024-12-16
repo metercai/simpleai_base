@@ -423,9 +423,9 @@ impl SimpleAI {
                     //let mut bits = Bits::new(Version::Normal(10));
                     //bits.push_byte_data(&encrypted_identity_qr);
                     //bits.push_terminator(EcLevel::L);
-                    let bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
-                    let qrcode = QrCode::with_bits(bits, EcLevel::L).unwrap();
-                    //let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
+                    //let bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
+                    //let qrcode = QrCode::with_bits(bits, EcLevel::L).unwrap();
+                    let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
                     let image = qrcode.render()
                         .min_dimensions(400, 400)
                         .dark_color(svg::Color("#800000"))
@@ -443,6 +443,7 @@ impl SimpleAI {
         let identity = URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap();
         let (user_did, nickname, telephone, user_cert) = token_utils::import_identity_qrcode(&identity);
         if user_did != "Unknown" && user_cert != "Unknown" {
+            debug!("import_identity_qrcode, ready to push user cert: did={}", user_did);
             let certificates = GlobalCerts::instance();
             let mut certificates = certificates.lock().unwrap();
             certificates.push_user_cert_text(&format!("{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", user_cert));
