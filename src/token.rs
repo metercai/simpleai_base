@@ -402,7 +402,7 @@ impl SimpleAI {
             match identity_file.exists() {
                 true => {
                     let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
-                    let encrypted_identity = URL_SAFE_NO_PAD.decode(identity).unwrap();
+                    let encrypted_identity = URL_SAFE_NO_PAD.decode(identity.clone()).unwrap();
                     let did_bytes = user_did.from_base58().unwrap();
                     let user_cert = {
                         let certificates = GlobalCerts::instance();
@@ -418,7 +418,7 @@ impl SimpleAI {
                     encrypted_identity_qr.extend_from_slice(&user_cert_bytes);
                     encrypted_identity_qr.extend_from_slice(&encrypted_identity);
                     let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
-                    debug!("encrypted_identity_qr: did.len={}, user_cert={}, identity={}, total={}", did_bytes.len(), user_cert_bytes.len(), encrypted_identity.len(), encrypted_identity_qr.len());
+                    debug!("encrypted_identity_qr: did={}, user_cert={}, identity={}, total.len={}", user_did, user_cert, identity, encrypted_identity_qr.len());
                     debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
                     //let mut bits = Bits::new(Version::Normal(10));
                     //bits.push_byte_data(&encrypted_identity_qr);
