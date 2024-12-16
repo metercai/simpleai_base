@@ -1131,7 +1131,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
     let user_cert_bytes = &encrypted_identity[21..153];
     let user_cert = convert_to_short_user_cert_from_slim(user_cert_bytes);
     let encrypted_identity = &encrypted_identity[153..];
-    debug!("import_identity_qrcode, encrypted_identity: len={}, {}", encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity.clone()));
+    debug!("import_identity_qrcode: did={} cert={}, encrypted_identity: len={}, {}", user_did, user_cert, encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity.clone()));
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8])).to_string();
