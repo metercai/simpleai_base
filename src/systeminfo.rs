@@ -474,11 +474,14 @@ fn run_command(command: &str, args: &[&str]) -> String {
             if output.status.success() {
                 String::from_utf8_lossy(&output.stdout).into_owned()
             } else {
-                debug!("Failed to run command: {} {:?}, error: {:?}", command, args, output); //String::from_utf8_lossy(&output.stderr));
+                debug!("Failed to run command: {} {:?}, output: {:?}", command, args, output);
                 "".to_string()
             }
         }
-        Err(_) => "".to_string(),
+        Err(e) => {
+            debug!("Failed to run command: {} {:?}, error: {:?}", command, args, e);
+            "".to_string()
+        },
     }
 }
 

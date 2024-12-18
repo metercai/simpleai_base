@@ -1134,16 +1134,16 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
     debug!("import_identity_qrcode: did={} cert={}, encrypted_identity: len={}, {}", user_did, user_cert, encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity.clone()));
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
-        let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8])).to_string();
+        let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8]));
         let nickname = std::str::from_utf8(&encrypted_identity[78..]).unwrap_or("").to_string();
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
         let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), URL_SAFE_NO_PAD.encode(encrypted_identity)).expect(&format!("Unable to write file: {}", identity_file.display()));
         println!("[UserBase] Import from qrcode and save identity_file: did={}, nickname={}", user_did, nickname);
-        if telephone == "0" {
+        if telephone == 0 {
             (user_did, nickname, "".to_string(), user_cert)
-        } else { (user_did, nickname, telephone, user_cert) }
+        } else { (user_did, nickname, export_telephone(telephone), user_cert) }
     } else {
         debug!("import_identity_qrcode, Invalid vcode: did={}", user_did);
         ("Unknown".to_string(), "".to_string(), "".to_string(), "Unknown".to_string())
@@ -1218,6 +1218,33 @@ pub(crate) fn is_valid_telephone(telephone: &str) -> bool {
     true
 }
 
+pub(crate) fn normal_telephone(telephone: &str) -> String {
+    if telephone.len() < 8 || telephone.len() > 15 {
+        return "Unknown".to_string();
+    }
+    if !telephone.chars().all(|c| c.is_digit(10)) {
+        return "Unknown".to_string();;
+    }
+    if telephone.chars().next() == Some('0') {
+        return "Unknown".to_string();
+    }
+    let telephone = match telephone.starts_with("86") {
+        true => telephone[2..].to_string(),
+        false => {
+            let phone = telephone.parse::<u64>().unwrap_or(0);
+            format!("{}", phone + 1000000000000000000u64)
+        },
+    };
+    telephone
+}
+
+pub(crate) fn export_telephone(telephone: u64) -> String {
+    if telephone < 1000000000000000000u64 {
+        return format!("86{}", telephone);
+    } else {
+        return format!("{}", telephone - 1000000000000000000u64);
+    }
+}
 pub(crate) fn truncate_nickname(nickname: &str) -> String {
     let max_bytes = 24;
     let mut byte_count = 0;
