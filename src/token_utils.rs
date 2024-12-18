@@ -1229,7 +1229,12 @@ pub(crate) fn normal_telephone(telephone: &str) -> String {
         return "Unknown".to_string();
     }
     let telephone = match telephone.starts_with("86") {
-        true => telephone[2..].to_string(),
+        true => {
+            if telephone.len() != 13 {
+                return "Unknown".to_string();
+            }
+            telephone[2..].to_string()
+        },
         false => {
             let phone = telephone.parse::<u64>().unwrap_or(0);
             format!("{}", phone + 1000000000000000000u64)
