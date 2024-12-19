@@ -584,8 +584,8 @@ impl SimpleAI {
 
     pub fn check_sstoken_and_get_did(&mut self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
-        if sstoken.len() != 44 || sstoken_bytes==[0; 32] {
-            debug!("[UserBase] debug: check_sstoken_and_get_did, sstoken is incorrect format: {}", sstoken);
+        if sstoken_bytes.len() != 32 || sstoken_bytes==[0; 32] {
+            println!("[UserBase] The sstoken in browser is incorrect format: {}", sstoken);
             return String::from("Unknown")
         }
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
@@ -615,7 +615,7 @@ impl SimpleAI {
             let user_did = did_bytes.to_base58();
             let context = self.get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
-                debug!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
+                println!("[UserBase] The context of the sstoken in browser is expired: did={}", user_did);
                 String::from("Unknown")
             } else {
                 user_did
@@ -639,13 +639,13 @@ impl SimpleAI {
                 let user_did = did_bytes.to_base58();
                 let context = self.get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
-                    debug!("[UserBase] debug: check_sstoken_and_get_did, 2, context is default or expired: did={}", user_did);
+                    println!("[UserBase] The context2 of the sstoken in browser is expired: did={}", user_did);
                     String::from("Unknown")
                 } else {
                     user_did
                 }
             } else {
-                debug!("[UserBase] debug: check_sstoken_and_get_did, sstoken is not validity: sstoken={},ua={}", sstoken, ua_hash);
+                println!("[UserBase] The sstoken in browser is not validity: sstoken={}, ua={}", sstoken, ua_hash);
                 String::from("Unknown")
             }
         }
