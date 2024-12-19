@@ -72,7 +72,7 @@ def queue_prompt(user_did, prompt, user_cert):
     p = {"prompt": prompt, "client_id": user_did, "user_cert": user_cert}
     data = json.dumps(p).encode('utf-8')
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=20.0) as client:
             response = client.post("http://{}/prompt".format(server_address()), data=data)
             if response.status_code == 200:
                 return json.loads(response.read())
