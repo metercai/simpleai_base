@@ -31,6 +31,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("base_model_gguf", "UnetLoaderGGUF:base_model_gguf:unet_name"),
     ("base_model2", "CheckpointLoaderSimple:base_model2:ckpt_name;UNETLoader:base_model2:unet_name"),
     ("base_model2_dtype", "UNETLoader:base_model2:weight_dtype"),
+    ("inpaint_model", "UnetLoaderGGUF:inpaint_model:unet_name"),
     ("merge_model", "UNETLoader:merge_model:unet_name"),
     ("model_merge_ratio", "ModelMergeSimple:model_merge_ratio:ratio"),
     ("lora_speedup", "LoraLoaderModelOnly:lora_speedup:lora_name"),
