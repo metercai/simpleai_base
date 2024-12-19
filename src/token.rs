@@ -850,7 +850,7 @@ impl SimpleAI {
         if telephone == "Unknown" {
             return "unknown".to_string();
         }
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.clone()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let ready_data = {
@@ -942,7 +942,8 @@ impl SimpleAI {
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.clone()), None);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         if user_did == "Unknown" || !self.is_registered(&user_did) {
-            println!("[UserBase] The user isn't in local or hasn't been verified by root: {}, {}.", nickname, user_did);
+            println!("[UserBase] The user isn't in local or hasn't been verified by root: nickname={}, telephone={}, symbol={}, user_did={}",
+                     nickname, telephone, URL_SAFE_NO_PAD.encode(symbol_hash), user_did);
             return self.get_guest_user_context();
         }
 

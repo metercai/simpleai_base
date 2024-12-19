@@ -1240,6 +1240,7 @@ pub(crate) fn normal_telephone(telephone: &str) -> String {
             format!("{}", phone + 1000000000000000000u64)
         },
     };
+    debug!("normal telephone: {}", telephone);
     telephone
 }
 

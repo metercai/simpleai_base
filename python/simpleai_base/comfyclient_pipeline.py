@@ -153,7 +153,8 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                         images_output.append(out[8:])
                         output_images[prompt[current_node]['_meta']['title']] = images_output
                 else:
-                    print(f'[ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
+                    if current_node in prompt:
+                        print(f'[ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
             continue
 
     output_images = {k: np.array(Image.open(BytesIO(v[-1]))) for k, v in output_images.items()}
