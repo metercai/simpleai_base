@@ -293,7 +293,7 @@ impl SimpleAI {
         debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
         token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
     }
-    pub fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
+    pub(crate) fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
                        -> (String, String) {
         let nickname = token_utils::truncate_nickname(nickname);
         let user_telephone = token_utils::normal_telephone(telephone);
@@ -720,6 +720,7 @@ impl SimpleAI {
 
     pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> String {
         let nickname = token_utils::truncate_nickname(nickname);
+        let telephone_org = telephone.to_string();
         let telephone = token_utils::normal_telephone(telephone);
         if telephone == "Unknown" {
             return "unknown".to_string();
@@ -771,11 +772,11 @@ impl SimpleAI {
                 match identity_file.exists() {
                     true => "local".to_string(),
                     false => {
-                        println!("[UserBase] The identity is not in local and generate ready_data for new user: {}", nickname);
-                        let (user_did, _user_phrase) = self.create_user(&nickname, &telephone, None, None);
+                        println!("[UserBase] The identity is not in local and generate ready_data for new user: {}, {}({}), {}, {}", nickname, telephone_org, telephone, user_hash_id, symbol_hash_base64);
+                        let (user_did, _user_phrase) = self.create_user(&nickname, &telephone_org, None, None);
                         let new_claim = self.get_claim_from_local(&user_did);
-                        debug!("create new claim: user_did={}, claim_symbol={}, symbol={}",
-                            user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()), symbol_hash_base64);
+                        println!("[UserBase] Create new claim for new user: user_did={}, claim_symbol={}",
+                            user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
 
                         let mut request: serde_json::Value = json!({});
                         request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
@@ -792,8 +793,9 @@ impl SimpleAI {
                                 match serde_json::from_str::<IdClaim>(&parts[1]) {
                                     Ok(return_claim) => {
                                         let return_did = return_claim.gen_did();
-                                        println!("[UserBase] The decoding the claim from Root is correct: user_did({}), claim_symbol({}), claim={}",
-                                                 return_did, URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()), parts[1]);
+                                        println!("[UserBase] The decoding the claim from Root is correct: user_did({}), nickname={}, claim_symbol({})",
+                                                 return_did, return_claim.nickname, URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()));
+                                        debug!("return_claim: {}", parts[1]);
                                         if user_did != return_claim.gen_did() {
                                             println!("[UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})", user_did, return_did);
                                             self.push_claim(&return_claim);
@@ -834,7 +836,7 @@ impl SimpleAI {
                             self.remove_user(&symbol_hash_base64);
                             return "unknown_exceeded".to_string();
                         } else {
-                            println!("[UserBase] User apply is failure({}): did({}), symbol({})", apply_result, user_did, symbol_hash_base64);
+                            println!("[UserBase] User apply is failure({}): sys_did({}), user_did({}), user_symbol({})", apply_result, self.did, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown".to_string();
                         }
@@ -886,7 +888,7 @@ impl SimpleAI {
                                 self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
-                            println!("[UserBase] The parsed cert from Root is correct: symbol({}), did({}), nickname({})", symbol_hash_base64, ready_user_did, ready_claim.nickname);
+                            println!("[UserBase] The parsed cert from Root is correct: did({}), nickname({}), symbol({})", ready_user_did, ready_claim.nickname, symbol_hash_base64);
                             let encrypted_claim = URL_SAFE_NO_PAD.encode(token_utils::encrypt(ready_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0));
 
                             let mut request: serde_json::Value = json!({});
@@ -901,14 +903,14 @@ impl SimpleAI {
                             if !result.starts_with("Unknown") {
                                 return "create".to_string();
                             } else {
-                                println!("[UserBase] The user confirm request is fail: did({})", ready_user_did);
+                                println!("[UserBase] The user confirm request is fail: ready_did({}), symbol({})", ready_user_did, symbol_hash_base64);
                                 self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
                         }
                     }
-                    println!("[UserBase] The decoding the claim from Root is incorrect: symbol({}), old_did({})",
-                             symbol_hash_base64, ready_user_did);
+                    println!("[UserBase] The decoding the claim from Root is incorrect: ready_did({}), symbol({})",
+                             ready_user_did, symbol_hash_base64);
                     let ready_data = format!("{}|{}|{}", try_count, ready_user_did, encrypted_certificate_string);
                     let ivec_data = sled::IVec::from(ready_data.as_bytes());
                     {
@@ -921,7 +923,7 @@ impl SimpleAI {
                         let ready_users = self.ready_users.lock().unwrap();
                         let _ = ready_users.remove(user_hash_id.clone());
                     };
-                    println!("[UserBase] The try_count of verify the code has run out: symbol({}), user_hash_id({}), did({})", symbol_hash_base64, user_hash_id, ready_user_did);
+                    println!("[UserBase] The try_count of verify the code has run out: ready_did({}), symbol({}), user_hash_id({})", ready_user_did, symbol_hash_base64, user_hash_id);
                     return "error:0".to_string();
                 }
             }
@@ -941,9 +943,11 @@ impl SimpleAI {
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.clone()), None);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
+        let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         if user_did == "Unknown" || !self.is_registered(&user_did) {
             println!("[UserBase] The user isn't in local or hasn't been verified by root: nickname={}, telephone={}, symbol={}, user_did={}",
-                     nickname, telephone, URL_SAFE_NO_PAD.encode(symbol_hash), user_did);
+                     nickname, telephone, symbol_hash_base64, user_did);
+            self.remove_user(&symbol_hash_base64);
             return self.get_guest_user_context();
         }
 
