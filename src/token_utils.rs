@@ -1143,7 +1143,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
         println!("[UserBase] Import from qrcode and save identity_file: did={}, nickname={}", user_did, nickname);
         if telephone == 0 {
             (user_did, nickname, "".to_string(), user_cert)
-        } else { (user_did, nickname, export_telephone(telephone), user_cert) }
+        } else { (user_did, nickname, telephone.to_string(), user_cert) }
     } else {
         debug!("import_identity_qrcode, Invalid vcode: did={}", user_did);
         ("Unknown".to_string(), "".to_string(), "".to_string(), "Unknown".to_string())
@@ -1206,51 +1206,21 @@ pub(crate) fn decrypt_text_with_vcode(vcode: &str, encrypted_text: &str) -> Stri
 }
 
 pub(crate) fn is_valid_telephone(telephone: &str) -> bool {
-    if telephone.len() < 8 || telephone.len() > 15 {
+    if telephone.len() < 6 || telephone.len() > 15 {
         return false;
     }
     if !telephone.chars().all(|c| c.is_digit(10)) {
         return false;
     }
     if telephone.chars().next() == Some('0') {
+        return false;
+    }
+    if telephone.starts_with("86") && telephone.len() != 13 {
         return false;
     }
     true
 }
 
-pub(crate) fn normal_telephone(telephone: &str) -> String {
-    if telephone.len() < 8 || telephone.len() > 15 {
-        return "Unknown".to_string();
-    }
-    if !telephone.chars().all(|c| c.is_digit(10)) {
-        return "Unknown".to_string();;
-    }
-    if telephone.chars().next() == Some('0') {
-        return "Unknown".to_string();
-    }
-    let telephone = match telephone.starts_with("86") {
-        true => {
-            if telephone.len() != 13 {
-                return "Unknown".to_string();
-            }
-            telephone[2..].to_string()
-        },
-        false => {
-            let phone = telephone.parse::<u64>().unwrap_or(0);
-            format!("{}", phone + 1000000000000000000u64)
-        },
-    };
-    debug!("normal telephone: {}", telephone);
-    telephone
-}
-
-pub(crate) fn export_telephone(telephone: u64) -> String {
-    if telephone < 1000000000000000000u64 {
-        return format!("86{}", telephone);
-    } else {
-        return format!("{}", telephone - 1000000000000000000u64);
-    }
-}
 pub(crate) fn truncate_nickname(nickname: &str) -> String {
     let max_bytes = 24;
     let mut byte_count = 0;

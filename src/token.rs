@@ -296,10 +296,10 @@ impl SimpleAI {
     pub(crate) fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
                        -> (String, String) {
         let nickname = token_utils::truncate_nickname(nickname);
-        let user_telephone = token_utils::normal_telephone(telephone);
-        if user_telephone == "Unknown" {
+        if !token_utils::is_valid_telephone(telephone) {
             return ("Unknown".to_string(), "Unknown".to_string());
         }
+        let user_telephone = telephone.to_string();
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(user_telephone.clone()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
@@ -720,15 +720,13 @@ impl SimpleAI {
 
     pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> String {
         let nickname = token_utils::truncate_nickname(nickname);
-        let telephone_org = telephone.to_string();
-        let telephone = token_utils::normal_telephone(telephone);
-        if telephone == "Unknown" {
+        if !token_utils::is_valid_telephone(telephone) {
             return "unknown".to_string();
         }
         if nickname.to_lowercase().starts_with("guest") {
             return "unknown".to_string();
         }
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.clone()), None);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
@@ -772,8 +770,8 @@ impl SimpleAI {
                 match identity_file.exists() {
                     true => "local".to_string(),
                     false => {
-                        println!("[UserBase] The identity is not in local and generate ready_data for new user: {}, {}({}), {}, {}", nickname, telephone_org, telephone, user_hash_id, symbol_hash_base64);
-                        let (user_did, _user_phrase) = self.create_user(&nickname, &telephone_org, None, None);
+                        println!("[UserBase] The identity is not in local and generate ready_data for new user: {}, {}, {}, {}", nickname, telephone, user_hash_id, symbol_hash_base64);
+                        let (user_did, _user_phrase) = self.create_user(&nickname, telephone, None, None);
                         let new_claim = self.get_claim_from_local(&user_did);
                         println!("[UserBase] Create new claim for new user: user_did={}, claim_symbol={}",
                             user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
@@ -848,11 +846,10 @@ impl SimpleAI {
 
     pub fn check_user_verify_code(&mut self, nickname: &str, telephone: &str, vcode: &str)-> String {
         let nickname = token_utils::truncate_nickname(nickname);
-        let telephone = token_utils::normal_telephone(telephone);
-        if telephone == "Unknown" {
+        if !token_utils::is_valid_telephone(telephone) {
             return "unknown".to_string();
         }
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.clone()), None);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let ready_data = {
@@ -894,7 +891,7 @@ impl SimpleAI {
                             let mut request: serde_json::Value = json!({});
                             request["user_symbol"] = serde_json::to_value(symbol_hash_base64.clone()).unwrap();
                             request["encrypted_claim"] = serde_json::to_value(encrypted_claim).unwrap();
-                            let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, &telephone, &user_phrase);
+                            let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
                             request["user_copy_hash_id"] = serde_json::to_value(user_copy_hash_id).unwrap_or(json!(""));
 
                             let result = self.request_token_api(
@@ -936,12 +933,11 @@ impl SimpleAI {
 
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
-        let telephone = token_utils::normal_telephone(telephone);
-        if telephone == "Unknown" {
+        if !token_utils::is_valid_telephone(telephone) {
             println!("[UserBase] The telephone number is not valid: {}, {}.", nickname, telephone);
             return self.get_guest_user_context();
         }
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.clone()), None);
+        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         if user_did == "Unknown" || !self.is_registered(&user_did) {
@@ -965,8 +961,8 @@ impl SimpleAI {
             return self.get_guest_user_context();
         }
         let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
-        let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, &telephone, &user_phrase);
-        let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, &telephone, phrase);
+        let old_user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, &user_phrase);
+        let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, telephone, phrase);
 
         let mut request: serde_json::Value = json!({});
         request["old_user_copy_hash_id"] = serde_json::to_value(old_user_copy_hash_id).unwrap();
@@ -993,9 +989,7 @@ impl SimpleAI {
 
     pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
-        let telephone_org = telephone.to_string();
-        let telephone = token_utils::normal_telephone(telephone);
-        if telephone != "Unknown" {
+        if token_utils::is_valid_telephone(telephone) {
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
             let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
@@ -1092,7 +1086,7 @@ impl SimpleAI {
                 self.get_guest_user_context()
             }
         } else {
-            println!("[UserBase] The telephone is not valid: {}", telephone_org);
+            println!("[UserBase] The telephone is not valid: {}", telephone);
             self.get_guest_user_context()
         }
     }
