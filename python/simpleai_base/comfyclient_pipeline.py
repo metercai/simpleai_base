@@ -235,7 +235,7 @@ def process_flow(user_did, flow_name, params, images, callback=None, total_steps
 
 def interrupt():
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=20.0) as client:
             response = client.post("http://{}/interrupt".format(server_address()))
             return
     except httpx.RequestError as e:
@@ -247,7 +247,7 @@ def free(all=False):
     p = {"unload_models": all == True, "free_memory": True}
     data = json.dumps(p).encode('utf-8')
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=20.0) as client:
             response = client.post("http://{}/free".format(server_address()), data=data)
             return
     except httpx.RequestError as e:
@@ -260,7 +260,7 @@ def setvars(vars):
     p = vars
     data = json.dumps(p).encode('utf-8')
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=20.0) as client:
             response = client.post("http://{}/setvars".format(server_address()), data=data)
             return
     except httpx.RequestError as e:
