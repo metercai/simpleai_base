@@ -1254,10 +1254,10 @@ impl SimpleAI {
     pub fn check_ready(&self, v1: String, v2: String, v3: String, root: String) -> i32 {
         let start = Instant::now();
         let mut feedback_code = 0;
-        if !EnvData::check_basepkg(&root) {
-            println!("[SimpleAI] 程序所需基础模型包有检测异常，未完全正确安装。请检查并正确安装后，再启动程序。");
-            feedback_code += 2;
-        }
+        //if !EnvData::check_basepkg(&root) {
+        //    println!("[SimpleAI] 程序所需基础模型包有检测异常，未完全正确安装。请检查并正确安装后，再启动程序。");
+        //    feedback_code += 2;
+        //}
         let mut sysinfo = self.get_sysinfo();
         loop {
             if sysinfo.pyhash != "Unknown" {
