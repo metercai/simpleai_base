@@ -198,8 +198,11 @@ impl SimpleAI {
                 (claims.get_claim_from_local(&self.did), claims.get_claim_from_local(&self.device))
             };
             let result_string = SimpleAI::request_token_api_register(&local_claim, &device_claim);
+            println!("register result_string: {}", result_string);
             let mut global_vars = serde_json::from_str(&result_string).unwrap_or(HashMap::new());
+            println!("register global_vars: {:?}", global_vars);
             self.upstream_did = global_vars.get("upstream_did").cloned().unwrap_or("Unknown".to_string());
+            println!("register upstream_did: {}", self.upstream_did);
             global_vars.insert("upstream_did".to_string(), self.did.clone());
             if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
                 self.global_vars = global_vars;
