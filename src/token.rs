@@ -198,11 +198,8 @@ impl SimpleAI {
                 (claims.get_claim_from_local(&self.did), claims.get_claim_from_local(&self.device))
             };
             let result_string = SimpleAI::request_token_api_register(&local_claim, &device_claim);
-            println!("register result_string: {}", result_string);
             let mut global_vars = serde_json::from_str(&result_string).unwrap_or(HashMap::new());
-            println!("register global_vars: {:?}", global_vars);
             self.upstream_did = global_vars.get("upstream_did").cloned().unwrap_or("Unknown".to_string());
-            println!("register upstream_did: {}", self.upstream_did);
             global_vars.insert("upstream_did".to_string(), self.did.clone());
             if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
                 self.global_vars = global_vars;
@@ -212,7 +209,7 @@ impl SimpleAI {
                 debug!("[UserBase] Unable to obtain upstream address: self_did={}", self.did);
                 return "".to_string();
             }
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_secs(2));
         }
     }
 
@@ -237,23 +234,26 @@ impl SimpleAI {
         if self.global_vars.is_empty() {
             self.load_global_vars();
         }
-        self.global_vars.get(key).cloned().unwrap_or("".to_string())
+        self.global_vars.get(key).cloned().unwrap_or(default.to_string())
     }
 
     fn load_global_vars(&mut self) {
         let upstream_did = self.get_upstream_did();
         if upstream_did == self.admin && upstream_did == token_utils::TOKEN_TM_DID {
+            let mut global_vars: HashMap<String, String> = HashMap::new();
             let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
             let root_dir = sysinfo.root_dir.clone();
             let global_vars_path = PathBuf::from(root_dir.clone()).join("global_vars.json");
             if global_vars_path.exists() {
                 let global_vars_string = fs::read_to_string(&global_vars_path).unwrap_or("".to_string());
-                let mut global_vars: HashMap<String, String> = serde_json::from_str(&global_vars_string).unwrap_or(HashMap::new());
-                global_vars.insert("upstream_did".to_string(), self.did.clone());
-                self.global_vars = global_vars;
+                let local_global_vars: HashMap<String, String> = serde_json::from_str(&global_vars_string).unwrap_or(HashMap::new());
+                global_vars.extend(local_global_vars.into_iter());
             }
+            global_vars.insert("upstream_did".to_string(), self.did.clone());
+            self.global_vars = global_vars;
         }
     }
+
     pub fn get_global_vars_json(&mut self, reload: Option<bool>) -> String {
         let reload = reload.unwrap_or(false);
         if self.global_vars.is_empty() || reload {
