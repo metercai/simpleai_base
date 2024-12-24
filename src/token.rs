@@ -26,6 +26,8 @@ use crate::rathole::Rathole;
 use crate::systeminfo::SystemInfo;
 use crate::cert_center::GlobalCerts;
 
+pub(crate) static TOKEN_API_VERSION: &str = "v1.1.1";
+
 
 
 #[derive(Clone, Debug)]
@@ -55,6 +57,7 @@ pub struct SimpleAI {
     blacklist: Vec<String>, // 黑名单
     upstream_did: String,
     user_base_dir: String,
+    global_vars: HashMap<String, String>,
 }
 
 #[pymethods]
@@ -129,21 +132,19 @@ impl SimpleAI {
             submit_uncompleted_request_files(&sys_did, &dev_did).await
         });
 
-        let upstream_did = if admin != token_utils::TOKEN_TM_DID {
-            SimpleAI::request_token_api_register(&local_claim, &device_claim)
-        } else {
+        let upstream_did = if admin == token_utils::TOKEN_TM_DID {
             token_utils::TOKEN_TM_DID.to_string()
-        };
-        let upstream_did = if upstream_did.starts_with("Unknown") { upstream_did } else { "".to_string() };
+        } else { "".to_string() };
         debug!("upstream_did: {}", upstream_did);
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
-        let admin = {
-            let admin = if guest_did == admin { "".to_string() } else { admin };
-            let mut claims = claims.lock().unwrap();
-            claims.set_admin_did(&admin);
-            admin
-        };
+        let admin = if !admin.is_empty() {
+            if guest_did != admin {
+                let mut claims = claims.lock().unwrap();
+                claims.set_admin_did(&admin);
+                admin
+            } else { "".to_string()  }
+        } else { admin };
 
         Self {
             sys_name,
@@ -162,6 +163,7 @@ impl SimpleAI {
             blacklist,
             upstream_did,
             user_base_dir: String::new(),
+            global_vars: HashMap::new(),
         }
     }
 
@@ -181,6 +183,9 @@ impl SimpleAI {
     pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
     pub fn get_sys_did(&self) -> String { self.did.clone() }
     pub fn get_upstream_did(&mut self) -> String {
+        if self.admin == token_utils::TOKEN_TM_DID {
+            return token_utils::TOKEN_TM_DID.to_string()
+        }
         let start_time = Instant::now();
         let timeout = Duration::from_secs(30);
 
@@ -192,9 +197,12 @@ impl SimpleAI {
                 let mut claims = self.claims.lock().unwrap();
                 (claims.get_claim_from_local(&self.did), claims.get_claim_from_local(&self.device))
             };
-            self.upstream_did = SimpleAI::request_token_api_register(&local_claim, &device_claim);
-
+            let result_string = SimpleAI::request_token_api_register(&local_claim, &device_claim);
+            let mut global_vars = serde_json::from_str(&result_string).unwrap_or(HashMap::new());
+            self.upstream_did = global_vars.get("upstream_did").cloned().unwrap_or("Unknown".to_string());
+            global_vars.insert("upstream_did".to_string(), self.did.clone());
             if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
+                self.global_vars = global_vars;
                 debug!("[UserBase] obtain upstream: upstream_did={}, self_did={}", self.upstream_did, self.did);
             }
             if start_time.elapsed() >= timeout {
@@ -221,6 +229,35 @@ impl SimpleAI {
     }
 
     //pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> { self.token_db.clone() }
+
+    pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
+        if self.global_vars.is_empty() {
+            self.load_global_vars();
+        }
+        self.global_vars.get(key).cloned().unwrap_or("".to_string())
+    }
+
+    fn load_global_vars(&mut self) {
+        let upstream_did = self.get_upstream_did();
+        if upstream_did == self.admin && upstream_did == token_utils::TOKEN_TM_DID {
+            let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+            let root_dir = sysinfo.root_dir.clone();
+            let global_vars_path = PathBuf::from(root_dir.clone()).join("global_vars.json");
+            if global_vars_path.exists() {
+                let global_vars_string = fs::read_to_string(&global_vars_path).unwrap_or("".to_string());
+                let mut global_vars: HashMap<String, String> = serde_json::from_str(&global_vars_string).unwrap_or(HashMap::new());
+                global_vars.insert("upstream_did".to_string(), self.did.clone());
+                self.global_vars = global_vars;
+            }
+        }
+    }
+    pub fn get_global_vars_json(&mut self, reload: Option<bool>) -> String {
+        let reload = reload.unwrap_or(false);
+        if self.global_vars.is_empty() || reload {
+            self.load_global_vars();
+        }
+        serde_json::to_string(&self.global_vars).unwrap()
+    }
 
     pub fn is_guest(&self, did: &str) -> bool {
         did == self.guest.as_str()
@@ -1305,6 +1342,7 @@ async fn request_token_api_async(sys_did: &str, dev_did: &str, api_name: &str, e
     match token_utils::REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
         .header("Sys-Did", sys_did.to_string())
         .header("Dev-Did", dev_did.to_string())
+        .header("Version", TOKEN_API_VERSION.to_string())
         .body(encoded_params)
         .send()
         .await{
