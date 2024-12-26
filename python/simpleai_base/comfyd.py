@@ -170,7 +170,7 @@ def args_mapping(args_fooocus):
 
 def get_entry_point_id():
     global comfyd_process
-    if comfyd_process:
+    if 'comfyd_process' in globals() and comfyd_process:
         return gen_entry_point_id(comfyd_process.pid)
     else:
         return None
