@@ -30,6 +30,13 @@ fn init_local(nickname: String) -> PyResult<SimpleAI> {
 #[pyfunction]
 fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     // issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp
+    if !IdClaim::validity(did) {
+        return false;
+    }
+    let did_claim = GlobalClaims::load_claim_from_local(did);
+    if did_claim.nickname.starts_with("guest_") && cert_str.starts_with("Unknown")  {
+        return true;
+    }
     let parts: Vec<&str> = cert_str.split('|').collect();
     if parts.len() != 4 {
         return false;
