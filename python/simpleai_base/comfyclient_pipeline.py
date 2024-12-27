@@ -224,6 +224,7 @@ def process_flow(user_did, flow_name, params, images, callback=None, total_steps
         print(f'[ComfyClient] The connect has been closed, restart and try again: {e}')
         ws = None
 
+    print(f'[ComfyClient] The ComfyTask:{flow_name} has finished: {len(images)}, {images.keys()}')
     imgs = []
     if images:
         images_keys = sorted(images.keys(), reverse=True)
