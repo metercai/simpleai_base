@@ -11,7 +11,7 @@ lazy_static::lazy_static! {
 
 #[derive(Clone, Debug)]
 pub struct GlobalCerts {
-    // 所以证书(他证), key={issue_did}|{for_did}|{用途}，value={encrypted_key}|{memo}|{time}|{sig},
+    // 所有证书(他证), key={issue_did}|{for_did}|{用途}，value={encrypted_key}|{memo}|{time}|{sig},
     // encrypted_key由for_did交换派生密钥加密, sig由证书密钥签，用途=['Member']
     user_certs: HashMap<String, String>, // 留存本地的证书(他证)
     // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
@@ -57,7 +57,21 @@ impl GlobalCerts {
     }
 
     pub fn get_register_cert(&self, for_did: &str) -> String {
-        self.get_member_cert(token_utils::TOKEN_TM_DID, for_did)
+        let member_cert = self.get_member_cert(token_utils::TOKEN_TM_DID, for_did);
+        if member_cert != "Unknown" {
+            return member_cert;
+        }
+        let upstream_did = {
+            let claims = self.claims.lock().unwrap();
+            claims.get_upstream_did()
+        };
+        if !upstream_did.is_empty() {
+            let member_cert = self.get_member_cert(&upstream_did, for_did);
+            if member_cert != "Unknown" {
+                return member_cert;
+            }
+        }
+        self.get_member_cert(&self.sys_did, for_did)
     }
 
     pub fn get_member_cert(&self, issue_did: &str, for_did: &str) -> String {

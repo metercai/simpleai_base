@@ -307,12 +307,29 @@ impl SimpleAI {
         claims.get_claim_from_local(for_did)
     }
 
-    pub fn get_register_cert(&self, user_did: &str) -> String {
-        let certificates = self.certificates.lock().unwrap();
-        certificates.get_register_cert(user_did)
+    pub fn get_register_cert(&mut self, user_did: &str) -> String {
+        let register_cert = {
+            let certificates = self.certificates.lock().unwrap();
+            certificates.get_register_cert(user_did)
+        };
+        if register_cert != "Unknown".to_string() {
+            return register_cert;
+        }
+        if user_did == self.guest {
+            let system_did = self.did.clone();
+            let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
+            let register_cert = {
+                let mut certificates = self.certificates.lock().unwrap();
+                let _ = certificates.push_user_cert_text(&issue_cert);
+                certificates.get_register_cert(user_did)
+            };
+            register_cert
+        } else {
+            "Unknown".to_string()
+        }
     }
 
-    pub fn is_registered(&self, user_did: &str) -> bool {
+    pub fn is_registered(&mut self, user_did: &str) -> bool {
         if user_did == "Unknown" {
             return false;
         }
@@ -523,7 +540,11 @@ impl SimpleAI {
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
                         println!("[UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", issuer_did, item, for_did, for_sys_did);
-                        return (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
+                        if for_sys_did == self.did {
+                            return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
+                        } else {
+                            return (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
+                        }
                     }
                 }
             }

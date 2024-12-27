@@ -33,10 +33,6 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     if !IdClaim::validity(did) {
         return false;
     }
-    let did_claim = GlobalClaims::load_claim_from_local(did);
-    if did_claim.nickname.starts_with("guest_") && cert_str.starts_with("Unknown")  {
-        return true;
-    }
     let parts: Vec<&str> = cert_str.split('|').collect();
     if parts.len() != 4 {
         return false;
@@ -45,9 +41,26 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let memo_base64 = parts[1].to_string();
     let timestamp = parts[2].to_string();
     let signature_str = parts[3].to_string();
-    let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, did, "Member", encrypt_item_key, memo_base64, timestamp);
-    let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
-    token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
+    let text = format!("{}|{}|{}|{}|{}", did, "Member", encrypt_item_key, memo_base64, timestamp);
+    let claims = GlobalClaims::instance();
+    let (system_did, upstream_did) = {
+        let claims = claims.lock().unwrap();
+        (claims.get_system_did(), claims.get_upstream_did())
+    };
+    let text_system = format!("{}|{}", system_did, text);
+    let claim_system = GlobalClaims::load_claim_from_local(&system_did);
+    if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
+        return true;
+    }
+    let text_upstream = format!("{}|{}", upstream_did, text);
+    let claim_upstream = GlobalClaims::load_claim_from_local(&upstream_did);
+    if token_utils::verify_signature(&text_upstream, &signature_str, &claim_upstream.get_cert_verify_key()) {
+        return true;
+    }
+    let root_did = token_utils::TOKEN_TM_DID;
+    let text_root = format!("{}|{}", root_did, text);
+    let claim_root = GlobalClaims::load_claim_from_local(root_did);
+    token_utils::verify_signature(&text_root, &signature_str, &claim_root.get_cert_verify_key())
 }
 
 

@@ -31,6 +31,7 @@ pub struct GlobalClaims {
     device_did: String,                    // 设备id
     admin: String,                        // 管理员账号
     guest: String,                        // 游客账号
+    upstream: String,                      // 上游节点
     user_base_dir: String,                // 用户目录
 }
 
@@ -137,6 +138,7 @@ impl GlobalClaims {
             device_did,
             admin: String::new(),
             guest,
+            upstream: String::new(),
             user_base_dir: String::new(),
         }
     }
@@ -212,8 +214,32 @@ impl GlobalClaims {
         chars
     }
 
+    pub(crate) fn get_system_did(&self) -> String {
+        self.sys_did.clone()
+    }
+
+    pub(crate) fn get_device_did(&self) -> String {
+        self.device_did.clone()
+    }
+
+    pub(crate) fn get_guest_did(&self) -> String {
+        self.guest.clone()
+    }
+
+    pub(crate) fn get_admin_did(&self) -> String {
+        self.admin.clone()
+    }
+
+    pub(crate) fn get_upstream_did(&self) -> String {
+        self.upstream.clone()
+    }
+
     pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
         self.admin = admin_did.to_string();
+    }
+
+    pub(crate) fn set_upstream_did(&mut self, upstream_did: &str) {
+        self.upstream = upstream_did.to_string();
     }
 
     pub(crate) fn set_user_base_dir(&mut self, user_base_dir: &str) {
