@@ -300,10 +300,21 @@ impl SimpleAI {
 
     pub fn get_local_vars(&mut self, key: &str, default: &str, user_session: &str, ua_hash: &str) -> String {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
+        self.get_local_vars_base(key, default, &user_did)
+    }
+
+    pub fn get_local_admin_vars(&mut self, key: &str) -> String {
+        let admin_key = format!("admin_{}", key);
+        let default = token_utils::ADMIN_DEFAULT.lock().unwrap().get(key).to_string();
+        let admin = self.admin.clone();
+        self.get_local_vars_base(&admin_key, &default, &admin)
+    }
+
+    pub fn get_local_vars_base(&mut self, key: &str, default: &str, user_did: &str) -> String {
         let (local_did, local_key) = if key.starts_with("admin_") {
             (self.admin.clone(), key.to_string())
         } else {
-            (user_did.clone(), format!("{}_{}", user_did, key))
+            (user_did.to_string(), format!("{}_{}", user_did, key))
         };
 
         let value = {
@@ -315,7 +326,6 @@ impl SimpleAI {
                 _ => "Default".to_string()
             }
         };
-        println!("local_key: {}, value: {}", local_key, value);
         if local_key.starts_with("admin_") && value != "Default"{
             self.decrypt_by_did(&value, &local_did, 0)
         } else {
@@ -323,7 +333,6 @@ impl SimpleAI {
                 if local_key.starts_with("admin_") {
                     let local_key = local_key.replace("admin_", "");
                     let admin_default = token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string();
-                    println!("admin_default: {}", admin_default);
                     admin_default
                 } else {
                     default.to_string()
