@@ -12,7 +12,6 @@ use tracing::{error, warn, info, debug, trace};
 use tracing_subscriber::EnvFilter;
 use qrcode::{QrCode, Version, EcLevel};
 use qrcode::render::svg;
-use qrcode::bits::{Bits, encode_auto};
 
 
 use pyo3::prelude::*;
@@ -38,6 +37,7 @@ pub struct SimpleAI {
     token_db: Arc<Mutex<sled::Db>>,
     // 用户绑定授权的缓存，来自user_{did}.token
     pub authorized: Arc<Mutex<sled::Tree>>, //HashMap<String, UserContext>,
+    pub user_sessions: Arc<Mutex<sled::Tree>>, //HashMap<sessionid_key, String>,
     pub sysinfo: SystemInfo,
     // 留存本地的身份自证, 用根密钥签
     claims: Arc<Mutex<GlobalClaims>>,
@@ -57,7 +57,7 @@ pub struct SimpleAI {
     blacklist: Vec<String>, // 黑名单
     upstream_did: String,
     user_base_dir: String,
-    global_vars: HashMap<String, String>,
+    global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
 }
 
 #[pymethods]
@@ -113,12 +113,15 @@ impl SimpleAI {
             let _ = certificates.load_certificates_from_local(&local_did);
             certificates.get_token_db()
         };
-        let (authorized_tree, ready_users_tree) = {
+        let (authorized_tree, ready_users_tree, user_sessions_tree, global_local_vars_tree) = {
             let token_db = token_db.lock().unwrap();
-            (token_db.open_tree("authorized").unwrap(), token_db.open_tree("ready_users").unwrap())
+            (token_db.open_tree("authorized").unwrap(), token_db.open_tree("ready_users").unwrap(),
+             token_db.open_tree("user_sessions").unwrap(), token_db.open_tree("global_local_vars").unwrap())
         };
         let authorized = Arc::new(Mutex::new(authorized_tree));
         let ready_users = Arc::new(Mutex::new(ready_users_tree));
+        let user_sessions = Arc::new(Mutex::new(user_sessions_tree));
+        let global_local_vars = Arc::new(Mutex::new(global_local_vars_tree));
 
         let sysinfo = token_utils::TOKIO_RUNTIME.block_on(async {
             sysinfo_handle.await.expect("Sysinfo Task panicked")
@@ -153,6 +156,7 @@ impl SimpleAI {
             admin,
             token_db,
             authorized,
+            user_sessions,
             sysinfo,
             claims,
             crypt_secrets,
@@ -163,7 +167,7 @@ impl SimpleAI {
             blacklist,
             upstream_did,
             user_base_dir: String::new(),
-            global_vars: HashMap::new(),
+            global_local_vars,
         }
     }
 
@@ -202,7 +206,11 @@ impl SimpleAI {
             self.upstream_did = global_vars.get("upstream_did").cloned().unwrap_or("Unknown".to_string());
             global_vars.insert("upstream_did".to_string(), self.did.clone());
             if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
-                self.global_vars = global_vars;
+                let global_local_vars = self.global_local_vars.lock().unwrap();
+                for (var, value) in global_vars.iter() {
+                    let ivec_data = sled::IVec::from(value.as_bytes());
+                    let _ = global_local_vars.insert(&format!("global_{}", var), ivec_data);
+                }
                 debug!("[UserBase] obtain upstream: upstream_did={}, self_did={}", self.upstream_did, self.did);
             }
             if start_time.elapsed() >= timeout {
@@ -231,10 +239,14 @@ impl SimpleAI {
     //pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> { self.token_db.clone() }
 
     pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
-        if self.global_vars.is_empty() {
-            self.load_global_vars();
+        let key = format!("global_{}", key);
+        let global_local_vars = self.global_local_vars.lock().unwrap();
+        match global_local_vars.get(&key) {
+            Ok(Some(context)) => {
+                String::from_utf8(context.to_vec()).unwrap()
+            },
+            _ => default.to_string()
         }
-        self.global_vars.get(key).cloned().unwrap_or(default.to_string())
     }
 
     fn load_global_vars(&mut self) {
@@ -250,17 +262,81 @@ impl SimpleAI {
                 global_vars.extend(local_global_vars.into_iter());
             }
             global_vars.insert("upstream_did".to_string(), self.did.clone());
-            self.global_vars = global_vars;
+            let global_local_vars = self.global_local_vars.lock().unwrap();
+            for (var, value) in global_vars.iter() {
+                let ivec_data = sled::IVec::from(value.as_bytes());
+                let _ = global_local_vars.insert(&format!("global_{}", var), ivec_data);
+            }
         }
     }
 
     pub fn get_global_vars_json(&mut self, reload: Option<bool>) -> String {
         let reload = reload.unwrap_or(false);
-        if self.global_vars.is_empty() || reload {
+        if reload {
             self.load_global_vars();
         }
-        serde_json::to_string(&self.global_vars).unwrap()
+        let prefix = "global_";
+        let mut global_vars: HashMap<String, String> = HashMap::new();
+        let global_local_vars = self.global_local_vars.lock().unwrap();
+        for result in global_local_vars.scan_prefix(prefix) {
+            match result {
+                Ok((key, value)) => {
+                    if let (Ok(key_str), Ok(value_str)) = (
+                        std::str::from_utf8(&key).map(|s| s.to_string()),
+                        std::str::from_utf8(&value).map(|s| s.to_string()),
+                    ) {
+                        global_vars.insert(key_str, value_str);
+                    } else {
+                        eprintln!("Failed to convert key or value to UTF-8");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error reading key-value pair: {}", e);
+                }
+            }
+        }
+        serde_json::to_string(&global_vars).unwrap()
     }
+
+    pub fn get_local_vars(&mut self, key: &str, default: &str, user_session: &str, ua_hash: &str) -> String {
+        let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
+        let (local_did, local_key) = if key.starts_with("admin_") {
+            (self.admin.clone(), key.to_string())
+        } else {
+            (user_did.clone(), format!("{}_{}", user_did, key))
+        };
+
+        let value = {
+            let mut global_local_vars = self.global_local_vars.lock().unwrap();
+            match global_local_vars.get(&local_key) {
+                Ok(Some(var_value)) => {
+                    String::from_utf8(var_value.to_vec()).unwrap()
+                },
+                _ => default.to_string()
+            }
+        };
+
+        if local_key.starts_with("admin_") {
+            self.decrypt_by_did(&value, &local_did, 0)
+        } else {
+            value
+        }
+    }
+
+    pub fn set_local_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
+        let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
+        let admin = self.admin.clone();
+        let (local_key, local_value) = if key.starts_with("admin_") && admin == user_did  {
+            (key.to_string(), self.encrypt_for_did(&value.as_bytes(), &admin, 0))
+        } else {
+            (format!("{}_{}", user_did, key), value.to_string())
+        };
+
+        let global_local_vars = self.global_local_vars.lock().unwrap();
+        let ivec_data = sled::IVec::from(local_value.as_bytes());
+        let _ = global_local_vars.insert(&local_key, ivec_data);
+    }
+
 
     pub fn is_guest(&self, did: &str) -> bool {
         did == self.guest.as_str()
@@ -477,11 +553,6 @@ impl SimpleAI {
                     let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
                     debug!("encrypted_identity_qr: did={}, user_cert={}, identity={}, total.len={}", user_did, user_cert, identity, encrypted_identity_qr.len());
                     debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
-                    //let mut bits = Bits::new(Version::Normal(10));
-                    //bits.push_byte_data(&encrypted_identity_qr);
-                    //bits.push_terminator(EcLevel::L);
-                    //let bits = encode_auto(&encrypted_identity_qr_base64.as_bytes(),EcLevel::L).unwrap();
-                    //let qrcode = QrCode::with_bits(bits, EcLevel::L).unwrap();
                     let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
                     let image = qrcode.render()
                         .min_dimensions(400, 400)

@@ -125,6 +125,8 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
             out = ws.recv()
         if isinstance(out, str):
             message = json.loads(out)
+            if not utils.echo_off:
+                print(f'[ComfyClient] feedback_message={message}')
             current_type = message['type']
             # print(f'current_message={message}')
             if message['type'] == 'executing':
@@ -140,6 +142,10 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 if total_steps is None:
                     total_steps_known = current_total_steps
         else:
+            if not utils.echo_off:
+                length = len(out)
+                length = 10 if length > 10 else length
+                print(f'[ComfyClient] feedback_stream({len(out)})={out[:length]}...')
             if current_type == 'progress':
                 if current_node and current_node in prompt:
                     if prompt[current_node]['class_type'] in preview_nodes and callback is not None:
@@ -158,7 +164,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
             continue
 
     output_images = {k: np.array(Image.open(BytesIO(v[-1]))) for k, v in output_images.items()}
-    print(f'[ComfyClient] The ComfyTask:{prompt_id} has finished: {len(output_images)}')
+    print(f'[ComfyClient] The ComfyTask:{prompt_id} has finished, get {len(output_images)} images')
     return output_images
 
 
@@ -217,14 +223,13 @@ def process_flow(user_did, flow_name, params, images, callback=None, total_steps
     try:
         prompt_str = params.convert2comfy(flow_name)
         if not utils.echo_off:
-            print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
+            pass #print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
         images = get_images(user_did, ws, prompt_str, callback=callback, total_steps=total_steps, user_cert=user_cert)
         # ws.close()
     except websocket.WebSocketException as e:
         print(f'[ComfyClient] The connect has been closed, restart and try again: {e}')
         ws = None
 
-    print(f'[ComfyClient] The ComfyTask:{flow_name} has finished: {len(images)}, {images.keys()}')
     imgs = []
     if images:
         images_keys = sorted(images.keys(), reverse=True)

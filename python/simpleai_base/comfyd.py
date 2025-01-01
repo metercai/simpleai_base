@@ -47,8 +47,6 @@ def start(args_patch=[[]], force=False):
                     break
             if not found:
                 args_comfyd.append(patch)
-        if not utils.echo_off:
-            print(f'[Comfyd] args_comfyd was patched: {args_comfyd}, patch:{comfyd_args}')
         arguments = [arg for sublist in args_comfyd for arg in sublist]
         process_env = os.environ.copy()
         process_env["PYTHONPATH"] = os.pathsep.join(sys.path)
@@ -62,8 +60,6 @@ def start(args_patch=[[]], force=False):
         comfyd_process = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
         comfyclient_pipeline.COMFYUI_ENDPOINT_PORT = [arg[1] for arg in args_comfyd if arg[0] == "--port"][0]
         comfyclient_pipeline.ws = None
-        if not utils.echo_off:
-            print(f'[Comfyd] Reset COMFYUI_ENDPOINT_PORT({comfyclient_pipeline.COMFYUI_ENDPOINT_PORT}) and ws=None')
 
     else:
         print("[Comfyd] Comfyd is active!")

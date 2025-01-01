@@ -1109,8 +1109,8 @@ pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec
 
             let telephone_hash = calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
             let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
-            let id_card__base64 = URL_SAFE_NO_PAD.encode(calc_sha256(format!("{}:id_card:{}", nickname, "-").as_bytes()));
-            let symbol_hash = calc_sha256(format!("{}|{}|{}", nickname, telephone_base64, id_card__base64).as_bytes());
+            let id_card_base64 = URL_SAFE_NO_PAD.encode(calc_sha256(format!("{}:id_card:{}", nickname, "-").as_bytes()));
+            let symbol_hash = calc_sha256(format!("{}|{}|{}", nickname, telephone_base64, id_card_base64).as_bytes());
             save_key_to_pem(&symbol_hash, &user_key, &phrase);
             let mut user_claim = GlobalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
             user_claim.update_timestamp(timestamp, phrase);
@@ -1131,7 +1131,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
     let user_cert_bytes = &encrypted_identity[21..153];
     let user_cert = convert_to_short_user_cert_from_slim(user_cert_bytes);
     let encrypted_identity = &encrypted_identity[153..];
-    debug!("import_identity_qrcode: did={} cert={}, encrypted_identity: len={}, {}", user_did, user_cert, encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity.clone()));
+    debug!("import_identity_qrcode: did={} cert={}, encrypted_identity: len={}, {}", user_did, user_cert, encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity));
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8]));
