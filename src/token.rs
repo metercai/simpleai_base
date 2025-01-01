@@ -321,6 +321,7 @@ impl SimpleAI {
         } else {
             if value == "Default" {
                 if local_key.starts_with("admin_") {
+                    let local_key = local_key.replace("admin_", "");
                     token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string()
                 } else {
                     default.to_string()

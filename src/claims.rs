@@ -130,7 +130,7 @@ impl GlobalClaims {
                 eprintln!("Failed to read directory: {}", e);
             }
         }
-        println!("[UserBase] Loaded claims from local: len={}", claims.len());
+        println!("[SimpleAI] Loaded claims from local: len={}", claims.len());
 
         GlobalClaims {
             claims,
