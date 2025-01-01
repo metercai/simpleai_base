@@ -312,14 +312,20 @@ impl SimpleAI {
                 Ok(Some(var_value)) => {
                     String::from_utf8(var_value.to_vec()).unwrap()
                 },
-                _ => default.to_string()
+                _ => "Default".to_string()
             }
         };
 
-        if local_key.starts_with("admin_") {
+        if local_key.starts_with("admin_") && value != "Default"{
             self.decrypt_by_did(&value, &local_did, 0)
         } else {
-            value
+            if value == "Default" {
+                if local_key.starts_with("admin_") {
+                    token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string()
+                } else {
+                    default.to_string()
+                }
+            } else { value }
         }
     }
 
@@ -329,6 +335,9 @@ impl SimpleAI {
         let (local_key, local_value) = if key.starts_with("admin_") && admin == user_did  {
             (key.to_string(), self.encrypt_for_did(&value.as_bytes(), &admin, 0))
         } else {
+            if key.starts_with("admin_") {
+                return;
+            }
             (format!("{}_{}", user_did, key), value.to_string())
         };
 

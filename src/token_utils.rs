@@ -46,11 +46,38 @@ pub(crate) static TOKEN_TM_DID: &str = "6eR3Pzp9e2VSUC6suwPSycQ93qi6T";
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
+    pub static ref ADMIN_DEFAULT: Mutex<AdminDefault> = Mutex::new(AdminDefault::new());
 }
 
 pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     Runtime::new().expect("Failed to create Tokio runtime")
 });
+
+pub struct AdminDefault {
+    data: HashMap<String, String>,
+}
+impl AdminDefault {
+    pub fn new() -> Self {
+        let mut data= HashMap::new();
+        data.insert("comfyd_active_checkbox".to_string(), "True".to_string());
+        data.insert("fast_comfyd_checkbox".to_string(), "False".to_string());
+        data.insert("reserved_vram".to_string(), "0".to_string());
+        data.insert("minicpm_checkbox".to_string(), "False".to_string());
+        data.insert("advanced_logs".to_string(), "False".to_string());
+        Self {
+            data,
+        }
+    }
+    pub fn get(&self, key: &str) -> String {
+        self.data.get(key).unwrap_or(&"None".to_string()).to_string()
+    }
+    pub fn insert(&mut self, key: String, value: String) {
+        self.data.insert(key, value);
+    }
+    pub fn remove(&mut self, key: &str) -> String {
+        self.data.remove(key).unwrap_or("None".to_string())
+    }
+}
 
 pub static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
