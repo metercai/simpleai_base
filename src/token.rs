@@ -315,14 +315,16 @@ impl SimpleAI {
                 _ => "Default".to_string()
             }
         };
-
+        println!("local_key: {}, value: {}", local_key, value);
         if local_key.starts_with("admin_") && value != "Default"{
             self.decrypt_by_did(&value, &local_did, 0)
         } else {
             if value == "Default" {
                 if local_key.starts_with("admin_") {
                     let local_key = local_key.replace("admin_", "");
-                    token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string()
+                    let admin_default = token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string();
+                    println!("admin_default: {}", admin_default);
+                    admin_default
                 } else {
                     default.to_string()
                 }
