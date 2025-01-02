@@ -310,7 +310,7 @@ impl SimpleAI {
         self.get_local_vars_base(&admin_key, &default, &admin)
     }
 
-    pub fn get_local_vars_base(&mut self, key: &str, default: &str, user_did: &str) -> String {
+    fn get_local_vars_base(&mut self, key: &str, default: &str, user_did: &str) -> String {
         let (local_did, local_key) = if key.starts_with("admin_") {
             (self.admin.clone(), key.to_string())
         } else {
@@ -1434,7 +1434,7 @@ impl SimpleAI {
                 format!("{}-{}", sysinfo.pyhash, (now_sec/100000*100000).to_string())
                     .as_bytes()));
 
-            println!("[SimpleAI] 所运行程序为非官方版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
+            println!("[SimpleAI] 所运行程序为非官方正式版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
             feedback_code += 4;
         }
 
