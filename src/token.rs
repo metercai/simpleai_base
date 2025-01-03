@@ -232,7 +232,7 @@ impl SimpleAI {
         self.guest.clone()
     }
 
-    pub fn get_admin_did(&self) -> String {
+    pub(crate) fn get_admin_did(&self) -> String {
         self.admin.clone()
     }
 

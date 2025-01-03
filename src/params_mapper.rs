@@ -50,6 +50,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("height", "EmptyLatentImage:aspect_ratios_size:height;EmptySD3LatentImage:aspect_ratios_size:height;ImageResize+:resize_input_image:height;KolorsSampler:main_sampler:height;easy int:aspect_ratios_height:value;Co_Input_Zho:i2i_overall_input:height"),
     ("prompt", "CLIPTextEncode:prompt:text;MZ_ChatGLM3_V2:prompt:text;KolorsTextEncode:prompt_negative_prompt:prompt;CLIPTextEncodeFlux:prompt:t5xxl;CLIPTextEncodeFlux:prompt:clip_l;Co_Input_Zho:i2i_overall_input:positive"),
     ("negative_prompt", "CLIPTextEncode:negative_prompt:text;MZ_ChatGLM3_V2:negative_prompt:text;KolorsTextEncode:prompt_negative_prompt:negative_prompt;Co_Input_Zho:i2i_overall_input:negative"),
+    ("additional_prompt", "easy string:additional_prompt:value"),
     ("clip_model", "DualCLIPLoader:clip_model:clip_name1;DualCLIPLoaderGGUF:clip_model:clip_name1;CLIPLoaderGGUF:clip_model:clip_name;CLIPLoader:clip_model:clip_name;TripleCLIPLoader:clip_model:clip_name1"),
     ("clip_model2", "TripleCLIPLoader:clip_model:clip_name2"),
     ("vae_model", "VAELoader:vae_model:vae_name"),
