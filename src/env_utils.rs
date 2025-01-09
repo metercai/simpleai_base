@@ -250,7 +250,7 @@ pub(crate) fn get_ram_and_gpu_info() -> Py<PyAny> {
             PathBuf::from("/")
         }
     };
-    let path = root_dir.join("python");
+    let path = root_dir.join("python").join("simpleai_base");
 
     let results = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
         let syspath = py
@@ -262,7 +262,7 @@ pub(crate) fn get_ram_and_gpu_info() -> Py<PyAny> {
             syspath.insert(0, &path)?;
         }
         println!("syspath: {:?}", syspath);
-        let utils= PyModule::import_bound(py, "simpleai_base.utils").expect("No sendsms.");
+        let utils= PyModule::import_bound(py, "utils").expect("No simpleai_base.utils.");
         let result = utils.getattr("get_ram_and_gpu_info")?
             .call0()?;
         Ok(result.into())
