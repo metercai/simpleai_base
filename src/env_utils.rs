@@ -8,6 +8,9 @@ use std::net::{IpAddr, Ipv4Addr, TcpListener, SocketAddr, TcpStream};
 use std::str::FromStr;
 use serde_json::Value;
 
+use pyo3::prelude::*;
+use pyo3::types::PyList;
+
 //use pnet::datalink::interfaces;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -239,5 +242,32 @@ pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
 }
 
 
+pub(crate) fn get_ram_and_gpu_info() -> Py<PyAny> {
+    let root_dir = match env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            tracing::error!("env::current_dir, error:{:?}", e);
+            PathBuf::from("/")
+        }
+    };
+    let path = root_dir.join("python");
+
+    let results = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
+        let syspath = py
+            .import_bound("sys")?
+            .getattr("path")?
+            .downcast_into::<PyList>()?;
+
+        if !syspath.contains(&path)? {
+            syspath.insert(0, &path)?;
+        }
+        println!("syspath: {:?}", syspath);
+        let utils= PyModule::import_bound(py, "simpleai_base.utils").expect("No sendsms.");
+        let result = utils.getattr("get_ram_and_gpu_info")?
+            .call0()?;
+        Ok(result.into())
+    });
+    results.unwrap()
+}
 
 

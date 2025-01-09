@@ -61,6 +61,9 @@ impl SystemBaseInfo {
         let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
 
+        let ram_gpu_info = env_utils::get_ram_and_gpu_info();
+        println!("ram_gpu_info: {:?}", ram_gpu_info);
+
         let root_dir = match env::current_dir() {
             Ok(dir) => dir,
             Err(e) => {
