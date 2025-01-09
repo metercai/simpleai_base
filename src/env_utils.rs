@@ -258,12 +258,13 @@ pub(crate) fn get_ram_and_gpu_info() -> Py<PyAny> {
             .getattr("path")?
             .downcast_into::<PyList>()?;
 
+        println!("path: {:?}", path);
         if !syspath.contains(&path)? {
             syspath.insert(0, &path)?;
         }
         println!("syspath: {:?}", syspath);
-        let utils= PyModule::import_bound(py, "utils").expect("No simpleai_base.utils.");
-        let result = utils.getattr("get_ram_and_gpu_info")?
+        let systeminfo= PyModule::import_bound(py, "simpleai_base.systeminfo").expect("No simpleai_base.systeminfo.");
+        let result = systeminfo.getattr("get_ram_and_gpu_info")?
             .call0()?;
         Ok(result.into())
     });
