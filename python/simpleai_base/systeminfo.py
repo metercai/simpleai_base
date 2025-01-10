@@ -15,12 +15,12 @@ def get_ram_and_gpu_info():
         device_count = pynvml.nvmlDeviceGetCount()
         for i in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            gpu_name = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+            gpu_name = pynvml.nvmlDeviceGetName(handle)
             gpu_brand = gpu_name.split(' ')[0].strip()
             gpu_memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             gpu_memory_total = gpu_memory_info.total
             gpu_memory_free = gpu_memory_info.free
-            driver_version = pynvml.nvmlSystemGetDriverVersion().decode('utf-8')
+            driver_version = pynvml.nvmlSystemGetDriverVersion()
             cuda_version = pynvml.nvmlSystemGetCudaDriverVersion()
             gpu_info = {
                 "gpu_brand": gpu_brand,
