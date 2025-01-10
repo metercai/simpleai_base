@@ -14,8 +14,8 @@ def get_ram_and_gpu_info():
     cuda_version = ''
     if pynvml_available:
         pynvml.nvmlInit()
-        driver_version = pynvml.nvmlSystemGetDriverVersion()
-        cuda_version = pynvml.nvmlSystemGetCudaDriverVersion()
+        driver_version = str(pynvml.nvmlSystemGetDriverVersion())
+        cuda_version = str(pynvml.nvmlSystemGetCudaDriverVersion())
         device_count = pynvml.nvmlDeviceGetCount()
         for i in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
