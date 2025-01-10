@@ -10,8 +10,12 @@ def get_ram_and_gpu_info():
     except ImportError:
         pynvml_available = False
     gpu_info_list = []
+    driver_version = ''
+    cuda_version = ''
     if pynvml_available:
         pynvml.nvmlInit()
+        driver_version = pynvml.nvmlSystemGetDriverVersion()
+        cuda_version = pynvml.nvmlSystemGetCudaDriverVersion()
         device_count = pynvml.nvmlDeviceGetCount()
         for i in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
@@ -20,21 +24,11 @@ def get_ram_and_gpu_info():
             gpu_memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             gpu_memory_total = gpu_memory_info.total
             gpu_memory_free = gpu_memory_info.free
-            driver_version = pynvml.nvmlSystemGetDriverVersion()
-            cuda_version = pynvml.nvmlSystemGetCudaDriverVersion()
-            gpu_info = {
-                "gpu_brand": gpu_brand,
-                "gpu_name": gpu_name,
-                "gpu_memory": gpu_memory_total,
-                "gpu_free": gpu_memory_free,
-                "driver": driver_version,
-                "cuda": cuda_version
-            }
-            gpu_info_list.append(gpu_info)
+            gpu_info_list.append(gpu_brand)
+            gpu_info_list.append(gpu_name)
+            gpu_info_list.append(str(gpu_memory_total))
+            gpu_info_list.append(str(gpu_memory_free))
         pynvml.nvmlShutdown()
 
-    return {
-        "ram_total": ram_memory,
-        "ram_swap": swap_memory,
-        "gpu_info": gpu_info_list
-    }
+    ram_and_gpu = [str(ram_memory), str(swap_memory), driver_version, cuda_version] + gpu_info_list
+    return ','.join(ram_and_gpu)

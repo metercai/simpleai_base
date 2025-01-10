@@ -8,7 +8,7 @@ echo_off = True
 HASH_SHA256_LENGTH = 10
 
 ram_gpu = systeminfo.get_ram_and_gpu_info()
-print(f"RAM: {ram_gpu['ram_total']} bytes, Swap: {ram_gpu['ram_swap']} bytes, gpus: {ram_gpu['gpu_info']}")
+print(f"{ram_gpu}")
 
 def sha256(filename, use_addnet_hash=False, length=HASH_SHA256_LENGTH):
     if use_addnet_hash:
