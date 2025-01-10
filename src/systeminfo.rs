@@ -49,7 +49,31 @@ pub struct SystemBaseInfo {
 impl SystemBaseInfo {
     pub fn generate() -> Self {
         let (disk_total, disk_free, disk_uuid) = get_disk_info();
-        let (gpu_brand, gpu_name, gpu_memory, driver, cuda) = get_gpu_info();
+        let (mut gpu_brand, mut gpu_name, mut gpu_memory, mut driver, mut cuda) = get_gpu_info();
+        let ram_gpu_info = env_utils::get_ram_and_gpu_info();
+        //println!("ram_gpu_info: {}", ram_gpu_info);
+        let parts: Vec<&str> = ram_gpu_info.split(',').collect();
+        if parts.len()>=4 {
+            if driver=="reserve" {
+                driver = parts[2].to_string();
+            }
+            if cuda=="-" {
+                cuda = parts[3].to_string();
+            }
+        }
+        if parts.len()>=8 {
+            if gpu_brand=="Unknown" {
+                gpu_brand = parts[4].to_string();
+            }
+            if gpu_name=="reserve" {
+                gpu_name = parts[5].to_string();
+            }
+            if gpu_memory==0 {
+                gpu_memory = parts[6].parse::<u64>().unwrap_or(0);
+            }
+        }
+
+
         let host_type = is_virtual_or_docker_or_physics();
 
         let mut sys = System::new_all();
@@ -60,9 +84,6 @@ impl SystemBaseInfo {
         let cpu_arch = env::consts::ARCH.to_string();
         let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
-
-        let ram_gpu_info = env_utils::get_ram_and_gpu_info();
-        println!("ram_gpu_info: {}", ram_gpu_info);
 
         let root_dir = match env::current_dir() {
             Ok(dir) => dir,
