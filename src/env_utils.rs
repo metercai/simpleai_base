@@ -243,27 +243,49 @@ pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
 
 
 pub(crate) fn get_ram_and_gpu_info() -> Py<PyAny> {
-    let root_dir = match env::current_dir() {
-        Ok(dir) => dir,
-        Err(e) => {
-            tracing::error!("env::current_dir, error:{:?}", e);
-            PathBuf::from("/")
-        }
-    };
-    let path = root_dir.join("python").join("simpleai_base");
+    let code = r#"
+def get_ram_and_gpu_info():
+    import psutil
+    ram_memory = psutil.virtual_memory().total
+    swap_memory = psutil.swap_memory().total
+    try:
+        import pynvml
+        pynvml_available = True
+    except ImportError:
+        pynvml_available = False
+    gpu_info_list = []
+    if pynvml_available:
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            gpu_name = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+            gpu_brand = gpu_name.split(' ')[0].strip()
+            gpu_memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            gpu_memory_total = gpu_memory_info.total
+            gpu_memory_free = gpu_memory_info.free
+            driver_version = pynvml.nvmlSystemGetDriverVersion().decode('utf-8')
+            cuda_version = pynvml.nvmlSystemGetCudaDriverVersion()
+            gpu_info = {
+                "gpu_brand": gpu_brand,
+                "gpu_name": gpu_name,
+                "gpu_memory": gpu_memory_total,
+                "gpu_free": gpu_memory_free,
+                "driver": driver_version,
+                "cuda": cuda_version
+            }
+            gpu_info_list.append(gpu_info)
+        pynvml.nvmlShutdown()
+
+    return {
+        "ram_total": ram_memory,
+        "ram_swap": swap_memory,
+        "gpu_info": gpu_info_list
+    }
+    "#;
 
     let results = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
-        let syspath = py
-            .import_bound("sys")?
-            .getattr("path")?
-            .downcast_into::<PyList>()?;
-
-        println!("path: {:?}", path);
-        if !syspath.contains(&path)? {
-            syspath.insert(0, &path)?;
-        }
-        println!("syspath: {:?}", syspath);
-        let systeminfo= PyModule::import_bound(py, "simpleai_base.systeminfo").expect("No simpleai_base.systeminfo.");
+        let systeminfo= PyModule::from_code_bound(py, &code,"systeminfo.py", "systeminfo").expect("No systeminfo.");
         let result = systeminfo.getattr("get_ram_and_gpu_info")?
             .call0()?;
         Ok(result.into())

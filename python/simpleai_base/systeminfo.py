@@ -1,6 +1,7 @@
-import psutil
+
 
 def get_ram_and_gpu_info():
+    import psutil
     ram_memory = psutil.virtual_memory().total
     swap_memory = psutil.swap_memory().total
     try:
