@@ -480,7 +480,7 @@ impl SimpleAI {
         let identity = self.export_user(&nickname, &user_telephone, &phrase);
         let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-        println!("[UserBase] Create user and save identity_file: {}", identity_file.display());
+        println!("{} [UserBase] Create user and save identity_file: {}", token_utils::now_string(), identity_file.display());
 
         (user_did, phrase)
     }
@@ -494,7 +494,7 @@ impl SimpleAI {
             let claim = claims.get_claim_from_local(&user_did);
             (user_did, claim)
         };
-        println!("[UserBase] Remove user: {}, {}, {}", user_hash_id, user_did, claim.nickname);
+        println!("{} [UserBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
         if user_did != "Unknown" {
             if !claim.is_default() {
                 let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
@@ -535,7 +535,7 @@ impl SimpleAI {
         if self.crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
-        println!("[UserBase] Import user: {}", user_did);
+        println!("{} [UserBase] Import user: {}", token_utils::now_string(), user_did);
 
         user_did
     }
@@ -549,7 +549,7 @@ impl SimpleAI {
             let claim = claims.get_claim_from_local(&user_did);
             (user_did, claim)
         };
-        println!("[UserBase] Export user: {}", user_did);
+        println!("{} [UserBase] Export user: {}", token_utils::now_string(), user_did);
 
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
     }
@@ -643,7 +643,7 @@ impl SimpleAI {
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-                        println!("[UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", issuer_did, item, for_did, for_sys_did);
+                        println!("{} [UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", token_utils::now_string(), issuer_did, item, for_did, for_sys_did);
                         if for_sys_did == self.did {
                             return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
                         } else {
@@ -653,7 +653,7 @@ impl SimpleAI {
                 }
             }
         }
-        println!("[UserBase] Sign and issue a cert by did: invalid params");
+        println!("{} [UserBase] Sign and issue a cert by did: invalid params", token_utils::now_string());
         ("Unknown".to_string(), "Unknown".to_string())
     }
 
@@ -750,7 +750,7 @@ impl SimpleAI {
     pub fn check_sstoken_and_get_did(&mut self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
         if sstoken_bytes.len() != 32 || sstoken_bytes==[0; 32] {
-            println!("[UserBase] The sstoken in browser is incorrect format: {}", sstoken);
+            println!("{} [UserBase] The sstoken in browser is incorrect format: {}", token_utils::now_string(), sstoken);
             return String::from("Unknown")
         }
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
@@ -780,7 +780,7 @@ impl SimpleAI {
             let user_did = did_bytes.to_base58();
             let context = self.get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
-                println!("[UserBase] The context of the sstoken in browser is expired: did={}", user_did);
+                println!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                 String::from("Unknown")
             } else {
                 user_did
@@ -804,13 +804,13 @@ impl SimpleAI {
                 let user_did = did_bytes.to_base58();
                 let context = self.get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
-                    println!("[UserBase] The context2 of the sstoken in browser is expired: did={}", user_did);
+                    println!("{} [UserBase] The context2 of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                     String::from("Unknown")
                 } else {
                     user_did
                 }
             } else {
-                println!("[UserBase] The sstoken in browser is not validity: sstoken={}, ua={}", sstoken, ua_hash);
+                println!("{} [UserBase] The sstoken in browser is not validity: sstoken={}, ua={}", token_utils::now_string(), sstoken, ua_hash);
                 String::from("Unknown")
             }
         }
@@ -935,11 +935,12 @@ impl SimpleAI {
                 match identity_file.exists() {
                     true => "local".to_string(),
                     false => {
-                        println!("[UserBase] The identity is not in local and generate ready_data for new user: {}, {}, {}, {}", nickname, telephone, user_hash_id, symbol_hash_base64);
+                        println!("{} [UserBase] The identity is not in local and generate ready_data for new user: {}, {}, {}, {}",
+                                 token_utils::now_string(), nickname, telephone, user_hash_id, symbol_hash_base64);
                         let (user_did, _user_phrase) = self.create_user(&nickname, telephone, None, None);
                         let new_claim = self.get_claim_from_local(&user_did);
-                        println!("[UserBase] Create new claim for new user: user_did={}, claim_symbol={}",
-                            user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
+                        println!("{} [UserBase] Create new claim for new user: user_did={}, claim_symbol={}",
+                            token_utils::now_string(), user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
 
                         let mut request: serde_json::Value = json!({});
                         request["telephone"] = serde_json::to_value(telephone).unwrap_or(json!(""));
@@ -948,7 +949,7 @@ impl SimpleAI {
                         let apply_result = self.request_token_api(
                             "apply",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        println!("[UserBase] Apply to verify user: symbol({})", symbol_hash_base64);
+                        println!("{} [UserBase] Apply to verify user: symbol({})", token_utils::now_string(), symbol_hash_base64);
                         if !apply_result.starts_with("Unknown") {
                             let parts: Vec<&str> = apply_result.split('|').collect();
                             if parts[0] == "user_claim" {
@@ -956,21 +957,23 @@ impl SimpleAI {
                                 match serde_json::from_str::<IdClaim>(&parts[1]) {
                                     Ok(return_claim) => {
                                         let return_did = return_claim.gen_did();
-                                        println!("[UserBase] The decoding the claim from Root is correct: user_did({}), nickname={}, claim_symbol({})",
-                                                 return_did, return_claim.nickname, URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()));
+                                        println!("{} [UserBase] The decoding the claim from Root is correct: user_did({}), nickname={}, claim_symbol({})",
+                                                 token_utils::now_string(), return_did, return_claim.nickname, URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()));
                                         debug!("return_claim: {}", parts[1]);
                                         if user_did != return_claim.gen_did() {
-                                            println!("[UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})", user_did, return_did);
+                                            println!("{} [UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})",
+                                                     token_utils::now_string(), user_did, return_did);
                                             self.push_claim(&return_claim);
                                             return "recall".to_string();
                                         } else {
-                                            println!("[UserBase] Identity confirmed to recall user from root is same the new before: local_did({}), remote_did({})", user_did, return_did);
+                                            println!("{} [UserBase] Identity confirmed to recall user from root is same the new before: local_did({}), remote_did({})",
+                                                     token_utils::now_string(), user_did, return_did);
                                             self.remove_user(&symbol_hash_base64);
                                             return "unknown".to_string();
                                         }
                                     }
                                     Err(e) => {
-                                        println!("[UserBase] The decoding the claim from Root is fail: did({}), error({})", user_did, e);
+                                        println!("{} [UserBase] The decoding the claim from Root is fail: did({}), error({})", token_utils::now_string(), user_did, e);
                                         self.remove_user(&symbol_hash_base64);
                                         return "unknown".to_string();
                                     }
@@ -983,23 +986,23 @@ impl SimpleAI {
                                     let _ = ready_users.insert(&user_hash_id, ivec_data);
                                 }
                                 debug!("ready_data: {}", ready_data);
-                                println!("[UserBase] User apply is ok, ready to verify user_cert with vcode: did({})", user_did);
+                                println!("{} [UserBase] User apply is ok, ready to verify user_cert with vcode: did({})", token_utils::now_string(), user_did);
                                 return "create".to_string();
                             } else {
                                 self.remove_user(&symbol_hash_base64);
-                                println!("[UserBase] User apply is ok, but the feedback is undefined: {}",apply_result);
+                                println!("{} [UserBase] User apply is ok, but the feedback is undefined: {}", token_utils::now_string(), apply_result);
                                 return "unknown".to_string();
                             }
                         } else if apply_result.starts_with("Unknown_Repeat") {
-                            println!("[UserBase] User apply is failure({}): did({}), symbol({})", apply_result, user_did, symbol_hash_base64);
+                            println!("{} [UserBase] User apply is failure({}): did({}), symbol({})", token_utils::now_string(), apply_result, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown_repeat".to_string();
                         } else if apply_result.starts_with("Unknown_Exceeded") {
-                            println!("[UserBase] User apply is failure({}): did({}), symbol({})", apply_result, user_did, symbol_hash_base64);
+                            println!("{} [UserBase] User apply is failure({}): did({}), symbol({})", token_utils::now_string(), apply_result, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown_exceeded".to_string();
                         } else {
-                            println!("[UserBase] User apply is failure({}): sys_did({}), user_did({}), user_symbol({})", apply_result, self.did, user_did, symbol_hash_base64);
+                            println!("{} [UserBase] User apply is failure({}): sys_did({}), user_did({}), user_symbol({})", token_utils::now_string(), apply_result, self.did, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown".to_string();
                         }
@@ -1046,11 +1049,13 @@ impl SimpleAI {
                             let ready_claim = self.get_claim_from_local(&ready_user_did);
                             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(ready_claim.get_symbol_hash());
                             if cert_user_did != ready_user_did {
-                                println!("[UserBase] The parsed cert from Root is not match: cert_did({}), ready_did({})", cert_user_did, ready_user_did);
+                                println!("{} [UserBase] The parsed cert from Root is not match: cert_did({}), ready_did({})",
+                                         token_utils::now_string(), cert_user_did, ready_user_did);
                                 self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
-                            println!("[UserBase] The parsed cert from Root is correct: did({}), nickname({}), symbol({})", ready_user_did, ready_claim.nickname, symbol_hash_base64);
+                            println!("{} [UserBase] The parsed cert from Root is correct: did({}), nickname({}), symbol({})",
+                                     token_utils::now_string(), ready_user_did, ready_claim.nickname, symbol_hash_base64);
                             let encrypted_claim = URL_SAFE_NO_PAD.encode(token_utils::encrypt(ready_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0));
 
                             let mut request: serde_json::Value = json!({});
@@ -1065,14 +1070,15 @@ impl SimpleAI {
                             if !result.starts_with("Unknown") {
                                 return "create".to_string();
                             } else {
-                                println!("[UserBase] The user confirm request is fail: ready_did({}), symbol({})", ready_user_did, symbol_hash_base64);
+                                println!("{} [UserBase] The user confirm request is fail: ready_did({}), symbol({})",
+                                         token_utils::now_string(), ready_user_did, symbol_hash_base64);
                                 self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
                         }
                     }
-                    println!("[UserBase] The decoding the claim from Root is incorrect: ready_did({}), symbol({})",
-                             ready_user_did, symbol_hash_base64);
+                    println!("{} [UserBase] The decoding the claim from Root is incorrect: ready_did({}), symbol({})",
+                             token_utils::now_string(), ready_user_did, symbol_hash_base64);
                     let ready_data = format!("{}|{}|{}", try_count, ready_user_did, encrypted_certificate_string);
                     let ivec_data = sled::IVec::from(ready_data.as_bytes());
                     {
@@ -1085,12 +1091,14 @@ impl SimpleAI {
                         let ready_users = self.ready_users.lock().unwrap();
                         let _ = ready_users.remove(user_hash_id.clone());
                     };
-                    println!("[UserBase] The try_count of verify the code has run out: ready_did({}), symbol({}), user_hash_id({})", ready_user_did, symbol_hash_base64, user_hash_id);
+                    println!("{} [UserBase] The try_count of verify the code has run out: ready_did({}), symbol({}), user_hash_id({})",
+                             token_utils::now_string(), ready_user_did, symbol_hash_base64, user_hash_id);
                     return "error:0".to_string();
                 }
             }
         }
-        println!("[UserBase] The ready data is not exist or incorrect: symbol({}), user_hash_id({}), ready_data({})", symbol_hash_base64, user_hash_id, ready_data);
+        println!("{} [UserBase] The ready data is not exist or incorrect: symbol({}), user_hash_id({}), ready_data({})",
+                 token_utils::now_string(), symbol_hash_base64, user_hash_id, ready_data);
         self.remove_user(&symbol_hash_base64);
         "error:0".to_string()
     }
@@ -1099,15 +1107,15 @@ impl SimpleAI {
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
         if !token_utils::is_valid_telephone(telephone) {
-            println!("[UserBase] The telephone number is not valid: {}, {}.", nickname, telephone);
+            println!("{} [UserBase] The telephone number is not valid: {}, {}.", token_utils::now_string(), nickname, telephone);
             return self.get_guest_user_context();
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         if user_did == "Unknown" || !self.is_registered(&user_did) {
-            println!("[UserBase] The user isn't in local or hasn't been verified by root: nickname={}, telephone={}, symbol={}, user_did={}",
-                     nickname, telephone, symbol_hash_base64, user_did);
+            println!("{} [UserBase] The user isn't in local or hasn't been verified by root: nickname={}, telephone={}, symbol={}, user_did={}",
+                     token_utils::now_string(), nickname, telephone, symbol_hash_base64, user_did);
             self.remove_user(&symbol_hash_base64);
             return self.get_guest_user_context();
         }
@@ -1116,13 +1124,14 @@ impl SimpleAI {
         if token_utils::is_original_user_key(&symbol_hash)  {
             let _ = token_utils::change_phrase_for_pem_and_identity_files(&symbol_hash, &user_phrase, phrase);
         } else {
-            println!("[UserBase] The user_key phrase has been changed and can not to be set: {}, {}.", nickname, user_did);
+            println!("{} [UserBase] The user_key phrase has been changed and can not to be set: {}, {}.",
+                     token_utils::now_string(), nickname, user_did);
             return self.get_guest_user_context();
         }
 
         let context = self.sign_user_context(&user_did, phrase);
         if context.is_default() {
-            println!("[UserBase] The user maybe in blacklist: {}", user_did);
+            println!("{} [UserBase] The user maybe in blacklist: {}", token_utils::now_string(), user_did);
             return self.get_guest_user_context();
         }
         let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
@@ -1136,16 +1145,16 @@ impl SimpleAI {
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
         let result = self.request_token_api("submit_user_copy", &params);
         if result.starts_with("Backup_ok") {
-            println!("[UserBase] After set phrase, then upload encrypted_user_copy: user_did={}", user_did);
+            println!("{} [UserBase] After set phrase, then upload encrypted_user_copy: user_did={}", token_utils::now_string(), user_did);
             context
         } else if result.starts_with("Unknown") {
             //let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
             //let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", user_did));
             //fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
-            println!("[UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", user_did, result);
+            println!("{} [UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", token_utils::now_string(), user_did, result);
             self.get_guest_user_context() //context
         }  else {
-            println!("[UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", user_did, result);
+            println!("{} [UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", token_utils::now_string(), user_did, result);
             self.get_guest_user_context()
         }
 
@@ -1162,7 +1171,8 @@ impl SimpleAI {
             let user_did = {
                 match token_utils::exists_and_valid_user_key(&symbol_hash, phrase) && user_did != "Unknown" {
                     true => {
-                        println!("[UserBase] Get user context:{} from local key file: .token_user_{}.pem", user_did, user_hash_id);
+                        println!("{} [UserBase] Get user context:{} from local key file: .token_user_{}.pem",
+                                 token_utils::now_string(), user_did, user_hash_id);
                         user_did
                     },
                     false => {
@@ -1170,7 +1180,8 @@ impl SimpleAI {
                         match identity_file.exists() {
                             true => {
                                 let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
-                                println!("[UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}", user_did, symbol_hash_base64, encrypted_identity.len(), encrypted_identity);
+                                println!("{} [UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}",
+                                         token_utils::now_string(), user_did, symbol_hash_base64, encrypted_identity.len(), encrypted_identity);
                                 self.import_user(&symbol_hash_base64.clone(), &encrypted_identity, phrase)
                             }
                             false => {
@@ -1189,16 +1200,18 @@ impl SimpleAI {
                                         let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
                                         if user_copy_from_cloud_array.len() >= 3 {
                                             let encrypted_identity = user_copy_from_cloud_array[0];
-                                            println!("[UserBase] Download user encrypted_copy: {}, len={}", symbol_hash_base64, encrypted_identity.len());
+                                            println!("{} [UserBase] Download user encrypted_copy: {}, len={}",
+                                                     token_utils::now_string(), symbol_hash_base64, encrypted_identity.len());
                                             debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
                                             let user_did = self.import_user(&symbol_hash_base64, &encrypted_identity, phrase);
                                             if user_did != "Unknown" {
                                                 let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                                 fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-                                                println!("[UserBase] Parsing encrypted_copy and save identity_file: {}, {}", user_hash_id, user_did);
+                                                println!("{} [UserBase] Parsing encrypted_copy and save identity_file: {}, {}",
+                                                         token_utils::now_string(), user_hash_id, user_did);
 
                                                 if token_utils::exists_and_valid_user_key(&symbol_hash, phrase) {
-                                                    println!("[UserBase] The user encrypted copy is valid: {}", user_did);
+                                                    println!("{} [UserBase] The user encrypted copy is valid: {}", token_utils::now_string(), user_did);
 
                                                     let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
                                                         user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
@@ -1219,20 +1232,20 @@ impl SimpleAI {
                                                     //    .unwrap_or(UserContext::default()), "add");
                                                     user_did
                                                 } else {
-                                                    println!("[UserBase] The user encrypted copy is not valid: {}, user_key is error.", user_did);
+                                                    println!("{} [UserBase] The user encrypted copy is not valid: {}, user_key is error.", token_utils::now_string(), user_did);
                                                     "guest".to_string()
                                                 }
                                             } else {
-                                                println!("[UserBase] The user encrypted copy is not valid: {}, import_user is error.", user_hash_id);
+                                                println!("{} [UserBase] The user encrypted copy is not valid: {}, import_user is error.", token_utils::now_string(), user_hash_id);
                                                 "guest".to_string()
                                             }
                                         } else {
-                                            println!("[UserBase] The user encrypted copy is not valid: {}, user_copy_from_cloud is error.", user_hash_id);
+                                            println!("{} [UserBase] The user encrypted copy is not valid: {}, user_copy_from_cloud is error.", token_utils::now_string(), user_hash_id);
                                             "guest".to_string()
                                         }
                                     },
                                     false => {
-                                        println!("[UserBase] The user encrypted copy is not valid: {}, get_user_copy response is error", user_hash_id);
+                                        println!("{} [UserBase] The user encrypted copy is not valid: {}, get_user_copy response is error", token_utils::now_string(), user_hash_id);
                                         "guest".to_string()
                                     }
                                 }
@@ -1244,14 +1257,14 @@ impl SimpleAI {
             if user_did != "guest" && user_did != "Unknown" {
                 let context = self.sign_user_context(&user_did, phrase);
                 if context.is_default() {
-                    println!("[UserBase] The user hasn't been verified by root or in blacklist: {}", user_did);
+                    println!("{} [UserBase] The user hasn't been verified by root or in blacklist: {}", token_utils::now_string(), user_did);
                     self.get_guest_user_context()
                 } else { context }
             } else {
                 self.get_guest_user_context()
             }
         } else {
-            println!("[UserBase] The telephone is not valid: {}", telephone);
+            println!("{} [UserBase] The telephone is not valid: {}", token_utils::now_string(), telephone);
             self.get_guest_user_context()
         }
     }
@@ -1288,7 +1301,7 @@ impl SimpleAI {
                     };
                     let _ = token_utils::update_user_token_to_file(&context, "remove");
                 }
-                println!("[UserBase] Unbind user({}) from node({}): {}", user_did, self.did, result);
+                println!("{} [UserBase] Unbind user({}) from node({}): {}", token_utils::now_string(), user_did, self.did, result);
             }
         }
         self.get_guest_user_context()
@@ -1371,7 +1384,7 @@ impl SimpleAI {
         if token_utils::update_user_token_to_file(&context, "add") == "Ok"  {
             if self.admin.is_empty() && did != self.guest {
                 self.set_admin(did);
-                println!("[UserBase] Set admin_did/设置系统管理 = {}", self.admin);
+                println!("{} [UserBase] Set admin_did/设置系统管理 = {}", token_utils::now_string(), self.admin);
             }
             {
                 let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
@@ -1429,7 +1442,7 @@ impl SimpleAI {
                 break;
             }
             if start.elapsed() > Duration::from_secs(15) {
-                println!("[SimpleAI] 系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。");
+                println!("{} [SimpleAI] 系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。", token_utils::now_string());
                 feedback_code += 1;
                 break;
             }
@@ -1446,7 +1459,7 @@ impl SimpleAI {
                 format!("{}-{}", sysinfo.pyhash, (now_sec/100000*100000).to_string())
                     .as_bytes()));
 
-            println!("[SimpleAI] 所运行程序为非官方正式版本，请正确使用开源软件，{}。", &pyhash_display[..16]);
+            println!("{} [SimpleAI] 所运行程序为非官方正式版本，请正确使用开源软件，{}。", token_utils::now_string(), &pyhash_display[..16]);
             feedback_code += 4;
         }
 

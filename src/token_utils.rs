@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::io::Write;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use directories_next::BaseDirs;
 
@@ -169,7 +169,7 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
             match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("[UserBase] read user_certificates file error: {}",e);
+                    println!("{} [UserBase] read user_certificates file error: {}", now_string(), e);
                     return
                 },
             }
@@ -260,7 +260,7 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
             match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("[UserBase] read user issued certificates file error: {}",e);
+                    println!("{} [UserBase] read user issued certificates file error: {}", now_string(), e);
                     return
                 },
             }
@@ -323,7 +323,7 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
             let token_raw_data = match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("[UserBase] read authorized2system file error: {}",e);
+                    println!("{} [UserBase] read authorized2system file error: {}", now_string(), e);
                     return String::from("");
                 },
             };
@@ -430,7 +430,7 @@ pub(crate) fn get_user_token_from_file(did: &str, sys_did: &str) -> UserContext 
                     match fs::read(user_token_file) {
                         Ok(data) => data,
                         Err(e) => {
-                            println!("[UserBase] read user issued certificates file error: {}",e);
+                            println!("{} [UserBase] read user issued certificates file error: {}", now_string(), e);
                             return UserContext::default()
                         },
                     }
@@ -725,7 +725,7 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
                 pkey
             },
             Err(_e) => {
-                println!("[UserBase] Read key file error: {}", _e);
+                println!("{} [UserBase] Read key file error: {}", now_string(), _e);
                 let pkey: [u8; 32] = [0; 32];
                 pkey
             },
@@ -735,7 +735,7 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
         PrivateKeyInfo::new(ALGORITHM_ID, &priv_key)
             .encrypt(csprng, &new_phrase_bytes).unwrap()
             .write_pem_file(user_key_file.clone(), pem_label, LineEnding::default()).unwrap();
-        println!("[UserBase] Change phrase for user_key_file: {}", user_key_file.display());
+        println!("{} [UserBase] Change phrase for user_key_file: {}", now_string(), user_key_file.display());
     }
     let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
     if identity_file.exists() {
@@ -779,9 +779,9 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
             let encrypted_identity_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity.clone());
             debug!("export, encrypted_identity: len={}, {}", encrypted_identity.len(), encrypted_identity_base64);
             fs::write(identity_file.clone(), encrypted_identity_base64).expect(&format!("Unable to write file: {}", identity_file.display()));
-            println!("[UserBase] Change phrase for identity_file: {}", identity_file.display());
+            println!("{} [UserBase] Change phrase for identity_file: {}", now_string(), identity_file.display());
         } else {
-            println!("[UserBase] Change phrase for identity_file, parsing encrypted_identity error: {}", identity_file.display());
+            println!("{} [UserBase] Change phrase for identity_file, parsing encrypted_identity error: {}", now_string(), identity_file.display());
         }
     }
 }
@@ -1143,11 +1143,11 @@ pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec
             user_claim.update_timestamp(timestamp, phrase);
             user_claim
         } else {
-            println!("[UserBase] import_identity: Invalid identity secret");
+            println!("{} [UserBase] import_identity: Invalid identity secret", now_string());
             IdClaim::default()
         }
     } else {
-        println!("[UserBase] import_identity: Invalid identity string");
+        println!("{} [UserBase] import_identity: Invalid identity string", now_string());
         IdClaim::default()
     }
 }
@@ -1167,7 +1167,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
         let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
         let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), URL_SAFE_NO_PAD.encode(encrypted_identity)).expect(&format!("Unable to write file: {}", identity_file.display()));
-        println!("[UserBase] Import from qrcode and save identity_file: did={}, nickname={}", user_did, nickname);
+        println!("{} [UserBase] Import from qrcode and save identity_file: did={}, nickname={}", now_string(), user_did, nickname);
         if telephone == 0 {
             (user_did, nickname, "".to_string(), user_cert)
         } else { (user_did, nickname, telephone.to_string(), user_cert) }
@@ -1263,4 +1263,16 @@ pub(crate) fn truncate_nickname(nickname: &str) -> String {
     }
 
     result
+}
+
+pub(crate) fn now_string() -> String {
+    let now = SystemTime::now();
+    let duration_since_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+    let total_millis = duration_since_epoch.as_millis();
+    let hours = (total_millis / (1000 * 60 * 60)) % 24;
+    let minutes = (total_millis / (1000 * 60)) % 60;
+    let seconds = (total_millis / 1000) % 60;
+    let millis = total_millis % 1000;
+    let formatted_time = format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis);
+    formatted_time
 }
