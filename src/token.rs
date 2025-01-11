@@ -358,6 +358,18 @@ impl SimpleAI {
         let _ = global_local_vars.insert(&local_key, ivec_data);
     }
 
+    pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
+        let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
+        let admin = self.admin.clone();
+        let guest = self.guest.clone();
+        if admin == user_did {
+            let local_key = format!("{}_{}", guest, key);
+            let local_value = value.to_string();
+            let global_local_vars = self.global_local_vars.lock().unwrap();
+            let ivec_data = sled::IVec::from(local_value.as_bytes());
+            let _ = global_local_vars.insert(&local_key, ivec_data);
+        }
+    }
 
     pub fn is_guest(&self, did: &str) -> bool {
         did == self.guest.as_str()
