@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::io::Write;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 use serde_json::{json, Value};
 use directories_next::BaseDirs;
 
@@ -21,6 +21,7 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key };
 use argon2::Argon2;
+use chrono::{Local, Timelike};
 
 use tracing::{debug, info};
 use crate::systeminfo::SystemBaseInfo;
@@ -1266,13 +1267,11 @@ pub(crate) fn truncate_nickname(nickname: &str) -> String {
 }
 
 pub(crate) fn now_string() -> String {
-    let now = SystemTime::now();
-    let duration_since_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
-    let total_millis = duration_since_epoch.as_millis();
-    let hours = (total_millis / (1000 * 60 * 60)) % 24;
-    let minutes = (total_millis / (1000 * 60)) % 60;
-    let seconds = (total_millis / 1000) % 60;
-    let millis = total_millis % 1000;
+    let now = Local::now();
+    let hours = now.hour();
+    let minutes = now.minute();
+    let seconds = now.second();
+    let millis = now.timestamp_subsec_millis();
     let formatted_time = format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis);
     formatted_time
 }
