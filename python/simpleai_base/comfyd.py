@@ -22,7 +22,7 @@ def is_running():
     process_code = comfyd_process.poll()
     if process_code is None:
         return True
-    print("[Comfyd] comfyd process status code: {process_code}")
+    print("{utils.now_string()} [Comfyd] comfyd process status code: {process_code}")
     return False
 
 
@@ -54,7 +54,7 @@ def start(args_patch=[[]], force=False):
         gc.collect()
         torch.cuda.empty_cache()
         if not utils.echo_off:
-            print(f'[Comfyd] Ready to start with arguments: {arguments}, env: {process_env}')
+            print(f'{utils.now_string()} [Comfyd] Ready to start with arguments: {arguments}, env: {process_env}')
         if 'comfyd_process' not in globals():
             globals()['comfyd_process'] = None
         comfyd_process = subprocess.Popen([sys.executable, backend_script] + arguments, env=process_env)
@@ -62,7 +62,7 @@ def start(args_patch=[[]], force=False):
         comfyclient_pipeline.ws = None
 
     else:
-        print("[Comfyd] Comfyd is active!")
+        print("{utils.now_string()} [Comfyd] Comfyd is active!")
     return
 
 
@@ -85,12 +85,12 @@ def finished():
     if comfyd_active:
         # free()
         gc.collect()
-        print("[Comfyd] Task finished !")
+        print("{utils.now_string()} [Comfyd] Task finished !")
         return
     comfyclient_pipeline.ws = None
     free()
     gc.collect()
-    print("[Comfyd] Comfyd stopped!")
+    print("{utils.now_string()} [Comfyd] Comfyd stopped!")
 
 
 def stop(force=False):
@@ -102,7 +102,7 @@ def stop(force=False):
     if comfyd_active and not force:
         free(all=True)
         gc.collect()
-        print("[Comfyd] Comfyd freeing!")
+        print("{utils.now_string()} [Comfyd] Comfyd freeing!")
         return
     if is_running():
         comfyd_process.terminate()
@@ -111,7 +111,7 @@ def stop(force=False):
     comfyclient_pipeline.ws = None
     free()
     gc.collect()
-    print("[Comfyd] Comfyd stopped!")
+    print("{utils.now_string()} [Comfyd] Comfyd stopped!")
 
 
 def free(all=False):
@@ -160,7 +160,7 @@ def args_mapping(args_fooocus):
     if "--always-offload-from-vram" in args_fooocus:
         args_comfy += [["--disable-smart-memory"]]
     if not utils.echo_off:
-        print(f'[Comfyd] args_fooocus: {args_fooocus}\nargs_comfy: {args_comfy}')
+        print(f'{utils.now_string()} [Comfyd] args_fooocus: {args_fooocus}\nargs_comfy: {args_comfy}')
     return args_comfy
 
 

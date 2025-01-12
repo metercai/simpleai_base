@@ -441,7 +441,7 @@ class ModelsInfo:
                         del self.m_info[k]
                 #print(f'load m_info_key:{self.m_info.keys()}')
             except Exception as e:
-                print(f'[ModelInfo] Load model info file {self.info_path} failed!, error:{e}')
+                print(f'{utils.now_string()} [ModelInfo] Load model info file {self.info_path} failed!, error:{e}')
                 self.m_info = {}
                 self.m_muid = {}
                 self.m_file = {}
@@ -475,7 +475,7 @@ class ModelsInfo:
                     if model_key not in self.m_info.keys():
                         new_model_key.append(model_key)
         if not utils.echo_off:
-            print(f'[ModelInfo] new_model_key:{new_model_key}')
+            print(f'{utils.now_string()} [ModelInfo] new_model_key:{new_model_key}')
         for k in self.m_info.keys():
             if k not in new_info_key:
                 del_model_key.append(k)
@@ -483,7 +483,7 @@ class ModelsInfo:
             if f not in new_file_key:
                 del_file_key.append(f)
         if not utils.echo_off:
-            print(f'[ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
+            print(f'{utils.now_string()} [ModelInfo] del_model_key:{del_model_key}, del_file_key:{del_file_key}')
         for f in new_model_key:
             self.add_or_refresh_model(f, new_model_file[f])
         for f in del_model_key:
@@ -574,7 +574,7 @@ class ModelsInfo:
             hash = default_models_info[model_key]["hash"]
             muid = default_models_info[model_key]["muid"]
         elif self.scan_models_hash:
-            print(f'[ModelInfo] Calculate hash for {file_path}')
+            print(f'{utils.now_string()} [ModelInfo] Calculate hash for {file_path}')
             if os.path.isdir(file_path):
                 hash = utils.calculate_sha256_subfolder(file_path)
                 muid = hash[:10]
@@ -582,7 +582,7 @@ class ModelsInfo:
                 hash = utils.sha256(file_path, length=None)
                 _, file_extension = os.path.splitext(file_path)
                 if file_extension == '.safetensors':
-                    print(f'[ModelInfo] Calculate addnet hash for {file_path}')
+                    print(f'{utils.now_string()} [ModelInfo] Calculate addnet hash for {file_path}')
                     muid = utils.sha256(file_path, use_addnet_hash=True)
                 else:
                     muid = hash[:10]
@@ -595,22 +595,22 @@ class ModelsInfo:
         try:
             with open(self.info_path, "w", encoding="utf-8") as json_file:
                 json.dump(self.m_info, json_file, indent=4)
-                #print(f'[SimpleAI] Models info update and saved to {self.info_path}.')
+                #print(f'{utils.now_string()} [SimpleAI] Models info update and saved to {self.info_path}.')
         except PermissionError:
-            print(f'[SimpleAI] Models info update and save failed: Permission denied, {self.info_path}.')
+            print(f'{utils.now_string()} [SimpleAI] Models info update and save failed: Permission denied, {self.info_path}.')
         except json.JSONDecodeError:
-            print(f'[SimpleAI] Models info update and save failed: JSON decode error, {self.info_path}.')
+            print(f'{utils.now_string()} [SimpleAI] Models info update and save failed: JSON decode error, {self.info_path}.')
         except Exception as e:
-            print(f'[SimpleAI] Models info update and save failed: {e}, {self.info_path}.')
+            print(f'{utils.now_string()} [SimpleAI] Models info update and save failed: {e}, {self.info_path}.')
 
     def refresh_file(self, action, file_path, url=None):
         if action not in ['add', 'delete']:
-            print(f'[ModelInfo] Invalid action: {action}. Action must be either "add" or "delete".')
+            print(f'{utils.now_string()} [ModelInfo] Invalid action: {action}. Action must be either "add" or "delete".')
             return
 
         if action == 'add':
             if not os.path.exists(file_path):
-                print(f'[ModelInfo] The added file does not exist: {file_path}')
+                print(f'{utils.now_string()} [ModelInfo] The added file does not exist: {file_path}')
                 return
 
             # Determine the catalog and model_name
@@ -626,7 +626,7 @@ class ModelsInfo:
                         model_name = file_path[len(path) + 1:]
 
             if not catalog:
-                print(f'[ModelInfo] The added file "{file_path}" does not match any path in path_map.')
+                print(f'{utils.now_string()} [ModelInfo] The added file "{file_path}" does not match any path in path_map.')
                 return
 
             scan_hash = self.scan_models_hash
@@ -634,15 +634,15 @@ class ModelsInfo:
             model_name = model_name.replace(os.sep, '/')
             model_key = f'{catalog}/{model_name}'
             self.add_or_refresh_model(model_key, [file_path], url)
-            print(f'[ModelInfo] Added model "{model_key}" with file: {file_path}')
+            print(f'{utils.now_string()} [ModelInfo] Added model "{model_key}" with file: {file_path}')
             self.scan_models_hash = scan_hash
 
         elif action == 'delete':
             if file_path not in self.m_file:
-                print(f'[ModelInfo] File not found in model info: {file_path}')
+                print(f'{utils.now_string()} [ModelInfo] File not found in model info: {file_path}')
                 return
             self.remove_file(file_path)
-            print(f'[ModelInfo] Deleted model "{model_key}" with file: {file_path}')
+            print(f'{utils.now_string()} [ModelInfo] Deleted model "{model_key}" with file: {file_path}')
 
         self.save_model_info()
 

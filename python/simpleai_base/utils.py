@@ -9,6 +9,9 @@ HASH_SHA256_LENGTH = 10
 
 ram_gpu = systeminfo.get_ram_and_gpu_info()
 
+def now_string():
+    return datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
 def sha256(filename, use_addnet_hash=False, length=HASH_SHA256_LENGTH):
     if use_addnet_hash:
         with open(filename, "rb") as file:

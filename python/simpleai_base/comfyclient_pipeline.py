@@ -77,10 +77,10 @@ def queue_prompt(user_did, prompt, user_cert):
             if response.status_code == 200:
                 return json.loads(response.read())
             else:
-                print(f"Error: {response.status_code} {response.text}")
+                print(f"{utils.now_string()} Error: {response.status_code} {response.text}")
                 return None
     except httpx.RequestError as e:
-        print(f"httpx.RequestError: {e}")
+        print(f"{utils.now_string()} httpx.RequestError: {e}")
         return None
 
 
@@ -103,7 +103,7 @@ def get_history(prompt_id):
 
 def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=None):
     prompt_id = queue_prompt(user_did, prompt, user_cert)['prompt_id']
-    print('[ComfyClient] Request and get ComfyTask_id:{}'.format(prompt_id))
+    print('{utils.now_string()} [ComfyClient] Request and get ComfyTask_id:{}'.format(prompt_id))
     output_images = {}
     current_node = ''
     current_type = ''
@@ -119,16 +119,15 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
         try:
             out = ws.recv()
         except ConnectionResetError as e:
-            print(f'[ComfyClient] The connect was exception, restart and try again: {e}')
+            print(f'{utils.now_string()} [ComfyClient] The connect was exception, restart and try again: {e}')
             ws = websocket.WebSocket()
             ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
             out = ws.recv()
         if isinstance(out, str):
             message = json.loads(out)
             if not utils.echo_off:
-                print(f'[ComfyClient] feedback_message={message}')
+                print(f'{utils.now_string()} [ComfyClient] feedback_message={message}')
             current_type = message['type']
-            # print(f'current_message={message}')
             if message['type'] == 'executing':
                 data = message['data']
                 if data['prompt_id'] == prompt_id:
@@ -145,7 +144,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
             if not utils.echo_off:
                 length = len(out)
                 length = 10 if length > 10 else length
-                print(f'[ComfyClient] feedback_stream({len(out)})={out[:length]}...')
+                print(f'{utils.now_string()} [ComfyClient] feedback_stream({len(out)})={out[:length]}...')
             if current_type == 'progress':
                 if current_node and current_node in prompt:
                     if prompt[current_node]['class_type'] in preview_nodes and callback is not None:
@@ -160,11 +159,11 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                         output_images[prompt[current_node]['_meta']['title']] = images_output
                 else:
                     if current_node in prompt:
-                        print(f'[ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
+                        print(f'{utils.now_string()} [ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
             continue
 
     output_images = {k: np.array(Image.open(BytesIO(v[-1]))) for k, v in output_images.items()}
-    print(f'[ComfyClient] The ComfyTask:{prompt_id} has finished, get {len(output_images)} images')
+    print(f'{utils.now_string()} [ComfyClient] The ComfyTask:{prompt_id} has finished, get {len(output_images)} images')
     return output_images
 
 
@@ -186,7 +185,7 @@ def images_upload(images):
             filename2 = response.json()["name"]
             images.set_image_filename(k, filename2)
             result.update({k: filename2})
-            print(f'[ComfyClient] The ComfyTask:upload_input_image, {k}: {result[k]}')
+            print(f'{utils.now_string()} [ComfyClient] The ComfyTask:upload_input_image, {k}: {result[k]}')
         else:
             result.update({k: filename})
     return result
@@ -197,19 +196,19 @@ def process_flow(user_did, flow_name, params, images, callback=None, total_steps
 
     if ws is None or ws.status != 101:
         if ws is not None:
-            print(f'[ComfyClient] websocket status: {ws.status}, timeout:{ws.timeout}s.')
+            print(f'{utils.now_string()} [ComfyClient] websocket status: {ws.status}, timeout:{ws.timeout}s.')
             ws.close()
         try:
             ws = websocket.WebSocket()
             ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
         except ConnectionRefusedError as e:
-            print(f'[ComfyClient] The connect_to_server has failed, sleep and try again: {e}')
+            print(f'{utils.now_string()} [ComfyClient] The connect_to_server has failed, sleep and try again: {e}')
             time.sleep(8)
             try:
                 ws = websocket.WebSocket()
                 ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
             except ConnectionRefusedError as e:
-                print(f'[ComfyClient] The connect_to_server has failed, restart and try again: {e}')
+                print(f'{utils.now_string()} [ComfyClient] The connect_to_server has failed, restart and try again: {e}')
                 time.sleep(12)
                 ws = websocket.WebSocket()
                 ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
@@ -217,17 +216,17 @@ def process_flow(user_did, flow_name, params, images, callback=None, total_steps
 
     images_map = images_upload(images)
     params.update_params(images_map)
-    print(f'[ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
+    print(f'{utils.now_string()} [ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
     for k, v in params.get_params().items():
         print(f'    {k} = {v}')
     try:
         prompt_str = params.convert2comfy(flow_name)
         if not utils.echo_off:
-            pass #print(f'[ComfyClient] ComfyTask prompt: {prompt_str}')
+            pass #print(f'{utils.now_string()} [ComfyClient] ComfyTask prompt: {prompt_str}')
         images = get_images(user_did, ws, prompt_str, callback=callback, total_steps=total_steps, user_cert=user_cert)
         # ws.close()
     except websocket.WebSocketException as e:
-        print(f'[ComfyClient] The connect has been closed, restart and try again: {e}')
+        print(f'{utils.now_string()} [ComfyClient] The connect has been closed, restart and try again: {e}')
         ws = None
 
     imgs = []
@@ -235,7 +234,7 @@ def process_flow(user_did, flow_name, params, images, callback=None, total_steps
         images_keys = sorted(images.keys(), reverse=True)
         imgs = [images[key] for key in images_keys]
     else:
-        print(f'[ComfyClient] The ComfyTask:{flow_name} has no output images.')
+        print(f'{utils.now_string()} [ComfyClient] The ComfyTask:{flow_name} has no output images.')
     return imgs
 
 
@@ -245,7 +244,7 @@ def interrupt():
             response = client.post("http://{}/interrupt".format(server_address()))
             return
     except httpx.RequestError as e:
-        print(f"httpx.RequestError: {e}")
+        print(f"{utils.now_string()} httpx.RequestError: {e}")
         return
 
 
@@ -257,7 +256,7 @@ def free(all=False):
             response = client.post("http://{}/free".format(server_address()), data=data)
             return
     except httpx.RequestError as e:
-        print(f"httpx.RequestError: {e}")
+        print(f"{utils.now_string()} httpx.RequestError: {e}")
         return
 
 def setvars(vars):
@@ -270,7 +269,7 @@ def setvars(vars):
             response = client.post("http://{}/setvars".format(server_address()), data=data)
             return
     except httpx.RequestError as e:
-        print(f"httpx.RequestError: {e}")
+        print(f"{utils.now_string()} httpx.RequestError: {e}")
         return
 
 
