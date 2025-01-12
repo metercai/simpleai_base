@@ -130,7 +130,7 @@ impl GlobalClaims {
                 eprintln!("Failed to read directory: {}", e);
             }
         }
-        println!("[SimpleAI] Loaded claims from local: len={}", claims.len());
+        println!("{} [SimpleAI] Loaded claims from local: len={}", token_utils::now_string(), claims.len());
 
         GlobalClaims {
             claims,
