@@ -3,6 +3,7 @@ import hashlib
 import psutil
 from typing import Optional
 from . import systeminfo
+from datetime import datetime
 
 echo_off = True
 HASH_SHA256_LENGTH = 10
