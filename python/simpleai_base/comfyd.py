@@ -22,7 +22,7 @@ def is_running():
     process_code = comfyd_process.poll()
     if process_code is None:
         return True
-    print("{utils.now_string()} [Comfyd] comfyd process status code: {process_code}")
+    print(f"{utils.now_string()} [Comfyd] comfyd process status code: {process_code}")
     return False
 
 
@@ -62,7 +62,7 @@ def start(args_patch=[[]], force=False):
         comfyclient_pipeline.ws = None
 
     else:
-        print("{utils.now_string()} [Comfyd] Comfyd is active!")
+        print(f"{utils.now_string()} [Comfyd] Comfyd is active!")
     return
 
 
@@ -85,12 +85,12 @@ def finished():
     if comfyd_active:
         # free()
         gc.collect()
-        print("{utils.now_string()} [Comfyd] Task finished !")
+        print(f"{utils.now_string()} [Comfyd] Task finished!")
         return
     comfyclient_pipeline.ws = None
     free()
     gc.collect()
-    print("{utils.now_string()} [Comfyd] Comfyd stopped!")
+    print(f"{utils.now_string()} [Comfyd] Comfyd stopped!")
 
 
 def stop(force=False):
@@ -102,7 +102,7 @@ def stop(force=False):
     if comfyd_active and not force:
         free(all=True)
         gc.collect()
-        print("{utils.now_string()} [Comfyd] Comfyd freeing!")
+        print(f"{utils.now_string()} [Comfyd] Comfyd freeing!")
         return
     if is_running():
         comfyd_process.terminate()
@@ -111,7 +111,7 @@ def stop(force=False):
     comfyclient_pipeline.ws = None
     free()
     gc.collect()
-    print("{utils.now_string()} [Comfyd] Comfyd stopped!")
+    print(f"{utils.now_string()} [Comfyd] Comfyd stopped!")
 
 
 def free(all=False):
