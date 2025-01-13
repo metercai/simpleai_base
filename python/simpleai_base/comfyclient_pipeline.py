@@ -103,7 +103,7 @@ def get_history(prompt_id):
 
 def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=None):
     prompt_id = queue_prompt(user_did, prompt, user_cert)['prompt_id']
-    print('{utils.now_string()} [ComfyClient] Request and get ComfyTask_id:{}'.format(prompt_id))
+    print('{} [ComfyClient] Request and get ComfyTask_id:{}'.format(utils.now_string(), prompt_id))
     output_images = {}
     current_node = ''
     current_type = ''
