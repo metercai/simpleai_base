@@ -21,7 +21,6 @@ use crate::{exchange_key, issue_key};
 use crate::error::TokenError;
 use crate::env_data::EnvData;
 use crate::claims::{GlobalClaims, IdClaim, UserContext};
-use crate::rathole::Rathole;
 use crate::systeminfo::SystemInfo;
 use crate::cert_center::GlobalCerts;
 
@@ -131,7 +130,6 @@ impl SimpleAI {
         let dev_did = device_did.clone();
         let sysinfo_clone = sysinfo.clone();
         let _logging_handle = token_utils::TOKIO_RUNTIME.spawn(async move {
-            SystemInfo::logging_launch_info(&sys_did, &sysinfo_clone).await;
             submit_uncompleted_request_files(&sys_did, &dev_did).await
         });
 
@@ -172,18 +170,6 @@ impl SimpleAI {
     }
 
 
-    pub fn start_base_services(&self) -> Result<(), TokenError> {
-        let _config = "client.toml";
-        let _did = self.did.clone();
-        let _rt_handle = thread::spawn(move || {
-            token_utils::TOKIO_RUNTIME.block_on(async {
-                //let _ = Rathole::new(&config).start_service().await;
-                //todo!()
-                //println!("Rathole service started");
-            });
-        });
-        Ok(())
-    }
     pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
     pub fn get_sys_did(&self) -> String { self.did.clone() }
     pub fn get_upstream_did(&mut self) -> String {

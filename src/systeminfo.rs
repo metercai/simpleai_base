@@ -239,25 +239,6 @@ impl SystemInfo {
         //println!("sysinfo is finished");
         sysinfo
     }
-
-    pub(crate) async fn logging_launch_info(did: &str, sysinfo: &SystemInfo){
-        let loginfo = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            sysinfo.os_type, sysinfo.os_name, sysinfo.host_type, sysinfo.cpu_arch,
-            sysinfo.ram_total/1024, sysinfo.gpu_brand, sysinfo.gpu_name,
-            sysinfo.gpu_memory/1024, sysinfo.location, sysinfo.disk_total/1024,
-            sysinfo.disk_uuid, sysinfo.exe_name, sysinfo.pyhash, sysinfo.uihash);
-        let shared_key = b"Simple_114.124";
-        let ctext = URL_SAFE_NO_PAD.encode(token_utils::encrypt(loginfo.as_bytes(), shared_key, 0));
-        //println!("loginfo: {}\nctext: {}", loginfo, ctext);
-
-
-        let url = reqwest::Url::parse_with_params("https://edge.tokentm.net/log.gif", &[("d", did), ("p", &ctext)]).unwrap();
-
-        let _ = token_utils::REQWEST_CLIENT.get(url.as_str())
-            .send()
-            .await;
-    }
 }
 
 #[pymethods]
