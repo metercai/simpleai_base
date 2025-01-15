@@ -65,6 +65,7 @@ impl AdminDefault {
         data.insert("reserved_vram".to_string(), "0".to_string());
         data.insert("minicpm_checkbox".to_string(), "False".to_string());
         data.insert("advanced_logs".to_string(), "False".to_string());
+        data.insert("wavespeed_stength".to_string(), "0".to_string());
         Self {
             data,
         }
