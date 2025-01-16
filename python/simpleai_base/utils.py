@@ -8,7 +8,6 @@ from datetime import datetime
 echo_off = True
 HASH_SHA256_LENGTH = 10
 
-ram_gpu = systeminfo.get_ram_and_gpu_info()
 
 def now_string():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]

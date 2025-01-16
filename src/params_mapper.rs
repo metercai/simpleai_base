@@ -17,7 +17,7 @@ pub struct ComfyTaskParams {
 
 static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("seed", "KSampler:main_sampler:seed;TiledKSampler:main_sampler:seed;KolorsSampler:main_sampler:seed;RandomNoise:noise_seed:noise_seed;easy seed:sync_seed:seed;Co_Input_Zho:i2i_overall_input:seed"),
-    ("steps", "KSampler:main_sampler:steps;TiledKSampler:main_sampler:steps;KolorsSampler:main_sampler:steps;BasicScheduler:scheduler_select:steps;Co_Input_Zho:i2i_overall_input:steps"),
+    ("steps", "KSampler:main_sampler:steps;TiledKSampler:main_sampler:steps;KolorsSampler:main_sampler:steps;BasicScheduler:scheduler_select:steps;Co_Input_Zho:i2i_overall_input:steps;easy int:main_steps:value"),
     ("cfg_scale", "KSampler:main_sampler:cfg;TiledKSampler:main_sampler:cfg;KolorsSampler:main_sampler:cfg;CLIPTextEncodeFlux:prompt:guidance;Co_Input_Zho:i2i_overall_input:cfg"),
     ("sampler", "KSampler:main_sampler:sampler_name;TiledKSampler:main_sampler:sampler_name;KSamplerSelect:sampler_select:sampler_name;KSampler Config (rgthree):i2i_KSampler:sampler_name"),
     ("scheduler", "KSampler:main_sampler:scheduler;TiledKSampler:main_sampler:scheduler;KolorsSampler:main_sampler:scheduler;BasicScheduler:scheduler_select:scheduler;KSampler Config (rgthree):i2i_KSampler:scheduler"),
