@@ -75,28 +75,22 @@ impl SystemBaseInfo {
         let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
 
-        let root_dir = match env::current_dir() {
-            Ok(dir) => dir,
-            Err(e) => {
-                tracing::error!("env::current_dir, error:{:?}", e);
-                PathBuf::from("/")
-            }
-        };
-        let root_name = match Path::new(&root_dir.clone()).file_name() {
-            Some(file_name) => match file_name.to_str() {
-                Some(name) => name.to_string(),
-                None => "root".to_string(),
-            },
-            None => "root".to_string(),
-        };
+        let root_dir = env::current_dir().unwrap_or_else(|e| {
+            tracing::error!("env::current_dir, error:{:?}", e);
+            PathBuf::from("/")
+        });
 
-        let exe_dir = match env::current_exe() {
-            Ok(dir) => dir,
-            Err(e) => {
-                tracing::error!("env::current_exe, error:{:?}", e);
-                PathBuf::from("/")
-            }
-        };
+        let root_name = Path::new(&root_dir)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "root".to_string());
+
+        let exe_dir = env::current_exe().unwrap_or_else(|e| {
+            tracing::error!("env::current_exe, error:{:?}", e);
+            PathBuf::from("/")
+        });
+
         let exe_name = env::args().nth(1).unwrap_or_else(|| "SimpleAI".to_string());
         let os_sys_path = match env::consts::OS {
             "windows" => "C:\\Windows\\System32\\",

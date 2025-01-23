@@ -48,8 +48,9 @@ pub struct SimpleAI {
     // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
     // encrypted_key由for_did交换派生密钥加密, sig由证书密钥签, 整体由接受系统did的交换派生密钥加密
     // issued_certs: HashMap<String, String>,
-    admin: String,
     device: String,
+    admin: String,
+    node_mode: String,
     guest: String,
     guest_phrase: String,
     ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
@@ -152,6 +153,7 @@ impl SimpleAI {
             did: local_did,
             device: device_did,
             admin,
+            node_mode: "online".to_string(),
             token_db,
             authorized,
             user_sessions,
@@ -216,6 +218,10 @@ impl SimpleAI {
     }
     pub fn get_guest_did(&self) -> String {
         self.guest.clone()
+    }
+
+    pub fn get_node_mode(&self) -> String {
+        self.node_mode.clone()
     }
 
     pub(crate) fn get_admin_did(&self) -> String {
@@ -445,6 +451,25 @@ impl SimpleAI {
         debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
         token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
     }
+
+
+    pub fn reset_node_mode(&mut self, mode: &str)  {
+        if mode == "isolated" {
+            let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+                = GlobalClaims::get_system_vars();
+            let admin_name = guest_name.replace("guest_", "admin_");
+            let (admin_did, admin_phrase) = self.create_user(
+                &admin_name, &String::from("8610000000001"), None, None);
+            info!("create local admin: did={}, phrase={}", admin_did, admin_phrase);
+            self.admin = "".to_string();
+            self.sign_user_context(&admin_did, &admin_phrase);
+            self.node_mode = mode.to_string();
+        } else if mode == "online" {
+            self.admin = "".to_string();
+            self.node_mode = mode.to_string();
+        }
+    }
+
     pub(crate) fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
                        -> (String, String) {
         let nickname = token_utils::truncate_nickname(nickname);
@@ -542,6 +567,21 @@ impl SimpleAI {
 
     #[staticmethod]
     pub fn export_user_qrcode_svg(user_did: &str) -> String {
+        let encrypted_identity_qr_base64 = SimpleAI::export_user_qrcode_base64(user_did);
+        if !encrypted_identity_qr_base64.is_empty() {
+            let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
+            let image = qrcode.render()
+                .min_dimensions(400, 400)
+                .dark_color(svg::Color("#800000"))
+                .light_color(svg::Color("#ffff80"))
+                .build();
+            image
+        } else { "".to_string() }
+    }
+
+
+    #[staticmethod]
+    pub(crate) fn export_user_qrcode_base64(user_did: &str) -> String {
         let claim = {
             let claims = GlobalClaims::instance();
             let mut claims = claims.lock().unwrap();
@@ -569,16 +609,7 @@ impl SimpleAI {
                     encrypted_identity_qr.extend_from_slice(&did_bytes);
                     encrypted_identity_qr.extend_from_slice(&user_cert_bytes);
                     encrypted_identity_qr.extend_from_slice(&encrypted_identity);
-                    let encrypted_identity_qr_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone());
-                    debug!("encrypted_identity_qr: did={}, user_cert={}, identity={}, total.len={}", user_did, user_cert, identity, encrypted_identity_qr.len());
-                    debug!("encrypted_identity({})_qr_base64: len={}, {}", user_did, encrypted_identity_qr_base64.len(), encrypted_identity_qr_base64);
-                    let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
-                    let image = qrcode.render()
-                        .min_dimensions(400, 400)
-                        .dark_color(svg::Color("#800000"))
-                        .light_color(svg::Color("#ffff80"))
-                        .build();
-                    image
+                    URL_SAFE_NO_PAD.encode(encrypted_identity_qr.clone())
                 }
                 false => "".to_string()
             }
