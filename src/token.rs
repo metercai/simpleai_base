@@ -494,6 +494,26 @@ impl SimpleAI {
             self.node_mode = mode.to_string();
             (admin_did, admin_phrase)
         } else if mode == "online" { //
+            if !self.admin.is_empty() {
+                self.crypt_secrets.retain(|key, _| {
+                    if let Some((did, _)) = key.split_once('_') {
+                        did == self.device || did == self.did || did == self.guest
+                    } else {
+                        false
+                    }
+                });
+                let did = self.admin.clone();
+                let context = self.get_user_context(&did);
+                let key = format!("{}_{}", did, self.get_sys_did());
+                let authorized = self.authorized.lock().unwrap();
+                let _ = match authorized.contains_key(&key).unwrap() {
+                    false => {},
+                    true => {
+                        let _ = authorized.remove(&key);
+                    }
+                };
+                let _ = token_utils::update_user_token_to_file(&context, "remove");
+            }
             self.set_admin("");
             self.node_mode = mode.to_string();
             ("".to_string(), "".to_string())
