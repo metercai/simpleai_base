@@ -570,9 +570,16 @@ impl SimpleAI {
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
     }
 
-    pub fn export_isolated_admin(&self) -> String {
+    pub fn export_isolated_admin_qrcode_svg(&self) -> String{
         if self.node_mode == "isolated" && !self.admin.is_empty() {
-            self.admin.clone()
+            let admin = self.admin.clone();
+            let admin_claim = {
+                let claims = GlobalClaims::instance();
+                let mut claims = claims.lock().unwrap();
+                claims.get_claim_from_local(&admin)
+            };
+            let qrcode_svg = SimpleAI::export_user_qrcode_svg(&admin);
+            format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
         } else { "Unknown".to_string() }
     }
 
