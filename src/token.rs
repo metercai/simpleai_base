@@ -570,6 +570,13 @@ impl SimpleAI {
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
     }
 
+    pub fn export_isolated_admin(&self) -> String {
+        if self.node_mode == "isolated" && !self.admin.is_empty() {
+            self.admin.clone()
+        } else { "Unknown".to_string() }
+    }
+
+
     #[staticmethod]
     pub fn export_user_qrcode_svg(user_did: &str) -> String {
         let encrypted_identity_qr_base64 = SimpleAI::export_user_qrcode_base64(user_did);
