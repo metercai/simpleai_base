@@ -453,20 +453,25 @@ impl SimpleAI {
     }
 
 
-    pub fn reset_node_mode(&mut self, mode: &str)  {
+    pub fn reset_node_mode(&mut self, mode: &str) -> (String, String) {
         if mode == "isolated" {
             let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
                 = GlobalClaims::get_system_vars();
             let admin_name = guest_name.replace("guest_", "admin_");
             let (admin_did, admin_phrase) = self.create_user(
                 &admin_name, &String::from("8610000000001"), None, None);
+            let admin_phrase = admin_phrase.as_bytes().to_base58();
             info!("create local admin: did={}, phrase={}", admin_did, admin_phrase);
             self.admin = "".to_string();
             self.sign_user_context(&admin_did, &admin_phrase);
             self.node_mode = mode.to_string();
+            (admin_did, admin_phrase)
         } else if mode == "online" {
             self.admin = "".to_string();
             self.node_mode = mode.to_string();
+            ("".to_string(), "".to_string())
+        } else {
+            ("".to_string(), "".to_string())
         }
     }
 
@@ -1181,12 +1186,26 @@ impl SimpleAI {
     pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
         if token_utils::is_valid_telephone(telephone) {
+            let phrase = if telephone=="8610000000001" {
+                let bytes_phrase = phrase.from_base58();
+                let bytes = match bytes_phrase {
+                    Ok(bytes) => bytes,
+                    Err(_) => "Unknown".into(),
+                };
+                let string_result = String::from_utf8(bytes);
+                match string_result {
+                    Ok(s) => s,
+                    Err(_) => String::from("Unknown"),
+                }
+            } else {
+                phrase.to_string()
+            };
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
             let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
             let user_did = {
-                match token_utils::exists_and_valid_user_key(&symbol_hash, phrase) && user_did != "Unknown" {
+                match token_utils::exists_and_valid_user_key(&symbol_hash, &phrase) && user_did != "Unknown" {
                     true => {
                         println!("{} [UserBase] Get user context:{} from local key file: .token_user_{}.pem",
                                  token_utils::now_string(), user_did, user_hash_id);
@@ -1199,11 +1218,11 @@ impl SimpleAI {
                                 let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                                 println!("{} [UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}",
                                          token_utils::now_string(), user_did, symbol_hash_base64, encrypted_identity.len(), encrypted_identity);
-                                self.import_user(&symbol_hash_base64.clone(), &encrypted_identity, phrase)
+                                self.import_user(&symbol_hash_base64.clone(), &encrypted_identity, &phrase)
                             }
                             false => {
                                 let mut request: serde_json::Value = json!({});
-                                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, &telephone, phrase);
+                                let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, &telephone, &phrase);
                                 request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
                                 request["user_symbol"] = serde_json::to_value(symbol_hash_base64.clone()).unwrap();
                                 let user_copy_from_cloud =
@@ -1220,14 +1239,14 @@ impl SimpleAI {
                                             println!("{} [UserBase] Download user encrypted_copy: {}, len={}",
                                                      token_utils::now_string(), symbol_hash_base64, encrypted_identity.len());
                                             debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
-                                            let user_did = self.import_user(&symbol_hash_base64, &encrypted_identity, phrase);
+                                            let user_did = self.import_user(&symbol_hash_base64, &encrypted_identity, &phrase);
                                             if user_did != "Unknown" {
                                                 let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                                 fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
                                                 println!("{} [UserBase] Parsing encrypted_copy and save identity_file: {}, {}",
                                                          token_utils::now_string(), user_hash_id, user_did);
 
-                                                if token_utils::exists_and_valid_user_key(&symbol_hash, phrase) {
+                                                if token_utils::exists_and_valid_user_key(&symbol_hash, &phrase) {
                                                     println!("{} [UserBase] The user encrypted copy is valid: {}", token_utils::now_string(), user_did);
 
                                                     let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
@@ -1272,7 +1291,7 @@ impl SimpleAI {
                 }
             };
             if user_did != "guest" && user_did != "Unknown" {
-                let context = self.sign_user_context(&user_did, phrase);
+                let context = self.sign_user_context(&user_did, &phrase);
                 if context.is_default() {
                     println!("{} [UserBase] The user hasn't been verified by root or in blacklist: {}", token_utils::now_string(), user_did);
                     self.get_guest_user_context()
