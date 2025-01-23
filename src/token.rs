@@ -580,7 +580,7 @@ impl SimpleAI {
             };
             let qrcode_svg = SimpleAI::export_user_qrcode_svg(&admin);
             format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
-        } else { "Unknown".to_string() }
+        } else { "".to_string() }
     }
 
 
