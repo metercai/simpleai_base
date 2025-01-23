@@ -579,7 +579,9 @@ impl SimpleAI {
                 claims.get_claim_from_local(&admin)
             };
             let qrcode_svg = SimpleAI::export_user_qrcode_svg(&admin);
-            format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
+            if !qrcode_svg.is_empty() {
+                format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
+            } else { "".to_string() }
         } else { "".to_string() }
     }
 
