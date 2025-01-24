@@ -640,6 +640,7 @@ impl SimpleAI {
                 let mut claims = claims.lock().unwrap();
                 claims.get_claim_from_local(&admin)
             };
+            println!("{} [UserBase] admin claim:{}", token_utils::now_string(), admin_claim);
             let qrcode_svg = SimpleAI::export_user_qrcode_svg(&admin);
             if !qrcode_svg.is_empty() {
                 format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
@@ -651,6 +652,7 @@ impl SimpleAI {
     #[staticmethod]
     pub fn export_user_qrcode_svg(user_did: &str) -> String {
         let encrypted_identity_qr_base64 = SimpleAI::export_user_qrcode_base64(user_did);
+        println!("{} [UserBase] encrypted_identity_qr_base64:{}", token_utils::now_string(), encrypted_identity_qr_base64);
         if !encrypted_identity_qr_base64.is_empty() {
             let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
             let image = qrcode.render()
@@ -670,10 +672,12 @@ impl SimpleAI {
             let mut claims = claims.lock().unwrap();
             claims.get_claim_from_local(user_did)
         };
+        println!("{} [UserBase] export_user_qrcode_base64, claim:{}", token_utils::now_string(), claim);
         if !claim.is_default() {
             let user_symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+            println!("{} [UserBase] identity_file:{}", token_utils::now_string(), identity_file.display());
             match identity_file.exists() {
                 true => {
                     let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
