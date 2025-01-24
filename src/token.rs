@@ -502,7 +502,7 @@ impl SimpleAI {
             let (admin_did, admin_phrase) = self.create_user(
                 &admin_name, &String::from("8610000000001"), None, None);
             let admin_phrase = admin_phrase.as_bytes().to_base58();
-            println!("{} [UserBase] create local admin: did={}, phrase={}", token_utils::now_string(), admin_did, admin_phrase);
+            println!("{} [UserBase] create local admin/生成本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase);
             self.set_admin(&admin_did);
             self.sign_user_context(&admin_did, &admin_phrase);
             self.set_node_mode(mode);
@@ -631,8 +631,9 @@ impl SimpleAI {
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
     }
 
-    pub fn export_isolated_admin_qrcode_svg(&self) -> String{
-        if self.node_mode == "isolated" && !self.admin.is_empty() {
+    pub fn export_isolated_admin_qrcode_svg(&mut self) -> String{
+        println!("{} [UserBase] node_mode:{}, admin:{}", token_utils::now_string(), self.get_node_mode(), self.admin);
+        if self.get_node_mode() == "isolated" && !self.admin.is_empty() {
             let admin = self.admin.clone();
             let admin_claim = {
                 let claims = GlobalClaims::instance();
