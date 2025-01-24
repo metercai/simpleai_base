@@ -331,7 +331,7 @@ impl SimpleAI {
             (user_did.to_string(), format!("{}_{}", user_did, key))
         };
 
-        let value = {
+        let mut value = {
             let mut global_local_vars = self.global_local_vars.lock().unwrap();
             match global_local_vars.get(&local_key) {
                 Ok(Some(var_value)) => {
@@ -341,18 +341,18 @@ impl SimpleAI {
             }
         };
         if local_key.starts_with("admin_") && value != "Default"{
-            self.decrypt_by_did(&value, &local_did, 0)
-        } else {
-            if value == "Default" {
-                if local_key.starts_with("admin_") {
-                    let local_key = local_key.replace("admin_", "");
-                    let admin_default = token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string();
-                    admin_default
-                } else {
-                    default.to_string()
-                }
-            } else { value }
+            value = self.decrypt_by_did(&value, &local_did, 0);
         }
+        if value == "Default" || value == "Unknown" {
+            if local_key.starts_with("admin_") {
+                let local_key = local_key.replace("admin_", "");
+                let admin_default = token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string();
+                admin_default
+            } else {
+                default.to_string()
+            }
+        } else { value }
+
     }
 
     pub fn set_local_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
