@@ -505,10 +505,12 @@ impl SimpleAI {
             println!("{} [UserBase] create local admin/生成本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase);
             self.set_admin(&admin_did);
             self.sign_user_context(&admin_did, &admin_phrase);
+            self.is_registered(&admin_did);
             self.set_node_mode(mode);
             (admin_did, admin_phrase)
         } else if mode == "online" && node_mode != "online" { //
-            if !self.admin.is_empty() {
+            let admin_did = self.admin.clone();
+            if !admin_did.is_empty() {
                 self.crypt_secrets.retain(|key, _| {
                     if let Some((did, _)) = key.split_once('_') {
                         did == self.device || did == self.did || did == self.guest
@@ -516,9 +518,8 @@ impl SimpleAI {
                         false
                     }
                 });
-                let did = self.admin.clone();
-                let context = self.get_user_context(&did);
-                let key = format!("{}_{}", did, self.get_sys_did());
+                let context = self.get_user_context(&admin_did);
+                let key = format!("{}_{}", admin_did, self.get_sys_did());
                 let authorized = self.authorized.lock().unwrap();
                 let _ = match authorized.contains_key(&key).unwrap() {
                     false => {},
@@ -529,6 +530,7 @@ impl SimpleAI {
                 let _ = token_utils::update_user_token_to_file(&context, "remove");
             }
             self.set_admin("");
+            self.is_registered(&admin_did);
             self.set_node_mode(mode);
             ("".to_string(), "".to_string())
         } else {
@@ -688,6 +690,7 @@ impl SimpleAI {
                         let certificates = certificates.lock().unwrap();
                         certificates.get_register_cert(user_did)
                     };
+                    println!("{} [UserBase] user_cert:{}", token_utils::now_string(), user_cert);
                     let user_cert_bytes = token_utils::get_slim_user_cert(&user_cert);
                     if user_cert_bytes.len() < 120 {
                         return "".to_string()
