@@ -507,9 +507,8 @@ impl SimpleAI {
             let admin_phrase = admin_phrase.as_bytes().to_base58();
             println!("{} [UserBase] create local admin/生成本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase);
             self.set_admin(&admin_did);
-            self.sign_user_context(&admin_did, &admin_phrase);
             self.set_node_mode(mode);
-            //self.is_registered(&admin_did);
+            self.sign_user_context(&admin_did, &admin_phrase);
             (admin_did, admin_phrase)
         } else if mode == "online" && node_mode != "online" { //
             let admin_did = self.admin.clone();
