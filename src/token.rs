@@ -509,7 +509,7 @@ impl SimpleAI {
             self.set_admin(&admin_did);
             self.sign_user_context(&admin_did, &admin_phrase);
             self.set_node_mode(mode);
-            self.is_registered(&admin_did);
+            //self.is_registered(&admin_did);
             (admin_did, admin_phrase)
         } else if mode == "online" && node_mode != "online" { //
             let admin_did = self.admin.clone();
@@ -630,7 +630,7 @@ impl SimpleAI {
             let claim = claims.get_claim_from_local(&user_did);
             (user_did, claim)
         };
-        println!("{} [UserBase] Export user: {}", token_utils::now_string(), user_did);
+        println!("{} [UserBase] Export user: {}, nickname={}, telephone={}", token_utils::now_string(), user_did, nickname, telephone);
 
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
     }
@@ -713,7 +713,7 @@ impl SimpleAI {
         let identity = URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap();
         let (user_did, nickname, telephone, user_cert) = token_utils::import_identity_qrcode(&identity);
         if user_did != "Unknown" && user_cert != "Unknown" {
-            debug!("import_identity_qrcode, ready to push user cert: did={}", user_did);
+            println!("import_identity_qrcode, ready to push user cert: did={}", user_did);
             let certificates = GlobalCerts::instance();
             let mut certificates = certificates.lock().unwrap();
             certificates.push_user_cert_text(&format!("{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", user_cert));
