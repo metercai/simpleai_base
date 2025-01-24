@@ -432,7 +432,7 @@ impl SimpleAI {
         let admin_did = self.admin.clone();
         let node_mode = self.get_node_mode();
         println!("get_register_cert: {}, admin:{}, node_type:{}", user_did, admin_did, node_mode);
-        if user_did == self.guest || (node_mode != "online" && user_did == admin_did) {
+        if user_did == self.guest || (node_mode != "online" && user_did == admin_did)  {
             let system_did = self.did.clone();
             let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
             let register_cert = {
@@ -508,8 +508,8 @@ impl SimpleAI {
             println!("{} [UserBase] create local admin/生成本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase);
             self.set_admin(&admin_did);
             self.sign_user_context(&admin_did, &admin_phrase);
-            self.is_registered(&admin_did);
             self.set_node_mode(mode);
+            self.is_registered(&admin_did);
             (admin_did, admin_phrase)
         } else if mode == "online" && node_mode != "online" { //
             let admin_did = self.admin.clone();
@@ -533,7 +533,6 @@ impl SimpleAI {
                 let _ = token_utils::update_user_token_to_file(&context, "remove");
             }
             self.set_admin("");
-            self.is_registered(&admin_did);
             self.set_node_mode(mode);
             ("".to_string(), "".to_string())
         } else {
