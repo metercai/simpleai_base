@@ -220,12 +220,34 @@ impl SimpleAI {
         self.guest.clone()
     }
 
-    pub fn get_node_mode(&self) -> String {
+    pub fn get_node_mode(&mut self) -> String {
+        let system_did = self.get_sys_did();
+        self.node_mode = self.get_local_vars_base("node_mode_type", "online", &system_did);
         self.node_mode.clone()
+    }
+
+    pub fn set_node_mode(&mut self, mode: &str) {
+        if mode != self.node_mode {
+            let local_key = format!("{}_{}", self.did, "node_mode_type");
+            let local_value = mode.to_string();
+            let global_local_vars = self.global_local_vars.lock().unwrap();
+            let ivec_data = sled::IVec::from(local_value.as_bytes());
+            let _ = global_local_vars.insert(&local_key, ivec_data);
+        }
+        self.node_mode = mode.to_string();
     }
 
     pub(crate) fn get_admin_did(&self) -> String {
         self.admin.clone()
+    }
+
+    pub fn set_admin(&mut self, did: &str) {
+        self.admin = {
+            let mut claims = self.claims.lock().unwrap();
+            claims.set_admin_did(did);
+            did.to_string()
+        };
+        token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
     }
 
     //pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> { self.token_db.clone() }
@@ -371,15 +393,6 @@ impl SimpleAI {
         did == self.admin.as_str()
     }
 
-    pub fn set_admin(&mut self, did: &str) {
-        self.admin = {
-            let mut claims = self.claims.lock().unwrap();
-            claims.set_admin_did(did);
-            did.to_string()
-        };
-        token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
-    }
-
     pub fn absent_admin(&self) -> bool {
         self.admin.is_empty()
     }
@@ -454,14 +467,8 @@ impl SimpleAI {
 
 
     pub fn reset_node_mode(&mut self, mode: &str) -> (String, String) {
-        if mode == "isolated" {
-            let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
-                = GlobalClaims::get_system_vars();
-            let admin_name = guest_name.replace("guest_", "admin_");
-            let (admin_did, admin_phrase) = self.create_user(
-                &admin_name, &String::from("8610000000001"), None, None);
-            let admin_phrase = admin_phrase.as_bytes().to_base58();
-            info!("create local admin: did={}, phrase={}", admin_did, admin_phrase);
+        let node_mode = self.get_node_mode();
+        if mode == "isolated" && node_mode != "isolated" {
             // 清除非 device，system，guest 的 crypt_secrets
             let mut remove_did = Vec::new();
             self.crypt_secrets.retain(|key, _| {
@@ -489,11 +496,18 @@ impl SimpleAI {
                 let _ = token_utils::update_user_token_to_file(&context, "remove");
                 println!("{} [UserBase] remove {} context and crypt_secrets", token_utils::now_string(), did);
             }
+            let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+                = GlobalClaims::get_system_vars();
+            let admin_name = guest_name.replace("guest_", "admin_");
+            let (admin_did, admin_phrase) = self.create_user(
+                &admin_name, &String::from("8610000000001"), None, None);
+            let admin_phrase = admin_phrase.as_bytes().to_base58();
+            println!("{} [UserBase] create local admin: did={}, phrase={}", token_utils::now_string(), admin_did, admin_phrase);
             self.set_admin(&admin_did);
             self.sign_user_context(&admin_did, &admin_phrase);
-            self.node_mode = mode.to_string();
+            self.set_node_mode(mode);
             (admin_did, admin_phrase)
-        } else if mode == "online" { //
+        } else if mode == "online" && node_mode != "online" { //
             if !self.admin.is_empty() {
                 self.crypt_secrets.retain(|key, _| {
                     if let Some((did, _)) = key.split_once('_') {
@@ -515,7 +529,7 @@ impl SimpleAI {
                 let _ = token_utils::update_user_token_to_file(&context, "remove");
             }
             self.set_admin("");
-            self.node_mode = mode.to_string();
+            self.set_node_mode(mode);
             ("".to_string(), "".to_string())
         } else {
             ("".to_string(), "".to_string())
