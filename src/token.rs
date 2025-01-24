@@ -429,7 +429,10 @@ impl SimpleAI {
         if register_cert != "Unknown".to_string() {
             return register_cert;
         }
-        if user_did == self.guest || (self.node_mode!="online" && user_did == self.admin) {
+        let admin_did = self.admin.clone();
+        let node_mode = self.get_node_mode();
+        println!("get_register_cert: {}, admin:{}, node_type:{}", user_did, admin_did, node_mode);
+        if user_did == self.guest || (node_mode != "online" && user_did == admin_did) {
             let system_did = self.did.clone();
             let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
             let register_cert = {
