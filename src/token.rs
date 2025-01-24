@@ -469,7 +469,7 @@ impl SimpleAI {
     }
 
 
-    pub fn reset_node_mode(&mut self, mode: &str) -> (String, String) {
+    pub fn reset_node_mode(&mut self, mode: &str) -> (String, String, String) {
         let node_mode = self.get_node_mode();
         if mode == "isolated" && node_mode != "isolated" {
             // 清除非 device，system，guest 的 crypt_secrets
@@ -502,14 +502,23 @@ impl SimpleAI {
             let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
                 = GlobalClaims::get_system_vars();
             let admin_name = guest_name.replace("guest_", "admin_");
-            let (admin_did, admin_phrase) = self.create_user(
-                &admin_name, &String::from("8610000000001"), None, None);
-            let admin_phrase = admin_phrase.as_bytes().to_base58();
-            println!("{} [UserBase] create local admin/生成本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase);
+            let admin_symbol_hash = IdClaim::get_symbol_hash_by_source(&admin_name, Some("8610000000001".to_string()), None);
+            let (admin_hash_id, admin_phrase) = token_utils::get_key_hash_id_and_phrase("User", &admin_symbol_hash);
+            let admin_did= {
+                let user_did = self.reverse_lookup_did_by_symbol(admin_symbol_hash);
+                if user_did == "Unknown" {
+                    let (admin_did, admin_phrase) = self.create_user(&admin_name, &String::from("8610000000001"), None, None);
+                    admin_did
+                } else {
+                    user_did
+                }
+            };
+            let admin_phrase_base58 = admin_phrase.as_bytes().to_base58();
+            println!("{} [UserBase] create local admin/生成本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
             self.set_admin(&admin_did);
             self.set_node_mode(mode);
             self.sign_user_context(&admin_did, &admin_phrase);
-            (admin_did, admin_phrase)
+            (admin_did, admin_name, admin_phrase_base58)
         } else if mode == "online" && node_mode != "online" { //
             let admin_did = self.admin.clone();
             if !admin_did.is_empty() {
@@ -533,9 +542,9 @@ impl SimpleAI {
             }
             self.set_admin("");
             self.set_node_mode(mode);
-            ("".to_string(), "".to_string())
+            ("".to_string(), "".to_string(), "".to_string())
         } else {
-            ("".to_string(), "".to_string())
+            ("".to_string(), "".to_string(), "".to_string())
         }
     }
 
