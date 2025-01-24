@@ -431,7 +431,7 @@ impl SimpleAI {
         }
         let admin_did = self.admin.clone();
         let node_mode = self.get_node_mode();
-        println!("get_register_cert: {}, admin:{}, node_type:{}", user_did, admin_did, node_mode);
+        debug!("get_register_cert: {}, admin:{}, node_type:{}", user_did, admin_did, node_mode);
         if user_did == self.guest || (node_mode != "online" && user_did == admin_did)  {
             let system_did = self.did.clone();
             let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
@@ -635,7 +635,6 @@ impl SimpleAI {
     }
 
     pub fn export_isolated_admin_qrcode_svg(&mut self) -> String{
-        println!("{} [UserBase] node_mode:{}, admin:{}", token_utils::now_string(), self.get_node_mode(), self.admin);
         if self.get_node_mode() == "isolated" && !self.admin.is_empty() {
             let admin = self.admin.clone();
             let admin_claim = {
@@ -643,7 +642,6 @@ impl SimpleAI {
                 let mut claims = claims.lock().unwrap();
                 claims.get_claim_from_local(&admin)
             };
-            println!("{} [UserBase] admin claim:{}", token_utils::now_string(), admin_claim);
             let qrcode_svg = SimpleAI::export_user_qrcode_svg(&admin);
             if !qrcode_svg.is_empty() {
                 format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
@@ -655,7 +653,6 @@ impl SimpleAI {
     #[staticmethod]
     pub fn export_user_qrcode_svg(user_did: &str) -> String {
         let encrypted_identity_qr_base64 = SimpleAI::export_user_qrcode_base64(user_did);
-        println!("{} [UserBase] encrypted_identity_qr_base64:{}", token_utils::now_string(), encrypted_identity_qr_base64);
         if !encrypted_identity_qr_base64.is_empty() {
             let qrcode = QrCode::with_version(encrypted_identity_qr_base64, Version::Normal(12), EcLevel::L).unwrap();
             let image = qrcode.render()
@@ -675,12 +672,10 @@ impl SimpleAI {
             let mut claims = claims.lock().unwrap();
             claims.get_claim_from_local(user_did)
         };
-        println!("{} [UserBase] export_user_qrcode_base64, claim:{}", token_utils::now_string(), claim);
         if !claim.is_default() {
             let user_symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-            println!("{} [UserBase] identity_file:{}", token_utils::now_string(), identity_file.display());
             match identity_file.exists() {
                 true => {
                     let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
@@ -691,7 +686,7 @@ impl SimpleAI {
                         let certificates = certificates.lock().unwrap();
                         certificates.get_register_cert(user_did)
                     };
-                    println!("{} [UserBase] user_cert:{}", token_utils::now_string(), user_cert);
+                    debug!("{} [UserBase] user_cert:{}", token_utils::now_string(), user_cert);
                     let user_cert_bytes = token_utils::get_slim_user_cert(&user_cert);
                     if user_cert_bytes.len() < 120 {
                         return "".to_string()
@@ -992,9 +987,13 @@ impl SimpleAI {
     }
 
     pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> String {
-        if self.node_mode != "online" {
-            println!("{} [UserBase] The system is isolated mode, please take the local admin qrcode to bind.", token_utils::now_string());
-            return "isolated".to_string()
+        if self.get_node_mode() != "online" {
+            if telephone=="8610000000001" {
+                return "local".to_string()
+            } else {
+                println!("{} [UserBase] The system is isolated mode, please take the local admin qrcode to bind.", token_utils::now_string());
+                return "isolated".to_string()
+            }
         }
         let nickname = token_utils::truncate_nickname(nickname);
         if !token_utils::is_valid_telephone(telephone) {
