@@ -425,22 +425,21 @@ impl GlobalClaims {
     }
 
     pub fn reverse_lookup_did_by_symbol(&self, symbol_hash: &[u8; 32]) -> String {
+        let mut latest_did = "Unknown".to_string();
+        let mut latest_timestamp: u64 = 0;
+
         for (did, id_claim) in self.claims.iter() {
             if id_claim.get_symbol_hash() == *symbol_hash {
-                return did.to_string();
+                if id_claim.timestamp > latest_timestamp {
+                    latest_timestamp = id_claim.timestamp;
+                    latest_did = did.to_string();
+                }
             }
         }
-        "Unknown".to_string()
+
+        latest_did
     }
 
-    pub fn reverse_lookup_did_by_nickname(&self, id_type: &str, nickname: &str) -> String {
-        for (did, id_claim) in self.claims.iter() {
-            if id_claim.nickname == nickname && id_claim.id_type == id_type {
-                return did.to_string();
-            }
-        }
-        "Unknown".to_string()
-    }
 
     pub fn verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
         token_utils::verify_signature(text, signature_str, &claim.get_verify_key())

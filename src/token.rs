@@ -506,15 +506,18 @@ impl SimpleAI {
             let (admin_hash_id, admin_phrase) = token_utils::get_key_hash_id_and_phrase("User", &admin_symbol_hash);
             let admin_did= {
                 let user_did = self.reverse_lookup_did_by_symbol(admin_symbol_hash);
-                if user_did == "Unknown" {
+                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", admin_hash_id));
+                if user_did != "Unknown" && identity_file.exists() {
+                    let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
+                    self.import_user(&URL_SAFE_NO_PAD.encode(admin_symbol_hash), &encrypted_identity, &admin_phrase);
+                    user_did
+                } else {
                     let (admin_did, admin_phrase) = self.create_user(&admin_name, &String::from("8610000000001"), None, None);
                     admin_did
-                } else {
-                    user_did
                 }
             };
             let admin_phrase_base58 = admin_phrase.as_bytes().to_base58();
-            println!("{} [UserBase] create local admin/生成本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
+            println!("{} [UserBase] local admin/本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
             self.set_admin(&admin_did);
             self.set_node_mode(mode);
             self.sign_user_context(&admin_did, &admin_phrase);
@@ -1281,7 +1284,7 @@ impl SimpleAI {
     }
 
 
-    pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
+    pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str, did:Option<&str>) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
         if token_utils::is_valid_telephone(telephone) {
             let phrase = if telephone=="8610000000001" {
@@ -1300,7 +1303,10 @@ impl SimpleAI {
             };
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
-            let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
+            let user_did = match did {
+                Some(did) => did.to_string(),
+                None => self.reverse_lookup_did_by_symbol(symbol_hash),
+            };
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
             let user_did = {
                 match token_utils::exists_and_valid_user_key(&symbol_hash, &phrase) && user_did != "Unknown" {
