@@ -491,6 +491,7 @@ impl SimpleAI {
     pub fn reset_node_mode(&mut self, mode: &str) -> (String, String, String) {
         let node_mode = self.get_node_mode();
         if mode == "isolated" && node_mode != "isolated" {
+            println!("{} [UserBase] reset node mode to isolated", token_utils::now_string());
             // 清除非 device，system，guest 的 crypt_secrets
             let mut remove_did = Vec::new();
             self.crypt_secrets.retain(|key, _| {
@@ -542,6 +543,7 @@ impl SimpleAI {
             self.sign_user_context(&admin_did, &admin_phrase);
             (admin_did, admin_name, admin_phrase_base58)
         } else if mode == "online" && node_mode != "online" { //
+            println!("{} [UserBase] reset node mode to online", token_utils::now_string());
             let admin_did = self.admin.clone();
             if !admin_did.is_empty() {
                 self.crypt_secrets.retain(|key, _| {
