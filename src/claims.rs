@@ -364,13 +364,13 @@ impl GlobalClaims {
                                 if status_code.is_success() { text } else { "Unknown".to_string() }
                             },
                             Err(e) => {
-                                println!("Failed to read response body: {}", e);
+                                debug!("Failed to read response body: {}", e);
                                 "Unknown".to_string()
                             }
                         }
                     },
                     Err(e) => {
-                        println!("Failed to request token api: {}", e);
+                        debug!("Failed to request token api: {}", e);
                         "Unknown".to_string()
                     }
                 }

@@ -1161,7 +1161,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
     let user_cert_bytes = &encrypted_identity[21..153];
     let user_cert = convert_to_short_user_cert_from_slim(user_cert_bytes);
     let encrypted_identity = &encrypted_identity[153..];
-    println!("import_identity_qrcode: did={} cert={}, encrypted_identity: len={}, {}", user_did, user_cert, encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity));
+    debug!("import_identity_qrcode: did={} cert={}, encrypted_identity: len={}, {}", user_did, user_cert, encrypted_identity.len(), URL_SAFE_NO_PAD.encode(encrypted_identity));
     let vcode = &encrypted_identity[..2];
     if  *vcode == calc_sha256(&encrypted_identity[2..])[..2] {
         let telephone = u64::from_le_bytes(encrypted_identity[2..10].try_into().unwrap_or([0u8; 8]));
@@ -1170,7 +1170,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
         let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
         let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), URL_SAFE_NO_PAD.encode(encrypted_identity)).expect(&format!("Unable to write file: {}", identity_file.display()));
-        println!("{} [UserBase] Import from qrcode and save identity_file: did={}, nickname={}", now_string(), user_did, nickname);
+        debug!("{} [UserBase] Import from qrcode and save identity_file: did={}, nickname={}", now_string(), user_did, nickname);
         if telephone == 0 {
             (user_did, nickname, "".to_string(), user_cert)
         } else { (user_did, nickname, telephone.to_string(), user_cert) }
