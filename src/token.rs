@@ -431,7 +431,6 @@ impl SimpleAI {
         }
         let admin_did = self.admin.clone();
         let node_mode = self.get_node_mode();
-        debug!("get_register_cert: {}, admin:{}, node_type:{}", user_did, admin_did, node_mode);
         if user_did == self.guest || (node_mode != "online" && user_did == admin_did)  {
             let system_did = self.did.clone();
             let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
@@ -440,6 +439,7 @@ impl SimpleAI {
                 let _ = certificates.push_user_cert_text(&issue_cert);
                 certificates.get_register_cert(user_did)
             };
+            debug!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}", user_did, system_did, node_mode);
             register_cert
         } else {
             "Unknown".to_string()
@@ -462,10 +462,29 @@ impl SimpleAI {
         let memo_base64 = parts[1].to_string();
         let timestamp = parts[2].to_string();
         let signature_str = parts[3].to_string();
-        let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-        let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
+        if self.get_node_mode() == "online" {
+            let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
+            let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
+            debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
+            if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
+                return true;
+            }
+        }
+        if !self.upstream_did.is_empty() && self.get_node_mode() == "online" {
+            let text = format!("{}|{}|{}|{}|{}|{}", self.upstream_did, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
+            let claim = GlobalClaims::load_claim_from_local(&self.upstream_did);
+            debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
+            if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
+                return true;
+            }
+        }
+        let text = format!("{}|{}|{}|{}|{}|{}", self.get_sys_did(), user_did, "Member", encrypt_item_key, memo_base64, timestamp);
+        let claim = GlobalClaims::load_claim_from_local(&self.get_sys_did());
         debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
-        token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key())
+        if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
+            return true;
+        }
+        false
     }
 
 
@@ -516,6 +535,7 @@ impl SimpleAI {
                     admin_did
                 }
             };
+            println!("admin_phrase: {}", admin_phrase);
             let admin_phrase_base58 = admin_phrase.as_bytes().to_base58();
             println!("{} [UserBase] local admin/本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
             self.set_admin(&admin_did);
@@ -1301,6 +1321,7 @@ impl SimpleAI {
             } else {
                 phrase.to_string()
             };
+            println!("phrase: {}", phrase);
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
             let user_did = if did.is_empty() {
@@ -1524,6 +1545,7 @@ impl SimpleAI {
     pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
         if self.blacklist.contains(&did.to_string()) ||
             (did != self.guest && !self.is_registered(did) && did!=token_utils::TOKEN_TM_DID.to_string()) {
+            debug!("sign user context failed, did = {}", did);
             return UserContext::default();
         }
         let claim = self.get_claim(did);

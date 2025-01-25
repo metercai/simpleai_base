@@ -59,6 +59,7 @@ impl GlobalCerts {
     pub fn get_register_cert(&self, for_did: &str) -> String {
         let member_cert = self.get_member_cert(token_utils::TOKEN_TM_DID, for_did);
         if member_cert != "Unknown" {
+            debug!("get global register cert, {}", member_cert);
             return member_cert;
         }
         let upstream_did = {
@@ -68,10 +69,17 @@ impl GlobalCerts {
         if !upstream_did.is_empty() {
             let member_cert = self.get_member_cert(&upstream_did, for_did);
             if member_cert != "Unknown" {
+                debug!("get upstream register cert, {}", member_cert);
                 return member_cert;
             }
         }
-        self.get_member_cert(&self.sys_did, for_did)
+        let member_cert = self.get_member_cert(&self.sys_did, for_did);
+        if member_cert != "Unknown" {
+            debug!("get local register cert, {}", member_cert);
+            member_cert
+        } else {
+            "Unknown".to_string()
+        }
     }
 
     pub fn get_member_cert(&self, issue_did: &str, for_did: &str) -> String {
