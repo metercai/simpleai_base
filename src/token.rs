@@ -516,7 +516,7 @@ impl SimpleAI {
                     }
                 };
                 let _ = token_utils::update_user_token_to_file(&context, "remove");
-                println!("{} [UserBase] remove {} context and crypt_secrets", token_utils::now_string(), did);
+                debug!("remove {} context and crypt_secrets", did);
             }
             let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
                 = GlobalClaims::get_system_vars();
@@ -535,7 +535,6 @@ impl SimpleAI {
                     admin_did
                 }
             };
-            println!("admin_phrase: {}", admin_phrase);
             let admin_phrase_base58 = admin_phrase.as_bytes().to_base58();
             println!("{} [UserBase] local admin/本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
             self.set_admin(&admin_did);
@@ -606,7 +605,7 @@ impl SimpleAI {
             let claim = claims.get_claim_from_local(&user_did);
             (user_did, claim)
         };
-        println!("{} [UserBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
+        debug!("{} [UserBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
         if user_did != "Unknown" {
             if !claim.is_default() {
                 let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
@@ -647,7 +646,7 @@ impl SimpleAI {
         if self.crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
-        println!("{} [UserBase] Import user: {}", token_utils::now_string(), user_did);
+        debug!("{} [UserBase] Import user: {}", token_utils::now_string(), user_did);
 
         user_did
     }
@@ -854,7 +853,7 @@ impl SimpleAI {
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
             let context = self.get_user_context(did);
             if context.is_default() || context.is_expired(){
-                debug!("[UserBase] debug: get_user_sstoken, context is default or expired: did={}", did);
+                debug!("get_user_sstoken, context is default or expired: did={}", did);
                 return String::from("Unknown")
             }
             let text1 = token_utils::calc_sha256(
@@ -877,7 +876,7 @@ impl SimpleAI {
                 .expect("get_user_sstoken, Failed to convert Vec<u8> to [u8; 32]");
             result.to_base58()
         } else {
-            debug!("[UserBase] debug: get_user_sstoken, did is incorrect format: {}", did);
+            debug!("debug: get_user_sstoken, did is incorrect format: {}", did);
             String::from("Unknown")
         }
     }
@@ -915,7 +914,7 @@ impl SimpleAI {
             let user_did = did_bytes.to_base58();
             let context = self.get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
-                println!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
+                debug!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                 String::from("Unknown")
             } else {
                 user_did
@@ -1321,7 +1320,6 @@ impl SimpleAI {
             } else {
                 phrase.to_string()
             };
-            println!("phrase: {}", phrase);
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
             let user_did = if did.is_empty() {

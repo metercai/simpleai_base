@@ -341,7 +341,6 @@ impl GlobalClaims {
     }
 
     pub fn get_claim_from_global(&mut self, did: &str) -> IdClaim {
-        debug!("get_claim_from_global: {}", did);
         let claim = self.get_claim_from_local(did);
         if claim.is_default() {
             // get claim from global
