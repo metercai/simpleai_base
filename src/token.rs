@@ -1284,7 +1284,7 @@ impl SimpleAI {
     }
 
 
-    pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, phrase: &str, did:Option<&str>) -> UserContext {
+    pub fn get_user_context_with_phrase(&mut self, nickname: &str, telephone: &str, did: &str, phrase: &str ) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
         if token_utils::is_valid_telephone(telephone) {
             let phrase = if telephone=="8610000000001" {
@@ -1303,9 +1303,10 @@ impl SimpleAI {
             };
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
-            let user_did = match did {
-                Some(did) => did.to_string(),
-                None => self.reverse_lookup_did_by_symbol(symbol_hash),
+            let user_did = if did.is_empty() {
+                self.reverse_lookup_did_by_symbol(symbol_hash)
+            } else {
+                did.to_string()
             };
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
             let user_did = {
