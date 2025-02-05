@@ -1,12 +1,12 @@
 # SimpleAI Base package
 # Announce
-I suddenly received a message forwarded to me by a friend. simpleai_base was reported as having security risks. So it is necessary to issue a statement here: 
+Due to the incomplete cleaning of the historical testing code, simpleai_base is considered a security risk. So it is necessary to issue a statement here: 
 - <b>simpleai_base has been open source since its birth, with every step of evolution, including minor code changes during development and debugging, recorded on Git. Binary code is also automatically compiled through actions on GitHub. Adhering to a completely transparent security policy, it can withstand any questioning and verification.
 - The DID in simpleai_base is precisely a secure infrastructure that builds a trusted UID system through self certification and external certification to facilitate the establishment of subsequent P2P sharing mechanisms, bypass AI's dependence on large institutions and platforms, and ensure the rightful autonomy of each individual.
 - We are willing to accept any supervision and friendly suggestions, continuously improve, and adhere to the bottom line of open source in innovative practices. </b>
 
 # 声明
-很突然的收到朋友转发给我的信息，simpleai_base被举报，认为simpleai_base有安全风险。所以有必要在此发布声明：
+由于历史的测试代码未清除干净，导致simpleai_base被认为有安全风险。所以有必要在此声明：
 - <b>simpleai_base从一开始就是开源的，每一步的演变，包括开发调试过程的微小代码变更都记录在git上面，二进制代码也是在github上通过action自动编译的。遵循了完全透明的安全策略，可以经得起任何质询和检验。
 - simpleai_base中的DID恰恰是一个安全基础设施，通过自证和他证构建可信任的UID系统，以促进后续P2P共享机制的建立，绕开AI对大机构和大平台的依赖，确保每个个体的应有自主权。
 - 我们愿意接受任何监督和友好建议，持续改进，在创新实践中坚守开源的底线。</b>
