@@ -97,6 +97,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("i2i_uov_hires_fix_blurred", "easy float:i2i_uov_hires_fix_blurred:value"),
     ("i2i_uov_hires_fix_w", "easy float:i2i_uov_hires_fix_w:value"),
     ("i2i_uov_hires_fix_s", "easy float:i2i_uov_hires_fix_s:value"),
+    ("i2i_inpaint_version", "easy string:i2i_inpaint_version:value"),
     ("i2i_inpaint_image", "LoadImage:i2i_inpaint_image:image"),
     ("i2i_inpaint_mask", "LoadImage:i2i_inpaint_mask:image"),
     ("i2i_inpaint_fn", "easy int:i2i_inpaint_fn:value"),
