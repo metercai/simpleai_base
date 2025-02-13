@@ -192,26 +192,29 @@ def images_upload(images):
 
 
 def process_flow(user_did, flow_name, params, images, callback=None, total_steps=None, user_cert=None):
-    global ws
+    global ws, client_id
 
-    if ws is None or ws.status != 101:
+    if ws is None or user_did != client_id or ws.status != 101:
         if ws is not None:
-            print(f'{utils.now_string()} [ComfyClient] websocket status: {ws.status}, timeout:{ws.timeout}s.')
+            print(f'{utils.now_string()} [ComfyClient] websocket status: {ws.status}, timeout:{ws.timeout}s. ready to reset.')
             ws.close()
         try:
             ws = websocket.WebSocket()
             ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
+            client_id = user_did
         except ConnectionRefusedError as e:
             print(f'{utils.now_string()} [ComfyClient] The connect_to_server has failed, sleep and try again: {e}')
             time.sleep(8)
             try:
                 ws = websocket.WebSocket()
                 ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
+                client_id = user_did
             except ConnectionRefusedError as e:
                 print(f'{utils.now_string()} [ComfyClient] The connect_to_server has failed, restart and try again: {e}')
                 time.sleep(12)
                 ws = websocket.WebSocket()
                 ws.connect("ws://{}/ws?clientId={}".format(server_address(), user_did))
+                client_id = user_did
 
 
     images_map = images_upload(images)

@@ -7,23 +7,24 @@ use crate::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::systeminfo::SystemInfo;
 use crate::params_mapper::ComfyTaskParams;
 use crate::token_utils::calc_sha256;
+use std::sync::{Arc, Mutex};
 
 mod claims;
 mod env_utils;
 mod token_utils;
 mod error;
-mod rathole;
 mod token;
 mod systeminfo;
 mod env_data;
 mod params_mapper;
 mod cert_center;
-
+mod rest_service;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {
     let token = SimpleAI::new(nickname);
-    //let _ = token.start_base_services();
+    let instance_arc = Arc::new(Mutex::new(token.clone()));
+    let _rest_server = rest_service::start_rest_server(instance_arc.clone(), "0.0.0.0".to_string(), 8080);
     Ok(token)
 }
 

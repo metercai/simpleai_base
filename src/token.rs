@@ -27,7 +27,6 @@ use crate::cert_center::GlobalCerts;
 pub(crate) static TOKEN_API_VERSION: &str = "v1.1.1";
 
 
-
 #[derive(Clone, Debug)]
 #[pyclass]
 pub struct SimpleAI {
@@ -332,7 +331,7 @@ impl SimpleAI {
         };
 
         let mut value = {
-            let mut global_local_vars = self.global_local_vars.lock().unwrap();
+            let global_local_vars = self.global_local_vars.lock().unwrap();
             match global_local_vars.get(&local_key) {
                 Ok(Some(var_value)) => {
                     String::from_utf8(var_value.to_vec()).unwrap()

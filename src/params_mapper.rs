@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use serde_json::Value;
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 use pyo3::prelude::*;
 use crate::token_utils;
 use crate::GlobalClaims;

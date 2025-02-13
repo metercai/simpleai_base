@@ -10,7 +10,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use tokio::join;
 use sysinfo::System;
 use tracing::debug;
 
@@ -215,7 +214,7 @@ impl SystemInfo {
         let program_hash_task = env_utils::get_program_hash();
         let mac_address_task = env_utils::get_mac_address(local_ip.into());
         let (public_ip, local_port, loopback_port, location, program_hash, mac_address) =
-            join!(public_ip_task, local_port_task, loopback_port_task, location_task, program_hash_task, mac_address_task);
+            tokio::join!(public_ip_task, local_port_task, loopback_port_task, location_task, program_hash_task, mac_address_task);
         let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("Unknown".to_string(), "Unknown".to_string()));
 
         let sys_base_info = token_utils::SYSTEM_BASE_INFO.clone();

@@ -10,7 +10,7 @@ use base58::*;
 use sha2::Digest;
 use ripemd::Ripemd160;
 use rand::Rng;
-use serde_derive::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use crate::token_utils;
 use directories_next::BaseDirs;
