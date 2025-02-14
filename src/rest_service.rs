@@ -35,6 +35,11 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .and(with_simpai(simpai.clone()))
             .and_then(handle_get_sys_did);
 
+        let get_device_did = warp::path!("api" / "device_did")
+            .and(warp::get())
+            .and(with_simpai(simpai.clone()))
+            .and_then(handle_get_device_did);
+
         let get_local_vars = warp::path!("api" / "local_vars")
             .and(warp::post())
             .and(warp::body::json())
@@ -83,13 +88,14 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .and(with_simpai(simpai.clone()))
             .and_then(handle_decrypt_by_did);
 
-        let get_path_in_user_dir = warp::path!("api" / "get_path_in_user_dir")
+        let get_path_in_user_dir = warp::path!("api" / "path_in_user_dir")
             .and(warp::post())
             .and(warp::body::json())
             .and(with_simpai(simpai.clone()))
             .and_then(handle_get_path_in_user_dir);
 
         let routes = get_sys_did
+            .or(get_device_did)
             .or(get_local_vars)
             .or(get_claim)
             .or(get_register_cert)
@@ -102,7 +108,7 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
 
         warp::serve(routes).run((address, port)).await;
     });
-    println!("{} REST server started at http://{}:{}", token_utils::now_string(), address, port);
+    println!("{} [RestApi] REST server started at http://{}:{}", token_utils::now_string(), address, port);
 }
 
 // 辅助函数：共享状态注入
@@ -118,6 +124,15 @@ async fn handle_get_sys_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
     Ok(warp::reply::json(&ApiResponse {
         success: true,
         data: ai.get_sys_did(),
+        error: None,
+    }))
+}
+
+async fn handle_get_device_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
+    let ai = ai.lock().unwrap();
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: ai.get_device_did(),
         error: None,
     }))
 }
