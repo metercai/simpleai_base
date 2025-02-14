@@ -24,7 +24,7 @@ mod rest_service;
 fn init_local(nickname: String) -> PyResult<SimpleAI> {
     let token = SimpleAI::new(nickname);
     let instance_arc = Arc::new(Mutex::new(token.clone()));
-    let _rest_server = rest_service::start_rest_server(instance_arc.clone(), "0.0.0.0".to_string(), 8080);
+    let _rest_server = rest_service::start_rest_server(instance_arc.clone(), "0.0.0.0".to_string(), 4515);
     Ok(token)
 }
 

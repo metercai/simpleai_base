@@ -6,7 +6,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::error;
 
 use crate::token::SimpleAI;
-use crate::token_utils::TOKIO_RUNTIME;
+use crate::token_utils;
 
 // 共享状态类型
 type SharedAI = Arc<Mutex<SimpleAI>>;
@@ -29,7 +29,7 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
         }
     };
 
-    TOKIO_RUNTIME.block_on(async {
+    let _server = token_utils::TOKIO_RUNTIME.spawn(async move {
         let get_sys_did = warp::path!("api" / "sys_did")
             .and(warp::get())
             .and(with_simpai(simpai.clone()))
@@ -101,7 +101,8 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .or(get_path_in_user_dir);
 
         warp::serve(routes).run((address, port)).await;
-    })
+    });
+    println!("{} REST server started at http://{}:{}", token_utils::now_string(), address, port);
 }
 
 // 辅助函数：共享状态注入
