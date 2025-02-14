@@ -145,6 +145,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 print(f'{utils.now_string()} [ComfyClient] feedback_stream({len(out)})={out[:length]}...')
             if current_type == 'progress':
                 if current_node and current_node in prompt:
+                    print(f'prompt[current_node]["class_type"]: {prompt[current_node]["class_type"]}, current_step:{current_step}, current_total_steps:{current_total_steps}')
                     if prompt[current_node]['class_type'] == 'SaveImageWebsocket':
                         images_output = output_images.get(prompt[current_node]['_meta']['title'], [])
                         images_output.append(out[8:])
@@ -152,6 +153,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                     elif prompt[current_node]['class_type'] in preview_nodes and callback is not None:
                         if current_step <= current_total_steps:
                             finished_steps += 1
+                            print(f'finished_steps:{finished_steps}, total_steps_known{total_steps_known}')
                             callback(finished_steps, total_steps_known, Image.open(BytesIO(out[8:])))
                 else:
                     pass #if current_node in prompt:
