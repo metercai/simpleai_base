@@ -109,9 +109,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
     current_type = ''
     preview_nodes = ['KSampler', 'KSamplerAdvanced', 'SamplerCustomAdvanced', 'TiledKSampler', 'UltimateSDUpscale']
     total_steps_known = total_steps
-    preview_image = None
     current_step = 0
-    last_step = 0
     current_total_steps = None
     finished_steps = 0
     while True:
@@ -147,19 +145,17 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 print(f'{utils.now_string()} [ComfyClient] feedback_stream({len(out)})={out[:length]}...')
             if current_type == 'progress':
                 if current_node and current_node in prompt:
-                    if prompt[current_node]['class_type'] in preview_nodes and callback is not None:
-                        preview_image = out[8:]
-                        if current_step != last_step:
-                            finished_steps += 1
-                            callback(finished_steps, total_steps_known, Image.open(BytesIO(preview_image)))
-                        last_step = current_step
                     if prompt[current_node]['class_type'] == 'SaveImageWebsocket':
                         images_output = output_images.get(prompt[current_node]['_meta']['title'], [])
                         images_output.append(out[8:])
                         output_images[prompt[current_node]['_meta']['title']] = images_output
+                    elif prompt[current_node]['class_type'] in preview_nodes and callback is not None:
+                        if current_step <= current_total_steps:
+                            finished_steps += 1
+                            callback(finished_steps, total_steps_known, Image.open(BytesIO(out[8:])))
                 else:
-                    if current_node in prompt:
-                        print(f'{utils.now_string()} [ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
+                    pass #if current_node in prompt:
+                        #print(f'{utils.now_string()} [ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
             continue
 
     output_images = {k: np.array(Image.open(BytesIO(v[-1]))) for k, v in output_images.items()}
