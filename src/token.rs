@@ -487,6 +487,27 @@ impl SimpleAI {
     }
 
 
+    pub fn reset_admin(&mut self, old_new_admin: &str) -> String {
+        if let Some((old_did, temp)) = old_new_admin.split_once('_') {
+            if let Some((new_did, phrase)) = temp.split_once('_') {
+                if self.get_admin_did() == old_did {
+                    let admin_claim = self.get_claim(new_did);
+                    if !admin_claim.is_default() && self.is_registered(new_did) {
+                        self.admin = new_did.to_string();
+                        let crypt_secrets_len = self.crypt_secrets.len();
+                        token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &admin_claim, &phrase);
+                        if self.crypt_secrets.len() > crypt_secrets_len {
+                            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+                        }
+                        debug!("{} [UserBase] reset_admin: {} -> {}", token_utils::now_string(), old_did, new_did);
+                        return "OK".to_string();
+                    }
+                }
+            }
+        }
+        "Unknown".to_string()
+    }
+
     pub fn reset_node_mode(&mut self, mode: &str) -> (String, String, String) {
         let node_mode = self.get_node_mode();
         if mode == "isolated" && node_mode != "isolated" {
