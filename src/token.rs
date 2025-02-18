@@ -486,31 +486,28 @@ impl SimpleAI {
         false
     }
 
+    fn remove_context(&mut self, user_did: &str) {
+        let context = self.get_user_context(user_did);
+        let mut authorized = self.authorized.lock().unwrap();
+        let key = format!("{}_{}", user_did, self.get_sys_did());
+        let _ = match authorized.contains_key(&key).unwrap() {
+            false => {},
+            true => {
+                let _ = authorized.remove(&key);
+            }
+        };
+        let _ = token_utils::update_user_token_to_file(&context, "remove");
+    }
 
-    pub fn reset_admin(&mut self, admin_phrase: &str) -> String {
-        if let Some((new_admin, phrase)) = admin_phrase.split_once('_') {
-            let admin_claim = self.get_claim(new_admin);
-            if !admin_claim.is_default() && self.is_registered(new_admin) {
+    pub fn reset_admin(&mut self, admin_did: &str) -> String {
+        if IdClaim::validity(admin_did) {
+            let admin_claim = self.get_claim(admin_did);
+            if !admin_claim.is_default() && self.is_registered(admin_did) {
                 let old_admin = self.admin.clone();
-                self.admin = new_admin.to_string();
-                let crypt_secrets_len = self.crypt_secrets.len();
-                token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &admin_claim, &phrase);
-                if self.crypt_secrets.len() > crypt_secrets_len {
-                    token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
-                }
-                println!("{} [UserBase] reset_admin: {}", token_utils::now_string(), new_admin);
-                let context = self.get_user_context(&old_admin);
-                let key = format!("{}_{}", old_admin, self.get_sys_did());
-                let authorized = self.authorized.lock().unwrap();
-                let _ = match authorized.contains_key(&key).unwrap() {
-                    false => {},
-                    true => {
-                        let _ = authorized.remove(&key);
-                    }
-                };
-                let result = token_utils::update_user_token_to_file(&context, "remove");
-                println!("update_user_token_to_file result: {}", result);
-
+                self.admin = admin_did.to_string();
+                self.remove_context(admin_did);
+                self.remove_context(&old_admin);
+                println!("{} [UserBase] reset_admin: {}", token_utils::now_string(), admin_did);
                 return "OK".to_string();
             }
         }
@@ -536,17 +533,7 @@ impl SimpleAI {
             });
             // 清除非 guest 的 token
             for did in &remove_did {
-                let context = self.get_user_context(&did);
-                let key = format!("{}_{}", did, self.get_sys_did());
-                let authorized = self.authorized.lock().unwrap();
-                let _ = match authorized.contains_key(&key).unwrap() {
-                    false => {},
-                    true => {
-                        let _ = authorized.remove(&key);
-                    }
-                };
-                let result = token_utils::update_user_token_to_file(&context, "remove");
-                debug!("remove {} context and crypt_secrets, result: {}", did, result);
+                self.remove_context(did);
             }
             let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
                 = GlobalClaims::get_system_vars();
@@ -582,17 +569,7 @@ impl SimpleAI {
                         false
                     }
                 });
-                let context = self.get_user_context(&admin_did);
-                let key = format!("{}_{}", admin_did, self.get_sys_did());
-                let authorized = self.authorized.lock().unwrap();
-                let _ = match authorized.contains_key(&key).unwrap() {
-                    false => {},
-                    true => {
-                        let _ = authorized.remove(&key);
-                    }
-                };
-                let result = token_utils::update_user_token_to_file(&context, "remove");
-                debug!("update_user_token_to_file result: {}", result);
+                self.remove_context(&admin_did);
             }
             self.set_admin("");
             self.set_node_mode(mode);
