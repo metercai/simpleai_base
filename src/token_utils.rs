@@ -476,8 +476,8 @@ pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> 
                 },
             };
             let token_data = decrypt(&token_raw_data, &device_key, 0);
-            print!("Save user token to file: {:?}", token_data);
             let mut user_tokens: serde_json::Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
+            println!("load user token from file({}): {}", user_token_file.display(), user_tokens);
             if method == "add" {
                 let context_string = context.to_json_string();
                 let context_raw_data = URL_SAFE_NO_PAD.encode(encrypt(context_string.as_bytes(), &sys_key, 0));
@@ -489,7 +489,7 @@ pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> 
             }
             let json_string = serde_json::to_string(&user_tokens).unwrap_or(String::from("{}"));
             let token_raw_data = encrypt(json_string.as_bytes(), &device_key, 0);
-            print!("Save user token to file: {}", json_string);
+            println!("Save user token to file: {}", json_string);
             fs::write(user_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", user_token_file.display()));
             "Ok".to_string()
         }

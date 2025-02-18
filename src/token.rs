@@ -498,7 +498,7 @@ impl SimpleAI {
                 if self.crypt_secrets.len() > crypt_secrets_len {
                     token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
                 }
-                print!("{} [UserBase] reset_admin: {}", token_utils::now_string(), new_admin);
+                println!("{} [UserBase] reset_admin: {}", token_utils::now_string(), new_admin);
                 let context = self.get_user_context(&old_admin);
                 let key = format!("{}_{}", old_admin, self.get_sys_did());
                 let authorized = self.authorized.lock().unwrap();
@@ -509,7 +509,7 @@ impl SimpleAI {
                     }
                 };
                 let result = token_utils::update_user_token_to_file(&context, "remove");
-                print!("update_user_token_to_file result: {}", result);
+                println!("update_user_token_to_file result: {}", result);
 
                 return "OK".to_string();
             }
@@ -946,7 +946,7 @@ impl SimpleAI {
             let user_did = did_bytes.to_base58();
             let context = self.get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
-                debug!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
+                println!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                 String::from("Unknown")
             } else {
                 user_did
