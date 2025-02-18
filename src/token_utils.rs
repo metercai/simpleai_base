@@ -468,22 +468,15 @@ pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> 
     let user_token_file = get_path_in_sys_key_dir(&format!("user_{}.token", did));
     match user_token_file.exists() {
         true => {
-            let token_raw_data = match user_token_file.exists() {
-                true => {
-                    match fs::read(user_token_file.clone()) {
-                        Ok(data) => data,
-                        Err(e) => {
-                            debug!("[UserBase] read user token file error: {}",e);
-                            return "Err".to_string()
-                        },
-                    }
-                }
-                false => {
-                    debug!("[UserBase] user token file not exists: {}",user_token_file.display());
+            let token_raw_data = match fs::read(user_token_file.clone()) {
+                Ok(data) => data,
+                Err(e) => {
+                    debug!("read user token file error: {}",e);
                     return "Err".to_string()
-                }
+                },
             };
             let token_data = decrypt(&token_raw_data, &device_key, 0);
+            print!("Save user token to file: {:?}", token_data);
             let mut user_tokens: serde_json::Value = serde_json::from_slice(&token_data).unwrap_or(serde_json::json!({}));
             if method == "add" {
                 let context_string = context.to_json_string();
@@ -496,7 +489,7 @@ pub(crate) fn update_user_token_to_file(context: &UserContext, method: &str) -> 
             }
             let json_string = serde_json::to_string(&user_tokens).unwrap_or(String::from("{}"));
             let token_raw_data = encrypt(json_string.as_bytes(), &device_key, 0);
-            debug!("Save user token to file: {}", json_string);
+            print!("Save user token to file: {}", json_string);
             fs::write(user_token_file.clone(), token_raw_data).expect(&format!("Unable to write file: {}", user_token_file.display()));
             "Ok".to_string()
         }

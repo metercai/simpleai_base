@@ -503,5 +503,5 @@ fn find_oldest_file(path: &str) -> u64 {
         }
     }
 
-    oldest_time
+    (oldest_time/100000)*100000
 }
