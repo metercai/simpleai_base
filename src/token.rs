@@ -770,7 +770,7 @@ impl SimpleAI {
         let identity = URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap();
         let (user_did, nickname, telephone, user_cert) = token_utils::import_identity_qrcode(&identity);
         if user_did != "Unknown" && user_cert != "Unknown" {
-            println!("import_identity_qrcode, ready to push user cert: did={}", user_did);
+            debug!("import_identity_qrcode, ready to push user cert: did={}", user_did);
             let certificates = GlobalCerts::instance();
             let mut certificates = certificates.lock().unwrap();
             certificates.push_user_cert_text(&format!("{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", user_cert));
@@ -885,7 +885,7 @@ impl SimpleAI {
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
             let context = self.get_user_context(did);
             if context.is_default() || context.is_expired(){
-                debug!("get_user_sstoken, context is default or expired: did={}", did);
+                println!("{} [UserBase] The user context is error or expired: did={}", token_utils::now_string(), did);
                 return String::from("Unknown")
             }
             let text1 = token_utils::calc_sha256(

@@ -64,7 +64,7 @@ impl GlobalClaims {
                                         if !claim.is_default(){
                                             let did = claim.gen_did();
                                             claims.insert(did.clone(), claim.clone());
-                                            debug!("Load root_did_claim({}): {}", did, claim.to_json_string());
+                                            println!("Load root_did_claim({}): {}", did, claim.to_json_string());
                                         }
                                     }
                                 }
@@ -108,7 +108,7 @@ impl GlobalClaims {
                                     if !claim.is_default() {
                                         let did = claim.gen_did();
                                         claims.insert(did.clone(), claim.clone());
-                                        debug!("Load did_claim({}): {}", did, claim.to_json_string());
+                                        println!("Load did_claim({}): {}", did, claim.to_json_string());
                                         if claim.id_type == "System" && claim.get_symbol_hash() == system_symbol_hash  {
                                             sys_did = did;
                                         } else if claim.id_type == "Device" && claim.get_symbol_hash() == device_symbol_hash {
