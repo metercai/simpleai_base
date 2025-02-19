@@ -107,7 +107,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
     output_images = {}
     current_node = ''
     current_type = ''
-    preview_nodes = ['KSampler', 'KSamplerAdvanced', 'SamplerCustomAdvanced', 'TiledKSampler', 'UltimateSDUpscale']
+    preview_nodes = ['KSampler', 'KSamplerAdvanced', 'SamplerCustomAdvanced', 'TiledKSampler', 'UltimateSDUpscale', 'UltimateSDUpscaleNoUpscale']
     total_steps_known = total_steps
     current_step = 0
     current_total_steps = None

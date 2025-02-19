@@ -149,6 +149,21 @@ impl ComfyTaskParams {
         }
     }
 
+    pub fn get_rule_key_list(&self) -> Vec<String> {
+        self.fooo2node.keys().cloned().collect()
+    }
+
+    pub fn update_mapping_rule(&mut self, key: String, value: String) {
+        if let Some(existing) = self.fooo2node.get_mut(&key) {
+            if !existing.is_empty() {
+                existing.push_str(";");
+            }
+            existing.push_str(&value);
+        } else {
+            self.fooo2node.insert(key, value);
+        }
+    }
+
     pub fn convert2comfy(&self, flow_name: String) -> String {
         let filename = format!("{}_api.json", flow_name);
         let filename_with_path = format!("workflows/{}", filename);
@@ -224,6 +239,58 @@ impl ComfyTaskParams {
                 workflow.to_string()
             }
         }
+    }
+
+    pub fn get_key_mapped(&self, flow_name: String) -> HashMap<String, Vec<String>> {
+        let filename = format!("{}_api.json", flow_name);
+        let filename_with_path = format!("workflows/{}", filename);
+        let flow_file = {
+            let claims = GlobalClaims::instance();
+            let claims = claims.lock().unwrap();
+            claims.get_path_in_user_dir(&self.user_did, &filename_with_path)
+        };
+        let flow_file = Path::new(&flow_file);
+        let flow_file = match flow_file.exists() {
+            true => PathBuf::from(flow_file),
+            false => token_utils::get_path_in_root_dir("workflows", &filename)
+        };
+
+        let workflow = match fs::read_to_string(flow_file) {
+            Ok(json_str) => json_str,
+            Err(_) => return HashMap::new(),
+        };
+
+        let workflow_json: Value = match serde_json::from_str(&workflow) {
+            Ok(json) => json,
+            Err(_) => return HashMap::new(),
+        };
+
+        let mut result: HashMap<String, Vec<String>> = HashMap::new();
+        for (key, mapping) in &self.fooo2node {
+            for line in mapping.split(';') {
+                let parts: Vec<&str> = line.trim().split(':').collect();
+                if parts.len() != 3 {
+                    continue;
+                }
+                let (class_type, meta_title, inputs_value) = (parts[0], parts[1], parts[2]);
+
+                if let Value::Object(nodes) = &workflow_json {
+                    for (_, node) in nodes {
+                        let node_class = node["class_type"].as_str().unwrap_or_default();
+                        let node_title = node["_meta"]["title"].as_str().unwrap_or_default();
+
+                        if node_class == class_type && node_title == meta_title {
+                            if let Some(inputs) = node["_meta"]["inputs"].as_object() {
+                                if inputs.contains_key(inputs_value) {
+                                    result.entry(key.clone()).or_insert_with(Vec::new).push(line.trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result
     }
 
 }

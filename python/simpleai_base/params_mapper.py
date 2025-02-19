@@ -18,7 +18,14 @@ class ComfyTaskParams:
     def get_params(self):
         return json.loads(self.obj.get_params())
 
+    def get_rule_key_list(self):
+        return self.obj.get_rule_key_list()
+
+    def update_mapping_rule(self, key: String, value: String):
+        return self.obj.update_mapping_rule(key, value)
+
     def convert2comfy(self, flow_name):
         return json.loads(self.obj.convert2comfy(flow_name))
 
-
+    def get_key_mapped(self, flow_name):
+        return json.loads(self.obj.get_key_mapped(flow_name))
