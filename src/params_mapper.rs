@@ -194,16 +194,7 @@ impl ComfyTaskParams {
             }
         };
 
-/*        let mut node_index = HashMap::new();
-        if let Value::Array(nodes) = &mut workflow_json {
-            for node in nodes.iter() {
-                let class_type = node["class_type"].as_str().unwrap_or_default().to_string();
-                let meta_title = node["_meta"]["title"].as_str().unwrap_or_default().to_string();
-                let node_ref = Rc::new(RefCell::new(node.clone()));
-                node_index.insert((class_type, meta_title), node_ref);
-            }
-        }
-*/
+
         for (pk1, v) in &self.params {
             if let Some(nk) = self.fooo2node.get(pk1) {
                 for line in nk.split(';') {
@@ -219,11 +210,15 @@ impl ComfyTaskParams {
                                     if let Value::String(vs) = v {
                                         let vs: Vec<&str> = vs.trim().split('|').collect();
                                         for i in 0..keys.len() {
-                                            node["inputs"][keys[i]] = Value::String(vs[i].to_string());
+                                            if node["inputs"].get(keys[i]).is_some() {
+                                                node["inputs"][keys[i]] = Value::String(vs[i].to_string());
+                                            }
                                         }
                                     }
                                 } else {
-                                    node["inputs"][inputs.clone()] = v.clone();
+                                    if node["inputs"].get(inputs.as_str()).is_some() {
+                                        node["inputs"][inputs.clone()] = v.clone();
+                                    }
                                 }
                             }
                         }
@@ -241,25 +236,7 @@ impl ComfyTaskParams {
         }
     }
 
-    pub fn get_key_mapped(&self, flow_name: String) -> HashMap<String, Vec<String>> {
-        let filename = format!("{}_api.json", flow_name);
-        let filename_with_path = format!("workflows/{}", filename);
-        let flow_file = {
-            let claims = GlobalClaims::instance();
-            let claims = claims.lock().unwrap();
-            claims.get_path_in_user_dir(&self.user_did, &filename_with_path)
-        };
-        let flow_file = Path::new(&flow_file);
-        let flow_file = match flow_file.exists() {
-            true => PathBuf::from(flow_file),
-            false => token_utils::get_path_in_root_dir("workflows", &filename)
-        };
-
-        let workflow = match fs::read_to_string(flow_file) {
-            Ok(json_str) => json_str,
-            Err(_) => return HashMap::new(),
-        };
-
+    pub fn get_key_mapped(&self, workflow: String) -> HashMap<String, Vec<String>> {
         let workflow_json: Value = match serde_json::from_str(&workflow) {
             Ok(json) => json,
             Err(_) => return HashMap::new(),
