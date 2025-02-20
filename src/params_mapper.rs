@@ -250,15 +250,17 @@ impl ComfyTaskParams {
                     continue;
                 }
                 let (class_type, meta_title, inputs_value) = (parts[0], parts[1], parts[2]);
+                println!("Checking: {}, {}, {}", class_type, meta_title, inputs_value);
 
                 if let Value::Object(nodes) = &workflow_json {
                     for (_, node) in nodes {
                         let node_class = node["class_type"].as_str().unwrap_or_default();
                         let node_title = node["_meta"]["title"].as_str().unwrap_or_default();
-
                         if node_class == class_type && node_title == meta_title {
+                            println!("Checking node: {}, {}, {}", node_class, node_title, node["_meta"]["inputs"]);
                             if let Some(inputs) = node["_meta"]["inputs"].as_object() {
                                 if inputs.contains_key(inputs_value) {
+                                    println!("Found match: {} <--> {}", key, line.trim().to_string());
                                     result.entry(key.clone()).or_insert_with(Vec::new).push(line.trim().to_string());
                                 }
                             }
