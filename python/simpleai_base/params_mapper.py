@@ -28,4 +28,4 @@ class ComfyTaskParams:
         return json.loads(self.obj.convert2comfy(flow_name))
 
     def get_key_mapped(self, workflow):
-        return json.loads(self.obj.get_key_mapped(workflow))
+        return self.obj.get_key_mapped(workflow)
