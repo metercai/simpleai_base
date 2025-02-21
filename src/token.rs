@@ -129,11 +129,14 @@ impl SimpleAI {
         let sys_did = local_did.clone();
         let dev_did = device_did.clone();
         let sysinfo_clone = sysinfo.clone();
+        let mut upstream_did = String::new();
+        let global_local_vars_clone = global_local_vars.clone();
         let _logging_handle = token_utils::TOKIO_RUNTIME.spawn(async move {
-            submit_uncompleted_request_files(&sys_did, &dev_did).await
+            submit_uncompleted_request_files(&sys_did, &dev_did).await;
+            register_sync_upstream(&local_claim, &device_claim, Arc::new(Mutex::new(upstream_did)), global_local_vars_clone).await;
         });
 
-        let upstream_did = if admin == token_utils::TOKEN_TM_DID {
+        upstream_did = if admin == token_utils::TOKEN_TM_DID {
             token_utils::TOKEN_TM_DID.to_string()
         } else { "".to_string() };
         debug!("upstream_did: {}", upstream_did);
@@ -177,35 +180,7 @@ impl SimpleAI {
         if self.admin == token_utils::TOKEN_TM_DID {
             return token_utils::TOKEN_TM_DID.to_string()
         }
-        let start_time = Instant::now();
-        let timeout = Duration::from_secs(30);
-
-        loop {
-            if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown"){
-                return self.upstream_did.clone();
-            }
-            let (local_claim, device_claim) = {
-                let mut claims = self.claims.lock().unwrap();
-                (claims.get_claim_from_local(&self.did), claims.get_claim_from_local(&self.device))
-            };
-            let result_string = SimpleAI::request_token_api_register(&local_claim, &device_claim);
-            let mut global_vars = serde_json::from_str(&result_string).unwrap_or(HashMap::new());
-            self.upstream_did = global_vars.get("upstream_did").cloned().unwrap_or("Unknown".to_string());
-            global_vars.insert("upstream_did".to_string(), self.did.clone());
-            if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
-                let global_local_vars = self.global_local_vars.lock().unwrap();
-                for (var, value) in global_vars.iter() {
-                    let ivec_data = sled::IVec::from(value.as_bytes());
-                    let _ = global_local_vars.insert(&format!("global_{}", var), ivec_data);
-                }
-                debug!("[UserBase] obtain upstream: upstream_did={}, self_did={}", self.upstream_did, self.did);
-            }
-            if start_time.elapsed() >= timeout {
-                debug!("[UserBase] Unable to obtain upstream address: self_did={}", self.did);
-                return "".to_string();
-            }
-            std::thread::sleep(Duration::from_secs(2));
-        }
+        self.upstream_did.clone()
     }
 
     pub fn get_sysinfo(&self) -> SystemInfo {
@@ -1743,4 +1718,68 @@ fn extract_method_from_filename(file_name: &str) -> Option<String> {
         }
     }
     None
+}
+
+async fn register_sync_upstream(local_claim: &IdClaim, device_claim: &IdClaim, upstream: Arc<Mutex<String>>, global_local_vars: Arc<Mutex<sled::Tree>>) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30)); // 设置检查周期
+    let sys_did = local_claim.gen_did();
+    let dev_did = device_claim.gen_did();
+    let mut request: serde_json::Value = json!({});
+    request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
+    request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
+    let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+    let null_params = "{}".to_string();
+    let mut upstream_did = String::new();
+    let mut last_time = 0u64;
+    loop {
+        let result_string = if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(5), // 设置 5 秒超时
+                request_token_api_async(&sys_did, &dev_did, "register", &params),
+            )
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    error!("Request to register timed out");
+                    interval.tick().await;
+                    continue;
+                }
+            }
+        } else {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(5), // 设置 5 秒超时
+                request_token_api_async(&sys_did, &dev_did, "ping", &null_params),
+            )
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    error!("Request to ping timed out");
+                    interval.tick().await;
+                    continue;
+                }
+            }
+        };
+        let mut global_vars = serde_json::from_str(&result_string).unwrap_or(HashMap::new());
+        let last_time_new = global_vars.get("last_time").cloned().unwrap_or(0.to_string()).parse().unwrap_or(0u64);
+        if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
+            let upstream_did_new = global_vars.get("upstream_did").cloned().unwrap_or("Unknown".to_string());
+            let mut upstream_guard = upstream.lock().unwrap();
+            *upstream_guard = upstream_did_new.clone();
+            upstream_did = upstream_did_new;
+            debug!("[UserBase] obtain upstream: upstream_did={}, self_did={}", upstream_did, sys_did);
+        }
+        if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") && last_time_new > last_time {
+            global_vars.insert("upstream_did".to_string(), sys_did.clone());
+            let global_local_vars = global_local_vars.lock().unwrap();
+            for (var, value) in global_vars.iter() {
+                let ivec_data = sled::IVec::from(value.as_bytes());
+                let _ = global_local_vars.insert(&format!("global_{}", var), ivec_data);
+            }
+            last_time = last_time_new;
+            debug!("[UserBase] obtain global_var from upstream: upstream_did={}, len={}", upstream_did, global_vars.len());
+        }
+        interval.tick().await;
+    }
 }
