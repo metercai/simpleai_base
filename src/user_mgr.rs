@@ -67,6 +67,19 @@ impl OnlineUsers {
         }
     }
 
+    pub fn log_access_batch(&self, batch_ids: String) {
+        let now = Self::current_timestamp();
+        {
+            let mut queue = self.user_queue.lock().unwrap();
+            batch_ids
+                .split('|') // 按 '|' 分隔字符串
+                .map(|id| id.trim()) // 去除空白字符
+                .for_each(|id| {
+                    queue.push_back((id.to_string(), now));
+                });
+        }
+    }
+
     pub fn get_number(&self) -> usize {
         let now = Self::current_timestamp();
 
@@ -120,6 +133,11 @@ impl OnlineUsers {
             .join("|")
     }
 
+    pub fn is_online(&self, user_id: &str) -> bool {
+        let cache = self.cache.read().unwrap();
+        cache.user_set.iter().any(|id| id == user_id)
+    }
+
     pub fn get_full_list(&self) -> String {
         let cache = self.cache.read().unwrap();
         cache.user_set.iter().cloned().collect::<Vec<_>>().join("|")
@@ -152,7 +170,7 @@ impl OnlineUsers {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_secs()
+            .as_millis() as u64
     }
 }
 
