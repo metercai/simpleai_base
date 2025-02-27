@@ -19,6 +19,7 @@ mod env_data;
 mod params_mapper;
 mod cert_center;
 mod rest_service;
+mod user_mgr;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {

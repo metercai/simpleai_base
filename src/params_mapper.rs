@@ -54,6 +54,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("clip_model", "DualCLIPLoader:clip_model:clip_name1;DualCLIPLoaderGGUF:clip_model:clip_name1;CLIPLoaderGGUF:clip_model:clip_name;CLIPLoader:clip_model:clip_name;TripleCLIPLoader:clip_model:clip_name1"),
     ("clip_model2", "TripleCLIPLoader:clip_model:clip_name2"),
     ("vae_model", "VAELoader:vae_model:vae_name"),
+    ("is_custom_vae", "easy boolean:is_custom_vae:value"),
     ("llms_model", "MZ_ChatGLM3Loader:llms_model:chatglm3_checkpoint;DownloadAndLoadChatGLM3:llms_model:precision"),
     ("input_image", "LoadImage:input_image:image"),
     ("layer_diffuse_injection", "LayeredDiffusionApply:layer_diffuse_apply:config"),

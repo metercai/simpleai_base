@@ -215,7 +215,7 @@ pub(crate) async fn get_mac_address(ip: IpAddr) -> String {
 
 pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
     let is_text = match path.extension().and_then(|ext| ext.to_str()) {
-        Some(ext) if matches!(ext, "txt" | "log" | "py" | "rs" | "toml" | "md") => true,
+        Some(ext) if matches!(ext, "txt" | "log" | "py" | "rs" | "toml" | "md" | "json") => true,
         _ => false,
     };
     let mut file = File::open(path)?;

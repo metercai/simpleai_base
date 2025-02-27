@@ -94,6 +94,13 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .and(with_simpai(simpai.clone()))
             .and_then(handle_get_path_in_user_dir);
 
+        let put_global_message = warp::path!("api" / "put_global_message")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and(with_simpai(simpai.clone()))
+            .and_then(handle_put_global_message);
+
+
         let routes = get_sys_did
             .or(get_device_did)
             .or(get_local_vars)
@@ -104,7 +111,8 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .or(verify_by_did)
             .or(encrypt_for_did)
             .or(decrypt_by_did)
-            .or(get_path_in_user_dir);
+            .or(get_path_in_user_dir)
+            .or(put_global_message);
 
         warp::serve(routes).run((address, port)).await;
     });
@@ -321,4 +329,20 @@ async fn handle_get_path_in_user_dir(
 }
 
 
+#[derive(Debug, Deserialize)]
+struct PutGlobalMessage {
+    msg: String,
+}
 
+async fn handle_put_global_message(
+    req: PutGlobalMessage,
+    ai: SharedAI,
+) -> Result<impl Reply, Rejection> {
+    let ai = ai.lock().unwrap();
+    ai.put_global_message(&req.msg);
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: "",
+        error: None,
+    }))
+}

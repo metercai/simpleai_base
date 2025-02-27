@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
 use std::thread;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
+
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::path::{Path, PathBuf};
 use serde_json::{self, json};
@@ -20,11 +21,17 @@ use crate::token_utils;
 use crate::{exchange_key, issue_key};
 use crate::error::TokenError;
 use crate::env_data::EnvData;
-use crate::claims::{GlobalClaims, IdClaim, UserContext};
+use crate::claims::{GlobalClaims, IdClaim, UserContext, DidEntryPoint};
 use crate::systeminfo::SystemInfo;
 use crate::cert_center::GlobalCerts;
+use crate::user_mgr::{OnlineUsers, MessageQueue};
 
-pub(crate) static TOKEN_API_VERSION: &str = "v1.1.1";
+pub(crate) static TOKEN_API_VERSION: &str = "v1.2.1";
+
+use once_cell::sync::OnceCell;
+
+// 定义一个全局的 OnceCell
+static TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
 
 
 #[derive(Clone, Debug)]
@@ -57,6 +64,9 @@ pub struct SimpleAI {
     upstream_did: String,
     user_base_dir: String,
     global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
+    online_users: OnlineUsers,
+    message_queue: MessageQueue,
+    did_entry_point: DidEntryPoint,
 }
 
 #[pymethods]
@@ -130,15 +140,29 @@ impl SimpleAI {
         let dev_did = device_did.clone();
         let sysinfo_clone = sysinfo.clone();
         let mut upstream_did = String::new();
-        let global_local_vars_clone = global_local_vars.clone();
-        let _logging_handle = token_utils::TOKIO_RUNTIME.spawn(async move {
-            submit_uncompleted_request_files(&sys_did, &dev_did).await;
-            register_sync_upstream(&local_claim, &device_claim, Arc::new(Mutex::new(upstream_did)), global_local_vars_clone).await;
-        });
+        let did_entry_point = DidEntryPoint::new();
+        let online_users = OnlineUsers::new(60, 2);
+        let message_queue = MessageQueue::new(global_local_vars.clone());
+        let upstream_did_arc = Arc::new(tokio::sync::Mutex::new(upstream_did.clone()));
+        let did_entry_point_arc = Arc::new(tokio::sync::Mutex::new(did_entry_point.clone()));
+        let online_users_arc = Arc::new(tokio::sync::Mutex::new(online_users.clone()));
+        let message_queue_arc = Arc::new(tokio::sync::Mutex::new(message_queue.clone()));
+        let did_entry_point_sync_arc = Arc::new(Mutex::new(did_entry_point.clone()));
 
+        if admin != token_utils::TOKEN_TM_DID {
+            let _ping_handle = token_utils::TOKIO_RUNTIME.spawn({
+                let did_entry_point_arc_clone = Arc::clone(&did_entry_point_arc);
+                async move {
+                    register_sync_upstream(&local_claim, &device_claim,
+                                           upstream_did_arc, did_entry_point_arc_clone.clone(),
+                                           online_users_arc, message_queue_arc).await;
+                }
+            });
+        }
         upstream_did = if admin == token_utils::TOKEN_TM_DID {
             token_utils::TOKEN_TM_DID.to_string()
-        } else { "".to_string() };
+        } else { upstream_did };
+
         debug!("upstream_did: {}", upstream_did);
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
@@ -149,6 +173,10 @@ impl SimpleAI {
                 admin
             } else { "".to_string()  }
         } else { admin };
+        claims.lock().unwrap().set_entry_point(did_entry_point_sync_arc.clone());
+        if !upstream_did.is_empty() {
+            claims.lock().unwrap().set_upstream_did(&upstream_did.clone());
+        }
 
         Self {
             sys_name,
@@ -170,6 +198,9 @@ impl SimpleAI {
             upstream_did,
             user_base_dir: String::new(),
             global_local_vars,
+            online_users,
+            message_queue,
+            did_entry_point: DidEntryPoint::new(),
         }
     }
 
@@ -226,6 +257,18 @@ impl SimpleAI {
 
     //pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> { self.token_db.clone() }
 
+    pub fn get_online_users_n(&self) -> usize {
+        self.online_users.get_number()
+    }
+
+    pub fn log_register(&self, did: &str) {
+        self.online_users.log_register(did.to_string());
+    }
+
+    pub fn log_access(&self, did: &str) {
+        self.online_users.log_access(did.to_string());
+    }
+
     pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
         let key = format!("global_{}", key);
         let global_local_vars = self.global_local_vars.lock().unwrap();
@@ -237,32 +280,30 @@ impl SimpleAI {
         }
     }
 
-    fn load_global_vars(&mut self) {
-        let upstream_did = self.get_upstream_did();
-        if upstream_did == self.admin && upstream_did == token_utils::TOKEN_TM_DID {
-            let mut global_vars: HashMap<String, String> = HashMap::new();
-            let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
-            let root_dir = sysinfo.root_dir.clone();
-            let global_vars_path = PathBuf::from(root_dir.clone()).join("global_vars.json");
-            if global_vars_path.exists() {
-                let global_vars_string = fs::read_to_string(&global_vars_path).unwrap_or("".to_string());
-                let local_global_vars: HashMap<String, String> = serde_json::from_str(&global_vars_string).unwrap_or(HashMap::new());
-                global_vars.extend(local_global_vars.into_iter());
-            }
-            global_vars.insert("upstream_did".to_string(), self.did.clone());
-            let global_local_vars = self.global_local_vars.lock().unwrap();
-            for (var, value) in global_vars.iter() {
-                let ivec_data = sled::IVec::from(value.as_bytes());
-                let _ = global_local_vars.insert(&format!("global_{}", var), ivec_data);
-            }
-        }
+    pub fn get_global_message_list(&self, last_timestamp: u64) -> String {
+        self.message_queue.get_messages(last_timestamp)
     }
 
-    pub fn get_global_vars_json(&mut self, reload: Option<bool>) -> String {
-        let reload = reload.unwrap_or(false);
-        if reload {
-            self.load_global_vars();
+    pub fn put_global_message(&self, message: &str) {
+        let _ = self.message_queue.push_messages(message.to_string());
+    }
+
+    pub fn put_global_var(&mut self, key: &str, value: &str) {
+        let key = format!("global_{}", key);
+        let global_local_vars = self.global_local_vars.lock().unwrap();
+        let ivec_data = sled::IVec::from(value.as_bytes());
+        let _ = global_local_vars.insert(&key, ivec_data);
+    }
+
+/*    pub fn put_global_vars(&mut self, vars: &HashMap<String, String>) {
+        let global_local_vars = self.global_local_vars.lock().unwrap();
+        for (key, value) in vars.iter() {
+            let ivec_data = sled::IVec::from(value.as_bytes());
+            let _ = global_local_vars.insert(&format!("global_{}", key), ivec_data);
         }
+    }*/
+
+    pub fn get_global_vars_json(&mut self) -> String {
         let prefix = "global_";
         let mut global_vars: HashMap<String, String> = HashMap::new();
         let global_local_vars = self.global_local_vars.lock().unwrap();
@@ -1442,7 +1483,7 @@ impl SimpleAI {
                     println!("{} [UserBase] Unbind user({}) from node({}): {}", token_utils::now_string(), user_did, self.did, result);
                 }
 
-                // release user token and conext
+                // release user token and context
                 if user_did != self.admin {
                     let key = format!("{}_{}", user_did, self.get_sys_did());
                     let authorized = self.authorized.lock().unwrap();
@@ -1557,28 +1598,17 @@ impl SimpleAI {
         claims.reverse_lookup_did_by_symbol(&symbol_hash)
     }
 
-    #[staticmethod]
-    fn request_token_api_register(sys_claim: &IdClaim, dev_claim: &IdClaim) -> String  {
-        let sys_did = sys_claim.gen_did();
-        let device_did = dev_claim.gen_did();
-        let mut request: serde_json::Value = json!({});
-        request["system_claim"] = serde_json::to_value(&sys_claim).unwrap_or(json!(""));
-        request["device_claim"] = serde_json::to_value(&dev_claim).unwrap_or(json!(""));
-        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-        token_utils::TOKIO_RUNTIME.block_on(async {
-            request_token_api_async(&sys_did, &device_did, "register", &params).await
-        })
-    }
 
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.get_upstream_did();
         if upstream_did.is_empty() {
             return "Unknown".to_string()
         }
+        let entry_point = self.did_entry_point.get_entry_point( &upstream_did);
         let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
         token_utils::TOKIO_RUNTIME.block_on(async {
             debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
-            request_token_api_async(&self.did, &self.device, api_name, &encoded_params).await
+            request_token_api_async(&entry_point, &self.did, &self.device, api_name, &encoded_params).await
         })
     }
 
@@ -1631,9 +1661,9 @@ impl SimpleAI {
 
 }
 
-async fn request_token_api_async(sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
+async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
     let encoded_params = encoded_params.to_string();
-    match token_utils::REQWEST_CLIENT.post(format!("{}{}", token_utils::TOKEN_TM_URL, api_name))
+    match token_utils::REQWEST_CLIENT.post(format!("{}{}", upstream_url, api_name))
         .header("Sys-Did", sys_did.to_string())
         .header("Dev-Did", dev_did.to_string())
         .header("Version", TOKEN_API_VERSION.to_string())
@@ -1667,7 +1697,7 @@ async fn request_token_api_async(sys_did: &str, dev_did: &str, api_name: &str, e
     }
 }
 
-async fn submit_uncompleted_request_files(sys_did: &str, dev_did: &str) {
+async fn submit_uncompleted_request_files(upstream_url: &str, sys_did: &str, dev_did: &str) {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5)); // 设置检查周期
 
     loop {
@@ -1695,7 +1725,7 @@ async fn submit_uncompleted_request_files(sys_did: &str, dev_did: &str) {
                                 if let Some(method) = extract_method_from_filename(file_name_str) {
                                     if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
                                         debug!("submit uncompleted request file: method={}, {}", method, file_path.display());
-                                        let result = request_token_api_async(sys_did, dev_did, &method, &content).await;
+                                        let result = request_token_api_async(upstream_url, sys_did, dev_did, &method, &content).await;
                                         if result != "Unknown"  {
                                             tokio::fs::remove_file(&file_path).await.expect("remove user copy file failed");
                                             debug!("remove the uncompleted request file: {}", file_path.display());
@@ -1720,66 +1750,148 @@ fn extract_method_from_filename(file_name: &str) -> Option<String> {
     None
 }
 
-async fn register_sync_upstream(local_claim: &IdClaim, device_claim: &IdClaim, upstream: Arc<Mutex<String>>, global_local_vars: Arc<Mutex<sled::Tree>>) {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30)); // 设置检查周期
+async fn register_sync_upstream(
+    local_claim: &IdClaim,
+    device_claim: &IdClaim,
+    upstream: Arc<tokio::sync::Mutex<String>>,
+    entry_point: Arc<tokio::sync::Mutex<DidEntryPoint>>,
+    online_users: Arc<tokio::sync::Mutex<OnlineUsers>>,
+    message_queue: Arc<tokio::sync::Mutex<MessageQueue>>,
+) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
     let sys_did = local_claim.gen_did();
     let dev_did = device_claim.gen_did();
-    let mut request: serde_json::Value = json!({});
+
+    // 构造初始请求参数
+    let mut request = json!({});
     request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
     request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
     let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-    let null_params = "{}".to_string();
+
     let mut upstream_did = String::new();
-    let mut last_time = 0u64;
+
     loop {
+        // 发送请求并处理响应
         let result_string = if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(5), // 设置 5 秒超时
-                request_token_api_async(&sys_did, &dev_did, "register", &params),
-            )
-                .await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    error!("Request to register timed out");
-                    interval.tick().await;
-                    continue;
-                }
-            }
+            send_request(&entry_point, &sys_did, &dev_did, "register", &params, None).await
         } else {
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(5), // 设置 5 秒超时
-                request_token_api_async(&sys_did, &dev_did, "ping", &null_params),
-            )
-                .await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    error!("Request to ping timed out");
-                    interval.tick().await;
-                    continue;
-                }
-            }
+            let mut request = json!({});
+            let online_users_list = {
+                let users_guard = online_users.lock().await;
+                users_guard.get_full_list()
+            };
+            let last_timestamp = {
+                let queue_guard = message_queue.lock().await;
+                queue_guard.get_last_timestamp()
+            };
+            request["online_users"] = serde_json::to_value(online_users_list).unwrap_or(json!(""));
+            request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
+            let params = "{}".to_string();
+            send_request(&entry_point, &sys_did, &dev_did, "ping", &params, Some(&upstream_did)).await
         };
-        let mut global_vars = serde_json::from_str(&result_string).unwrap_or(HashMap::new());
-        let last_time_new = global_vars.get("last_time").cloned().unwrap_or(0.to_string()).parse().unwrap_or(0u64);
-        if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
-            let upstream_did_new = global_vars.get("upstream_did").cloned().unwrap_or("Unknown".to_string());
-            let mut upstream_guard = upstream.lock().unwrap();
-            *upstream_guard = upstream_did_new.clone();
-            upstream_did = upstream_did_new;
-            debug!("[UserBase] obtain upstream: upstream_did={}, self_did={}", upstream_did, sys_did);
-        }
-        if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") && last_time_new > last_time {
-            global_vars.insert("upstream_did".to_string(), sys_did.clone());
-            let global_local_vars = global_local_vars.lock().unwrap();
-            for (var, value) in global_vars.iter() {
-                let ivec_data = sled::IVec::from(value.as_bytes());
-                let _ = global_local_vars.insert(&format!("global_{}", var), ivec_data);
+
+        match result_string {
+            Ok(response) => {
+                let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+                process_response(
+                    &mut upstream_did,
+                    &upstream,
+                    &entry_point,
+                    &sys_did,
+                    &dev_did,
+                    &online_users,
+                    &message_queue,
+                    &ping_vars,
+                )
+                    .await;
             }
-            last_time = last_time_new;
-            debug!("[UserBase] obtain global_var from upstream: upstream_did={}, len={}", upstream_did, global_vars.len());
+            Err(err) => {
+                error!("Request failed: {}", err);
+            }
         }
+
         interval.tick().await;
+    }
+}
+
+async fn send_request(
+    entry_point: &Arc<tokio::sync::Mutex<DidEntryPoint>>,
+    sys_did: &str,
+    dev_did: &str,
+    action: &str,
+    params: &str,
+    upstream_did: Option<&str>,
+) -> Result<String, String> {
+    let upstream_url = {
+        let ep = entry_point.lock().await;
+        if let Some(did) = upstream_did {
+            ep.get_entry_point(did)
+        } else {
+            ep.get_entry_point(token_utils::TOKEN_TM_DID)
+        }
+    };
+
+    match tokio::time::timeout(
+        tokio::time::Duration::from_secs(5),
+        request_token_api_async(&upstream_url, sys_did, dev_did, action, params),
+    )
+        .await
+    {
+        Ok(result) => Ok(result),
+        Err(_) => Err("Request timed out".to_string()),
+    }
+}
+
+async fn process_response(
+    upstream_did: &mut String,
+    upstream: &Arc<tokio::sync::Mutex<String>>,
+    entry_point: &Arc<tokio::sync::Mutex<DidEntryPoint>>,
+    sys_did: &str,
+    dev_did: &str,
+    online_users: &Arc<tokio::sync::Mutex<OnlineUsers>>,
+    message_queue: &Arc<tokio::sync::Mutex<MessageQueue>>,
+    ping_vars: &HashMap<String, String>,
+) {
+    if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
+        if let Some(new_did) = ping_vars.get("upstream_did") {
+            *upstream_did = new_did.clone();
+            {
+                let mut upstream_guard = upstream.lock().await;
+                *upstream_guard = new_did.clone();
+            }
+            debug!("[UserBase] Updated upstream DID: {}", new_did);
+
+            let upstream_url = {
+                let ep = entry_point.lock().await;
+                ep.get_entry_point(new_did)
+            };
+            TASK_HANDLE.get_or_init(|| {
+                let sys_did_owned = sys_did.to_string();
+                let dev_did_owned = dev_did.to_string();
+
+                tokio::spawn(async move {
+                    submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned).await;
+                })
+            });
+        }
+    }
+
+    if let Some(user_online) = ping_vars.get("user_online") {
+        let user_online_array: Vec<&str> = user_online.split("|").collect();
+        if user_online_array.len() >= 2 {
+            let min = user_online_array[0].parse().unwrap_or(0);
+            let hour = user_online_array[1].parse().unwrap_or(0);
+            {
+                let mut users_guard = online_users.lock().await;
+                users_guard.set_number_in_domain(min, hour);
+            }
+        }
+    }
+
+    if let Some(message_list) = ping_vars.get("message_list") {
+        {
+            let mut queue_guard = message_queue.lock().await;
+            queue_guard.push_messages(message_list.to_string());
+        }
     }
 }

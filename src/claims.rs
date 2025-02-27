@@ -33,6 +33,7 @@ pub struct GlobalClaims {
     guest: String,                        // 游客账号
     upstream: String,                      // 上游节点
     user_base_dir: String,                // 用户目录
+    entry_point: Arc<Mutex<DidEntryPoint>>,
 }
 
 impl GlobalClaims {
@@ -140,6 +141,7 @@ impl GlobalClaims {
             guest,
             upstream: String::new(),
             user_base_dir: String::new(),
+            entry_point: Arc::new(Mutex::new(DidEntryPoint::new())),
         }
     }
 
@@ -242,6 +244,9 @@ impl GlobalClaims {
         self.upstream = upstream_did.to_string();
     }
 
+    pub(crate) fn set_entry_point(&mut self, entry_point: Arc<Mutex<DidEntryPoint>>) {
+        self.entry_point = entry_point;
+    }
     pub(crate) fn set_user_base_dir(&mut self, user_base_dir: &str) {
         self.user_base_dir = user_base_dir.to_string();
     }
@@ -347,11 +352,11 @@ impl GlobalClaims {
             let mut request: Value = json!({});
             request["user_symbol"] = serde_json::to_value("").unwrap();
             request["user_did"] = serde_json::to_value(did).unwrap();
-
+            let upstream_url = self.entry_point.lock().unwrap().get_entry_point( &self.get_upstream_did());
             debug!("get claim from global with did: {}", did);
             let result = token_utils::TOKIO_RUNTIME.block_on(async {
                 match token_utils::REQWEST_CLIENT.post(
-                    format!("{}{}", token_utils::TOKEN_TM_URL, "get_use_claim"))
+                    format!("{}{}", upstream_url, "get_use_claim"))
                     .header("Sys-Did", self.sys_did.to_string())
                     .header("Dev-Did", self.device_did.to_string())
                     .body(serde_json::to_string(&request).unwrap())
@@ -785,5 +790,32 @@ impl Default for UserContext {
             aes_key_encrypted: "Default_aes_key_encrypted".to_string(),
             sig: "Unknown".to_string(),
         }
+    }
+}
+
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[pyclass]
+pub struct DidEntryPoint {
+    entry_point: HashMap<String, String>,
+}
+
+#[pymethods]
+impl DidEntryPoint {
+    #[new]
+    pub fn new() -> Self {
+        let mut entry_point = HashMap::new();
+        entry_point.insert(token_utils::TOKEN_TM_DID.to_string(), token_utils::TOKEN_TM_URL.to_string());
+        Self {
+            entry_point,
+        }
+    }
+
+    pub fn add_entry_point(&mut self, did: &str, entry_point: &str) {
+        self.entry_point.insert(did.to_string(), entry_point.to_string());
+    }
+
+    pub fn get_entry_point(&self, did: &str) -> String {
+        self.entry_point.get(did).cloned().unwrap_or_else(|| token_utils::TOKEN_TM_URL.to_string())
     }
 }
