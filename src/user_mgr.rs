@@ -66,7 +66,6 @@ impl OnlineUsers {
         {
             let mut queue = self.user_queue.lock().unwrap();
             queue.push_back((user_id.clone(), now));
-            debug!("log_access user: {}, len={}", user_id, queue.len());
         }
     }
 
@@ -110,6 +109,7 @@ impl OnlineUsers {
         let mut user_set = HashSet::with_capacity(queue.len());
         for (user_id, _) in queue.iter() {
             user_set.insert(user_id.clone());
+            debug!("add user to cache: {}, len={}", user_id, user_set.len());
         }
 
         // 更新缓存状态
