@@ -70,7 +70,7 @@ impl OnlineUsers {
 
     pub fn log_access_batch(&self, batch_ids: String) {
         let now = Self::current_timestamp();
-        {
+        if !batch_ids.is_empty() {
             let mut queue = self.user_queue.lock().unwrap();
             batch_ids
                 .split('|') // 按 '|' 分隔字符串
@@ -120,6 +120,7 @@ impl OnlineUsers {
     }
 
     pub fn get_list(&self, n: usize) -> String {
+        self.get_number();
         let cache = self.cache.read().unwrap();
         let actual_count = if n == 0 || n > cache.user_set.len() {
             cache.user_set.len()
@@ -135,11 +136,13 @@ impl OnlineUsers {
     }
 
     pub fn is_online(&self, user_id: &str) -> bool {
+        self.get_number();
         let cache = self.cache.read().unwrap();
         cache.user_set.iter().any(|id| id == user_id)
     }
 
     pub fn get_full_list(&self) -> String {
+        self.get_number();
         let cache = self.cache.read().unwrap();
         cache.user_set.iter().cloned().collect::<Vec<_>>().join("|")
     }
