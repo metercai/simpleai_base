@@ -284,7 +284,7 @@ impl SimpleAI {
 
     //pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> { self.token_db.clone() }
 
-    pub fn get_online_users_n(&self) -> usize {
+    pub fn get_online_users_number(&self) -> usize {
         self.online_users.get_number()
     }
 
@@ -1713,12 +1713,12 @@ impl SimpleAI {
 }
 
 async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
-    let encoded_params = encoded_params.to_string();
+    debug!("[Upstream] request: {}/api_{} with params: {}", upstream_url, api_name, encoded_params);
     match token_utils::REQWEST_CLIENT.post(format!("{}{}", upstream_url, api_name))
         .header("Sys-Did", sys_did.to_string())
         .header("Dev-Did", dev_did.to_string())
         .header("Version", TOKEN_API_VERSION.to_string())
-        .body(encoded_params)
+        .body(encoded_params.to_string())
         .send()
         .await{
         Ok(res) => {
