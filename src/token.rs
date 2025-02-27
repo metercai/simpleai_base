@@ -1632,7 +1632,7 @@ impl SimpleAI {
         };
         let sys_did = self.did.clone();
         let dev_did = self.device.clone();
-        let last_timestamp = self.message_queue.get_last_timestamp();
+        let last_timestamp = self.message_queue.get_last_timestamp().unwrap_or_else(|| 0u64);
         let mut request = json!({});
         request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
         request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
@@ -1647,7 +1647,7 @@ impl SimpleAI {
         let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
         if let Some(new_did) = ping_vars.get("upstream_did") {
             new_did.clone()
-        } else { "Unknown".to_string() }
+        } else { "".to_string() }
     }
 
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
@@ -1821,7 +1821,7 @@ async fn sync_upstream(
             };
             let last_timestamp = {
                 let queue_guard = message_queue.lock().await;
-                queue_guard.get_last_timestamp()
+                queue_guard.get_last_timestamp().unwrap_or_else(|| 0u64)
             };
             request["online_users"] = serde_json::to_value(online_users_list).unwrap_or(json!(""));
             request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
