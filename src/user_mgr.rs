@@ -30,8 +30,8 @@ struct CacheState {
 impl OnlineUsers {
     pub fn new(time_period: u64, cache_update_interval: u64) -> Self {
         Self {
-            time_period: time_period*1000,
-            cache_update_interval: cache_update_interval*1000,
+            time_period,
+            cache_update_interval,
             domain_users_min: 0,
             domain_users_hour: 0,
             registered_users: RwLock::new(HashSet::new()).into(),
@@ -45,7 +45,6 @@ impl OnlineUsers {
         {
             let mut registered = self.registered_users.write().unwrap();
             registered.insert(user_id.clone());
-            debug!("register user: {}, len={}", user_id, registered.len());
         }
         let now = Self::current_timestamp();
         {
@@ -65,7 +64,7 @@ impl OnlineUsers {
         let now = Self::current_timestamp();
         {
             let mut queue = self.user_queue.lock().unwrap();
-            queue.push_back((user_id.clone(), now));
+            queue.push_back((user_id, now));
         }
     }
 
@@ -109,7 +108,6 @@ impl OnlineUsers {
         let mut user_set = HashSet::with_capacity(queue.len());
         for (user_id, _) in queue.iter() {
             user_set.insert(user_id.clone());
-            debug!("add user to cache: {}, len={}", user_id, user_set.len());
         }
 
         // 更新缓存状态
@@ -173,7 +171,7 @@ impl OnlineUsers {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_millis() as u64
+            .as_secs()
     }
 }
 
