@@ -30,8 +30,8 @@ struct CacheState {
 impl OnlineUsers {
     pub fn new(time_period: u64, cache_update_interval: u64) -> Self {
         Self {
-            time_period,
-            cache_update_interval,
+            time_period: time_period*1000,
+            cache_update_interval: cache_update_interval*1000,
             domain_users_min: 0,
             domain_users_hour: 0,
             registered_users: RwLock::new(HashSet::new()).into(),
