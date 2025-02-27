@@ -230,7 +230,7 @@ impl SimpleAI {
                 let online_users = Arc::new(tokio::sync::Mutex::new(self.online_users.clone()));
                 let message_queue =  Arc::new(tokio::sync::Mutex::new(self.message_queue.clone()));
 
-                tokio::spawn(async move {
+                token_utils::TOKIO_RUNTIME.spawn(async move {
                     let task1 = submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned);
                     let task2 = sync_upstream(&sys_did_owned, &dev_did_owned, upstream_did_owned,
                                                entry_point, online_users, message_queue);
