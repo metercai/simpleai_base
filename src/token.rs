@@ -1632,10 +1632,12 @@ impl SimpleAI {
         };
         let sys_did = self.did.clone();
         let dev_did = self.device.clone();
-
+        let last_timestamp = self.message_queue.get_last_timestamp();
         let mut request = json!({});
         request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
         request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
+        request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
+
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
 
         let upstream_url = self.did_entry_point.get_entry_point(token_utils::TOKEN_TM_DID);
