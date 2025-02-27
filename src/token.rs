@@ -159,9 +159,20 @@ impl SimpleAI {
                 }
             });
         }
+
         upstream_did = if admin == token_utils::TOKEN_TM_DID {
             token_utils::TOKEN_TM_DID.to_string()
-        } else { upstream_did };
+        } else {
+            let timeout = Duration::from_secs(6);
+            let start_time = Instant::now();
+            while start_time.elapsed() < timeout {
+                if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            upstream_did
+        };
 
         debug!("upstream_did: {}", upstream_did);
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
@@ -173,6 +184,7 @@ impl SimpleAI {
                 admin
             } else { "".to_string()  }
         } else { admin };
+
         claims.lock().unwrap().set_entry_point(did_entry_point_sync_arc.clone());
         if !upstream_did.is_empty() {
             claims.lock().unwrap().set_upstream_did(&upstream_did.clone());
@@ -1773,7 +1785,7 @@ async fn register_sync_upstream(
     loop {
         // 发送请求并处理响应
         let result_string = if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
-            send_request(&entry_point, &sys_did, &dev_did, "register", &params, None).await
+            send_request(&entry_point, &sys_did, &dev_did, "register2", &params, None).await
         } else {
             let mut request = json!({});
             let online_users_list = {
@@ -1786,7 +1798,7 @@ async fn register_sync_upstream(
             };
             request["online_users"] = serde_json::to_value(online_users_list).unwrap_or(json!(""));
             request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
-            let params = "{}".to_string();
+            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
             send_request(&entry_point, &sys_did, &dev_did, "ping", &params, Some(&upstream_did)).await
         };
 
