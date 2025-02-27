@@ -143,39 +143,14 @@ impl SimpleAI {
         let did_entry_point = DidEntryPoint::new();
         let online_users = OnlineUsers::new(60, 2);
         let message_queue = MessageQueue::new(global_local_vars.clone());
-        let upstream_did_arc = Arc::new(tokio::sync::Mutex::new(upstream_did.clone()));
-        let did_entry_point_arc = Arc::new(tokio::sync::Mutex::new(did_entry_point.clone()));
-        let online_users_arc = Arc::new(tokio::sync::Mutex::new(online_users.clone()));
-        let message_queue_arc = Arc::new(tokio::sync::Mutex::new(message_queue.clone()));
         let did_entry_point_sync_arc = Arc::new(Mutex::new(did_entry_point.clone()));
-
-        if admin != token_utils::TOKEN_TM_DID {
-            let _ping_handle = token_utils::TOKIO_RUNTIME.spawn({
-                let did_entry_point_arc_clone = Arc::clone(&did_entry_point_arc);
-                async move {
-                    register_sync_upstream(&local_claim, &device_claim,
-                                           upstream_did_arc, did_entry_point_arc_clone.clone(),
-                                           online_users_arc, message_queue_arc).await;
-                }
-            });
-        }
+        claims.lock().unwrap().set_entry_point(did_entry_point_sync_arc.clone());
 
         upstream_did = if admin == token_utils::TOKEN_TM_DID {
             token_utils::TOKEN_TM_DID.to_string()
         } else {
-            let timeout = Duration::from_secs(6);
-            let start_time = Instant::now();
-            while start_time.elapsed() < timeout {
-                if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(200));
-            }
             upstream_did
         };
-
-        debug!("upstream_did: {}", upstream_did);
-        debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
         let admin = if !admin.is_empty() {
             if guest_did != admin {
@@ -185,10 +160,12 @@ impl SimpleAI {
             } else { "".to_string()  }
         } else { admin };
 
-        claims.lock().unwrap().set_entry_point(did_entry_point_sync_arc.clone());
         if !upstream_did.is_empty() {
             claims.lock().unwrap().set_upstream_did(&upstream_did.clone());
         }
+
+        debug!("upstream_did: {}, admin_did: {}", upstream_did, admin);
+        debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
         Self {
             sys_name,
@@ -221,9 +198,47 @@ impl SimpleAI {
     pub fn get_sys_did(&self) -> String { self.did.clone() }
     pub fn get_upstream_did(&mut self) -> String {
         if self.admin == token_utils::TOKEN_TM_DID {
-            return token_utils::TOKEN_TM_DID.to_string()
+            self.upstream_did = token_utils::TOKEN_TM_DID.to_string();
+            return self.upstream_did.clone();
         }
-        self.upstream_did.clone()
+        if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
+            return self.upstream_did.clone();
+        }
+        let timeout = Duration::from_secs(6);
+        let start_time = Instant::now();
+        let mut upstream_did = self.upstream_did.clone();
+        while start_time.elapsed() < timeout {
+            if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
+                break;
+            }
+            upstream_did = self.register_upstream();
+            std::thread::sleep(Duration::from_millis(1000));
+        }
+        debug!("get upstream_did from root: {}", upstream_did);
+        if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
+            self.upstream_did = upstream_did.clone();
+            self.claims.lock().unwrap().set_upstream_did(&upstream_did.clone());
+            let upstream_url =  self.did_entry_point.get_entry_point(&upstream_did.clone());
+            let sys_did = self.get_sys_did();
+            let dev_did = self.get_device_did();
+            TASK_HANDLE.get_or_init(|| {
+                let sys_did_owned = sys_did.clone();
+                let dev_did_owned = dev_did.clone();
+                let upstream_did_owned = upstream_did.clone();
+
+                let entry_point = Arc::new(tokio::sync::Mutex::new(self.did_entry_point.clone()));
+                let online_users = Arc::new(tokio::sync::Mutex::new(self.online_users.clone()));
+                let message_queue =  Arc::new(tokio::sync::Mutex::new(self.message_queue.clone()));
+
+                tokio::spawn(async move {
+                    let task1 = submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned);
+                    let task2 = sync_upstream(&sys_did_owned, &dev_did_owned, upstream_did_owned,
+                                               entry_point, online_users, message_queue);
+                    tokio::join!(task1, task2);
+                })
+            });
+        }
+        upstream_did
     }
 
     pub fn get_sysinfo(&self) -> SystemInfo {
@@ -1610,6 +1625,28 @@ impl SimpleAI {
         claims.reverse_lookup_did_by_symbol(&symbol_hash)
     }
 
+    fn register_upstream(&self) -> String {
+        let (local_claim, device_claim) = {
+            let mut claims = self.claims.lock().unwrap();
+            (claims.get_claim_from_local(&self.did), claims.get_claim_from_local(&self.device))
+        };
+        let sys_did = self.did.clone();
+        let dev_did = self.device.clone();
+
+        let mut request = json!({});
+        request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
+        request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
+        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+
+        let upstream_url = self.did_entry_point.get_entry_point(token_utils::TOKEN_TM_DID);
+        let response = token_utils::TOKIO_RUNTIME.block_on(async {
+            request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await
+        });
+        let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+        if let Some(new_did) = ping_vars.get("upstream_did") {
+            new_did.clone()
+        } else { "Unknown".to_string() }
+    }
 
     fn request_token_api(&mut self, api_name: &str, params: &str) -> String  {
         let upstream_did = self.get_upstream_did();
@@ -1762,31 +1799,19 @@ fn extract_method_from_filename(file_name: &str) -> Option<String> {
     None
 }
 
-async fn register_sync_upstream(
-    local_claim: &IdClaim,
-    device_claim: &IdClaim,
-    upstream: Arc<tokio::sync::Mutex<String>>,
+
+async fn sync_upstream(
+    sys_did: &str,
+    dev_did: &str,
+    upstream_did: String,
     entry_point: Arc<tokio::sync::Mutex<DidEntryPoint>>,
     online_users: Arc<tokio::sync::Mutex<OnlineUsers>>,
     message_queue: Arc<tokio::sync::Mutex<MessageQueue>>,
 ) {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-    let sys_did = local_claim.gen_did();
-    let dev_did = device_claim.gen_did();
-
-    // 构造初始请求参数
-    let mut request = json!({});
-    request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
-    request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
-    let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-
-    let mut upstream_did = String::new();
 
     loop {
-        // 发送请求并处理响应
-        let result_string = if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
-            send_request(&entry_point, &sys_did, &dev_did, "register2", &params, None).await
-        } else {
+        let result_string = {
             let mut request = json!({});
             let online_users_list = {
                 let users_guard = online_users.lock().await;
@@ -1799,111 +1824,43 @@ async fn register_sync_upstream(
             request["online_users"] = serde_json::to_value(online_users_list).unwrap_or(json!(""));
             request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
             let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-            send_request(&entry_point, &sys_did, &dev_did, "ping", &params, Some(&upstream_did)).await
+            let upstream_url = {
+                let ep = entry_point.lock().await;
+                ep.get_entry_point(&upstream_did.clone())
+            };
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                request_token_api_async(&upstream_url, sys_did, dev_did, "ping", &params),
+            )
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => "Unknown".to_string(),
+            }
         };
 
-        match result_string {
-            Ok(response) => {
-                let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
-                process_response(
-                    &mut upstream_did,
-                    &upstream,
-                    &entry_point,
-                    &sys_did,
-                    &dev_did,
-                    &online_users,
-                    &message_queue,
-                    &ping_vars,
-                )
-                    .await;
+        if result_string != "Unknown" {
+            let ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
+            if let Some(user_online) = ping_vars.get("user_online") {
+                let user_online_array: Vec<&str> = user_online.split("|").collect();
+                if user_online_array.len() >= 2 {
+                    let min = user_online_array[0].parse().unwrap_or(0);
+                    let hour = user_online_array[1].parse().unwrap_or(0);
+                    {
+                        let mut users_guard = online_users.lock().await;
+                        users_guard.set_number_in_domain(min, hour);
+                    }
+                }
             }
-            Err(err) => {
-                error!("Request failed: {}", err);
+
+            if let Some(message_list) = ping_vars.get("message_list") {
+                {
+                    let mut queue_guard = message_queue.lock().await;
+                    queue_guard.push_messages(message_list.to_string());
+                }
             }
         }
 
         interval.tick().await;
-    }
-}
-
-async fn send_request(
-    entry_point: &Arc<tokio::sync::Mutex<DidEntryPoint>>,
-    sys_did: &str,
-    dev_did: &str,
-    action: &str,
-    params: &str,
-    upstream_did: Option<&str>,
-) -> Result<String, String> {
-    let upstream_url = {
-        let ep = entry_point.lock().await;
-        if let Some(did) = upstream_did {
-            ep.get_entry_point(did)
-        } else {
-            ep.get_entry_point(token_utils::TOKEN_TM_DID)
-        }
-    };
-
-    match tokio::time::timeout(
-        tokio::time::Duration::from_secs(5),
-        request_token_api_async(&upstream_url, sys_did, dev_did, action, params),
-    )
-        .await
-    {
-        Ok(result) => Ok(result),
-        Err(_) => Err("Request timed out".to_string()),
-    }
-}
-
-async fn process_response(
-    upstream_did: &mut String,
-    upstream: &Arc<tokio::sync::Mutex<String>>,
-    entry_point: &Arc<tokio::sync::Mutex<DidEntryPoint>>,
-    sys_did: &str,
-    dev_did: &str,
-    online_users: &Arc<tokio::sync::Mutex<OnlineUsers>>,
-    message_queue: &Arc<tokio::sync::Mutex<MessageQueue>>,
-    ping_vars: &HashMap<String, String>,
-) {
-    if upstream_did.is_empty() || upstream_did.starts_with("Unknown") {
-        if let Some(new_did) = ping_vars.get("upstream_did") {
-            *upstream_did = new_did.clone();
-            {
-                let mut upstream_guard = upstream.lock().await;
-                *upstream_guard = new_did.clone();
-            }
-            debug!("[UserBase] Updated upstream DID: {}", new_did);
-
-            let upstream_url = {
-                let ep = entry_point.lock().await;
-                ep.get_entry_point(new_did)
-            };
-            TASK_HANDLE.get_or_init(|| {
-                let sys_did_owned = sys_did.to_string();
-                let dev_did_owned = dev_did.to_string();
-
-                tokio::spawn(async move {
-                    submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned).await;
-                })
-            });
-        }
-    }
-
-    if let Some(user_online) = ping_vars.get("user_online") {
-        let user_online_array: Vec<&str> = user_online.split("|").collect();
-        if user_online_array.len() >= 2 {
-            let min = user_online_array[0].parse().unwrap_or(0);
-            let hour = user_online_array[1].parse().unwrap_or(0);
-            {
-                let mut users_guard = online_users.lock().await;
-                users_guard.set_number_in_domain(min, hour);
-            }
-        }
-    }
-
-    if let Some(message_list) = ping_vars.get("message_list") {
-        {
-            let mut queue_guard = message_queue.lock().await;
-            queue_guard.push_messages(message_list.to_string());
-        }
     }
 }
