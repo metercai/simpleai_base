@@ -1713,7 +1713,7 @@ impl SimpleAI {
 }
 
 async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
-    debug!("[Upstream] request: {}/api_{} with params: {}", upstream_url, api_name, encoded_params);
+    debug!("[Upstream] request: {}{} with params: {}", upstream_url, api_name, encoded_params);
     match token_utils::REQWEST_CLIENT.post(format!("{}{}", upstream_url, api_name))
         .header("Sys-Did", sys_did.to_string())
         .header("Dev-Did", dev_did.to_string())

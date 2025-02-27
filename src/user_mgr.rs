@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::{Mutex, RwLock};
 use std::sync::Arc;
 use sled::Tree;
+use tracing::debug;
 
 
 #[derive(Debug, Clone)]
@@ -44,6 +45,7 @@ impl OnlineUsers {
         {
             let mut registered = self.registered_users.write().unwrap();
             registered.insert(user_id.clone());
+            debug!("register user: {}, len={}", user_id, registered.len());
         }
         let now = Self::current_timestamp();
         {
@@ -63,7 +65,8 @@ impl OnlineUsers {
         let now = Self::current_timestamp();
         {
             let mut queue = self.user_queue.lock().unwrap();
-            queue.push_back((user_id, now));
+            queue.push_back((user_id.clone(), now));
+            debug!("log_access user: {}, len={}", user_id, queue.len());
         }
     }
 
