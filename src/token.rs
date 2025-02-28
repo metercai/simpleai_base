@@ -288,6 +288,14 @@ impl SimpleAI {
         self.online_users.get_number()
     }
 
+    pub fn get_online_nodes_users(&self) -> (usize, usize) {
+        self.online_users.get_nodes_users()
+    }
+
+    pub fn get_online_nodes_top(&self) -> String {
+        self.online_users.get_nodes_top_list()
+    }
+
     pub fn log_register(&self, did: &str) {
         self.online_users.log_register(did.to_string());
     }
@@ -1844,13 +1852,14 @@ async fn sync_upstream(
         if result_string != "Unknown" {
             let ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
             if let Some(user_online) = ping_vars.get("user_online") {
-                let user_online_array: Vec<&str> = user_online.split("|").collect();
-                if user_online_array.len() >= 2 {
-                    let min = user_online_array[0].parse().unwrap_or(0);
-                    let hour = user_online_array[1].parse().unwrap_or(0);
+                let user_online_array: Vec<&str> = user_online.split(":").collect();
+                if user_online_array.len() >= 3 {
+                    let nodes = user_online_array[0].parse().unwrap_or(0);
+                    let users = user_online_array[1].parse().unwrap_or(0);
+                    let top_list = user_online_array[2].to_string();
                     {
                         let mut users_guard = online_users.lock().await;
-                        users_guard.set_number_in_domain(min, hour);
+                        users_guard.set_nodes_users(nodes, users, top_list);
                     }
                 }
             }

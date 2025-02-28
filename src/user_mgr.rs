@@ -11,9 +11,11 @@ pub struct OnlineUsers {
     // 不可变配置参数
     time_period: u64,
     cache_update_interval: u64,
-    // 节点单一变量
-    domain_users_min: usize,
-    domain_users_hour: usize,
+
+    // 域变量
+    nodes_num: usize,
+    users_num: usize,
+    nodes_top_list: Vec<String>,
 
     // 多线程状态变量
     registered_users: Arc<RwLock<HashSet<String>>>,
@@ -32,8 +34,9 @@ impl OnlineUsers {
         Self {
             time_period,
             cache_update_interval,
-            domain_users_min: 0,
-            domain_users_hour: 0,
+            nodes_num: 0,
+            users_num: 0,
+            nodes_top_list: vec![],
             registered_users: RwLock::new(HashSet::new()).into(),
             user_queue: Mutex::new(VecDeque::new()).into(),
             cache: RwLock::new(CacheState::default()).into(),
@@ -147,13 +150,20 @@ impl OnlineUsers {
         cache.user_set.iter().cloned().collect::<Vec<_>>().join("|")
     }
 
-    pub fn get_number_in_domain(&self) -> (usize, usize)  {
-        (self.domain_users_min, self.domain_users_hour)
+    pub fn get_nodes_users(&self) -> (usize, usize)  {
+        (self.nodes_num, self.users_num)
     }
 
-    pub fn set_number_in_domain(&mut self, min: usize, hour: usize) {
-        self.domain_users_min = min;
-        self.domain_users_hour = hour;
+    pub fn get_nodes_top_list(&self) -> String  {
+        self.nodes_top_list.join("|")
+    }
+
+    pub fn set_nodes_users(&mut self, nodes: usize, users: usize, top_list: String) {
+        self.nodes_num = nodes;
+        self.users_num = users;
+        if !top_list.is_empty() {
+            self.nodes_top_list = top_list.split('|').map(|id| id.trim().to_string()).collect();
+        }
     }
 
     fn cleanup_old_users(
