@@ -151,6 +151,7 @@ impl OnlineUsers {
     }
 
     pub fn get_nodes_users(&self) -> (usize, usize)  {
+        debug!("get nodes users: {}:{}", self.nodes_num, self.users_num);
         (self.nodes_num, self.users_num)
     }
 
@@ -164,6 +165,7 @@ impl OnlineUsers {
         if !top_list.is_empty() {
             self.nodes_top_list = top_list.split('|').map(|id| id.trim().to_string()).collect();
         }
+        debug!("update nodes users: {}:{}:{}", self.nodes_num, self.users_num, self.nodes_top_list.join("|"));
     }
 
     fn cleanup_old_users(
