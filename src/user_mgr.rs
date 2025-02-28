@@ -338,6 +338,11 @@ impl MessageQueue {
         lock.keys().cloned().collect()
     }
 
+    pub fn get_msg_number(&self) -> usize {
+        let lock = self.data.read().unwrap();
+        lock.len()
+    }
+
     /// 获取指定时间戳的消息内容（返回Option明确存在性）
     pub fn get_message(&self, timestamp: u64) -> Option<String> {
         let lock = self.data.read().unwrap();

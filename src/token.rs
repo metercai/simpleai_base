@@ -315,7 +315,19 @@ impl SimpleAI {
         }
     }
 
-    pub fn get_global_message_list(&self, last_timestamp: u64) -> String {
+    pub fn get_global_msg_number(&self) -> usize {
+        self.message_queue.get_msg_number()
+    }
+
+    pub fn get_global_msg_all(&self) -> String {
+        self.message_queue.get_messages(0)
+    }
+
+    pub fn remove_old_global_msg(&self, timestamp: u64) {
+        self.message_queue.remove_old_messages(timestamp);
+    }
+
+    pub fn get_global_msg_list(&self, last_timestamp: u64) -> String {
         self.message_queue.get_messages(last_timestamp)
     }
 
@@ -1653,6 +1665,9 @@ impl SimpleAI {
             request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await
         });
         let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+        if let Some(message_list) = ping_vars.get("message_list") {
+            self.message_queue.push_messages(message_list.to_string());
+        }
         if let Some(new_did) = ping_vars.get("upstream_did") {
             new_did.clone()
         } else { "".to_string() }
