@@ -155,7 +155,6 @@ impl OnlineUsers {
 
     pub fn get_nodes_users(&self) -> (usize, usize)  {
         let domain = self.domain.read().unwrap();
-        debug!("get nodes users: {}:{}", domain.nodes_num, domain.users_num);
         (domain.nodes_num, domain.users_num)
     }
 
@@ -171,7 +170,6 @@ impl OnlineUsers {
         if !top_list.is_empty() {
             domain.nodes_top_list = top_list.split('|').map(|id| id.trim().to_string()).collect();
         }
-        debug!("update nodes users: {}:{}:{}", domain.nodes_num, domain.users_num, domain.nodes_top_list.join("|"));
     }
 
     fn cleanup_old_users(
