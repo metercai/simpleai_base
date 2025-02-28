@@ -13,9 +13,7 @@ pub struct OnlineUsers {
     cache_update_interval: u64,
 
     // 域变量
-    nodes_num: usize,
-    users_num: usize,
-    nodes_top_list: Vec<String>,
+    domain: Arc<RwLock<DomainState>>,
 
     // 多线程状态变量
     registered_users: Arc<RwLock<HashSet<String>>>,
@@ -29,14 +27,19 @@ struct CacheState {
     last_update: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+struct DomainState {
+    nodes_num: usize,
+    users_num: usize,
+    nodes_top_list: Vec<String>,
+}
+
 impl OnlineUsers {
     pub fn new(time_period: u64, cache_update_interval: u64) -> Self {
         Self {
             time_period,
             cache_update_interval,
-            nodes_num: 0,
-            users_num: 0,
-            nodes_top_list: vec![],
+            domain: RwLock::new(DomainState::default()).into(),
             registered_users: RwLock::new(HashSet::new()).into(),
             user_queue: Mutex::new(VecDeque::new()).into(),
             cache: RwLock::new(CacheState::default()).into(),
@@ -151,21 +154,24 @@ impl OnlineUsers {
     }
 
     pub fn get_nodes_users(&self) -> (usize, usize)  {
-        debug!("get nodes users: {}:{}", self.nodes_num, self.users_num);
-        (self.nodes_num, self.users_num)
+        let domain = self.domain.read().unwrap();
+        debug!("get nodes users: {}:{}", domain.nodes_num, domain.users_num);
+        (domain.nodes_num, domain.users_num)
     }
 
     pub fn get_nodes_top_list(&self) -> String  {
-        self.nodes_top_list.join("|")
+        let domain = self.domain.read().unwrap();
+        domain.nodes_top_list.join("|")
     }
 
     pub fn set_nodes_users(&mut self, nodes: usize, users: usize, top_list: String) {
-        self.nodes_num = nodes;
-        self.users_num = users;
+        let mut domain = self.domain.write().unwrap();
+        domain.nodes_num = nodes;
+        domain.users_num = users;
         if !top_list.is_empty() {
-            self.nodes_top_list = top_list.split('|').map(|id| id.trim().to_string()).collect();
+            domain.nodes_top_list = top_list.split('|').map(|id| id.trim().to_string()).collect();
         }
-        debug!("update nodes users: {}:{}:{}", self.nodes_num, self.users_num, self.nodes_top_list.join("|"));
+        debug!("update nodes users: {}:{}:{}", domain.nodes_num, domain.users_num, domain.nodes_top_list.join("|"));
     }
 
     fn cleanup_old_users(
