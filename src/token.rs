@@ -1860,6 +1860,7 @@ async fn sync_upstream(
                     {
                         let mut users_guard = online_users.lock().await;
                         users_guard.set_nodes_users(nodes, users, top_list);
+                        debug!("[Upstream] nodes={}, users={}, top_list={}", nodes, users, top_list);
                     }
                 }
             }
