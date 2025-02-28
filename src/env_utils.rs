@@ -127,21 +127,27 @@ pub(crate) async fn get_random_port_availability(ip: Ipv4Addr, port: u16) -> u16
 pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
     let path_py = vec!["", "modules", "extras", "ldm_patched/modules", "enhanced", "enhanced/libs", "comfy", "comfy/comfy"];
     let path_ui = vec!["language/cn.json", "simplesdxl_log.md", "webui.py", "enhanced/attached/welcome.png"];
-
     let path_root = env::current_dir()?;
-
     let extensions = vec!["py", "whl"];
-    let mut py_hashes: HashMap<OsString, String> = HashMap::new();
+    let mut py_hashes: HashMap<String, String> = HashMap::new(); // 键类型改为String
+
     for path in path_py {
-        let path_os = path.replace("/", &MAIN_SEPARATOR.to_string());
+        // 将路径中的/替换为系统分隔符，确保正确找到文件
+        let path_os = path.replace('/', &std::path::MAIN_SEPARATOR.to_string());
         let full_path = path_root.join(path_os);
+
         if full_path.is_dir() {
             for entry in std::fs::read_dir(&full_path)? {
                 let entry = entry?;
                 if entry.file_type()?.is_file() {
                     if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
                         if extensions.contains(&ext) {
-                            let subpath = entry.path().strip_prefix(path_root.clone()).unwrap().to_path_buf().into_os_string();
+                            // 统一路径分隔符为/
+                            let subpath = entry.path()
+                                .strip_prefix(&path_root)?
+                                .to_string_lossy()
+                                .replace(std::path::MAIN_SEPARATOR, "/");
+
                             let Ok((hash, _)) = get_file_hash_size(&entry.path()) else { todo!() };
                             py_hashes.insert(subpath, hash);
                         }
@@ -151,26 +157,30 @@ pub(crate) async fn get_program_hash() -> Result<(String, String), TokenError> {
         } else if full_path.is_file() {
             if let Some(ext) = full_path.extension().and_then(|s| s.to_str()) {
                 if extensions.contains(&ext) {
-                    let subpath = full_path.strip_prefix(path_root.clone()).unwrap().to_path_buf().into_os_string();
-                    let Ok((hash, _)) = get_file_hash_size(&full_path.as_path()) else { todo!() };
+                    // 统一路径分隔符为/
+                    let subpath = full_path
+                        .strip_prefix(&path_root)?
+                        .to_string_lossy()
+                        .replace(std::path::MAIN_SEPARATOR, "/");
+
+                    let Ok((hash, _)) = get_file_hash_size(&full_path) else { todo!() };
                     py_hashes.insert(subpath, hash);
                 }
             }
         }
     }
-    let mut keys: Vec<OsString> = py_hashes.keys().cloned().collect();
-    keys.sort_by(|a, b| {
-        let a_str = a.to_string_lossy();
-        let b_str = b.to_string_lossy();
-        a_str.to_lowercase().cmp(&b_str.to_lowercase())
-    });
+
+    // 使用统一后的路径字符串进行排序
+    let mut keys: Vec<String> = py_hashes.keys().cloned().collect();
+    keys.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
 
     let mut combined_py_hash = Sha256::new();
-    for key in keys {
-        debug!("file key: {:?},{:?}", key, py_hashes[&key]);
-
-        combined_py_hash.update(&py_hashes[&key]);
+    for key in &keys {
+        if let Some(hash) = py_hashes.get(key) {
+            combined_py_hash.update(hash.as_bytes());
+        }
     }
+
     let combined_py_hash = combined_py_hash.finalize();
     let py_hash_base64 = URL_SAFE_NO_PAD.encode(&combined_py_hash);
     let py_hash_output = &py_hash_base64[..10];

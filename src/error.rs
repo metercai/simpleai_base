@@ -22,6 +22,8 @@ pub enum TokenError {
     JsonParseError(#[from] SerdeJsonError),
     #[error("Error in url parser")]
     UrlParseError(#[from] url::ParseError),
+    #[error("路径前缀错误: {0}")]
+    StripPrefix(#[from] std::path::StripPrefixError),
     #[error("Unknown error")]
     Unknown,
 }
