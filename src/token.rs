@@ -1859,7 +1859,7 @@ async fn sync_upstream(
                     let top_list = user_online_array[2].to_string();
                     {
                         let mut users_guard = online_users.lock().await;
-                        users_guard.set_nodes_users(nodes, users, top_list);
+                        users_guard.set_nodes_users(nodes, users, top_list.clone());
                         debug!("[Upstream] nodes={}, users={}, top_list={}", nodes, users, top_list);
                     }
                 }
