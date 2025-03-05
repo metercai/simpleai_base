@@ -34,16 +34,9 @@ use crate::p2p::error::P2pError;
 use crate::token_utils;
 use crate::claims::IdClaim;
 use crate::systeminfo::SystemInfo;
-use lazy_static::lazy_static;
 
 const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
 const TOKEN_SERVER_PORT: u16 = 2316;
-lazy_static! {
-    static ref  BOOT_NODES: Vec<PeerIdWithMultiaddr> = vec![
-    PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X").unwrap(),
-    //PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E").unwrap()
-    ];
-}
 
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
 pub(crate) trait EventHandler: Debug + Send + 'static {
@@ -259,10 +252,15 @@ impl<E: EventHandler> Server<E> {
 
         swarm.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
 
-    
-        for boot_node in BOOT_NODES.iter() {
-            swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
-        }
+        match config.address.boot_nodes {
+            Some(ref boot_nodes) => {
+                let boot_nodes_clone = boot_nodes.clone();
+                for boot_node in boot_nodes.into_iter() {
+                    swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
+                };
+            }
+            None => {}
+        };
 
         swarm.behaviour_mut().discover_peers();
 

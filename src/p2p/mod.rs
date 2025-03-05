@@ -98,8 +98,11 @@ async fn request(client: Client, interval: u64) {
         time::sleep(dur).await;
         let known_peers = client.get_known_peers().await;
         let short_id = client.get_peer_id();
-        let random_index = rand::thread_rng().gen_range(0..known_peers.len());
-        if known_peers.len()>0 {
+        
+        // 检查 known_peers 是否为空
+        if known_peers.len() > 0 {
+            // 只有在有已知节点时才生成随机索引
+            let random_index = rand::thread_rng().gen_range(0..known_peers.len());
             let target = &known_peers[random_index];
             let now_time: DateTime<Local> = Local::now();
             //let now_time = now.format("%H:%M:%S.%4f").to_string();
@@ -114,8 +117,10 @@ async fn request(client: Client, interval: u64) {
             "📣 <<<< Inbound response: Time({}) {:?}", now_time2,
             String::from_utf8_lossy(&response)
             );
+        } else {
+            // 没有已知节点时记录日志
+            tracing::info!("📣 No known peers available for request");
         }
-
     }
 }
 

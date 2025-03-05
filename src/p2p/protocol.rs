@@ -17,14 +17,17 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
 };
+use lazy_static::lazy_static;
 
 use crate::p2p::req_resp;
-use crate::p2p::config::ReqRespConfig;
+use crate::p2p::config::{ReqRespConfig, PeerIdWithMultiaddr};
 
-const BOOTNODES: [&str; 2] = [
-    "12D3KooWLjiAR9qyTBJwWgQAv3f4zaKW9iCTdQbm7skDLNa9st37",
-    "12D3KooWCXCFdxdpBeXvzMgBGxyz9uD2GwYErsEsuTKxwaks7HCD",
-];
+lazy_static! {
+    static ref  BOOT_NODES: Vec<PeerIdWithMultiaddr> = vec![
+    PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X").unwrap(),
+    //PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E").unwrap()
+    ];
+}
 
 pub(crate) const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
 
@@ -166,9 +169,8 @@ impl Behaviour {
             tracing::info!("☕ Discovery process paused due to no boot node");
         } else {
             tracing::info!("☕ Starting a discovery process");
-            let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.token.tm/tcp/2316").unwrap();
-            for peer in &BOOTNODES {
-            //    self.kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
+            for boot_node in BOOT_NODES.iter() {
+                self.kademlia.add_address(&boot_node.peer_id(), boot_node.address());
             }
             let _ = self.kademlia.bootstrap();
         }
