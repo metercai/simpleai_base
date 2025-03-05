@@ -14,7 +14,6 @@ version = "0.21.2"
 features = ["extension-module"]
 
 [dependencies]
-#pyo3-asyncio = { version = "0.20.0", features = ["tokio-runtime"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.21"
@@ -27,7 +26,7 @@ url = "2.2.0"
 openssl = { version = "0.10", features = ["vendored"] }
 tokio = { version = "1", features = ["full"] }
 atty = "0.2"
-thiserror = "1.0.59"
+thiserror = "1.0"
 pkcs8 = { version = "0.10", features = ["encryption", "pkcs5", "pem", "alloc", "std"] }
 ed25519-dalek = "2.1"
 x25519-dalek = { version = "2.0", features = ["static_secrets", "getrandom"] }
@@ -43,8 +42,19 @@ lazy_static = "1.4.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sled = "0.34"
-libp2p = { version = "0.55", features = ["identify", "metrics"] }
 qrcode = "0.14"
 regex = "1.11"
 chrono = "0.4"
 warp = "0.3"
+if-addrs = "0.13"
+futures = "0.3"
+futures-timer = "3"
+hyper = { version = "0.14", features = ["server", "tcp", "http1"] }
+libp2p = { version = "0.55.0", features = ["gossipsub", "request-response", "dcutr", "mdns", "autonat", "dns", "tokio", "noise", "tcp", "yamux", "identify", "kad", "ping", "relay", "metrics", "rsa", "macros", "quic", "websocket"] }  # 直接指定版本
+prometheus-client = "0.22.1"
+toml = "0.8.10"
+async-trait = "0.1"
+unsigned-varint = { version = "0.7", features = [
+    "futures",
+    "asynchronous_codec",
+] }

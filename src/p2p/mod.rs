@@ -1,4 +1,3 @@
-use clap::Parser;
 use std::error::Error;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -7,7 +6,7 @@ use tracing_subscriber::EnvFilter;
 use std::env;
 use chrono::{Local, DateTime};
 use tokio::time;
-use openssl::rand::rand_bytes;
+use rand::Rng;
 
 mod protocol;
 mod http_service;
@@ -18,34 +17,34 @@ mod config;
 mod req_resp;
 
 use crate::p2p::service::{Client, EventHandler};
+use crate::p2p::error::P2pError;
 use crate::claims::IdClaim;
 use once_cell::sync::OnceCell;
+use crate::token_utils;
+use crate::systeminfo::SystemInfo;
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-static P2P_TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
 
+pub async fn start(config: String, sys_claim: &IdClaim, sysinfo: &SystemInfo) {
 
-pub fn start(config: String, sys_claim: &IdClaim) -> Result<(), Box<dyn Error>> {
+    let config = config::Config::from_file(PathBuf::from(config).as_path());
 
-    let config = config::Config::from_file(config.as_path())?;
-
-    let (client, mut server) = service::new(config.clone(), sys_claim.clone()).await?;
+    let result = service::new(config.clone(), sys_claim, sysinfo).await;
+    let (client, mut server) = match result {
+        Ok((c, s)) => (c, s),
+        Err(e) => return
+    };
     server.set_event_handler(Handler);
 
-    P2P_TASK_HANDLE.get_or_init(|| {
-        let sys_claim_owned = sys_claim.clone();
-        
-        token_utils::TOKIO_RUNTIME.spawn(async move {
-            let task_run = server.run();
-            let task_node_status = get_node_status(client.clone(), config.get_node_status_interval());
-            let task_request = request(client.clone(), config.get_request_interval());
-            let task_broadcast = broadcast(client.clone(), config.get_broadcast_interval());
+    token_utils::TOKIO_RUNTIME.spawn(async move {
+        let task_run = server.run();
+        let task_node_status = get_node_status(client.clone(), config.get_node_status_interval());
+        let task_request = request(client.clone(), config.get_request_interval());
+        let task_broadcast = broadcast(client.clone(), config.get_broadcast_interval());
 
-            tokio::join!(task_run, task_node_status, task_request, task_broadcast);
-        })
+        tokio::join!(task_run, task_node_status, task_request, task_broadcast);
     });
-    Ok(())
 }
 
 
@@ -99,10 +98,8 @@ async fn request(client: Client, interval: u64) {
         time::sleep(dur).await;
         let known_peers = client.get_known_peers().await;
         let short_id = client.get_peer_id();
-        let mut random_bytes = [0u8; 1];
-        rand_bytes(&mut random_bytes).unwrap();
+        let random_index = rand::thread_rng().gen_range(0..known_peers.len());
         if known_peers.len()>0 {
-            let random_index = random_bytes[0] as usize % known_peers.len();
             let target = &known_peers[random_index];
             let now_time: DateTime<Local> = Local::now();
             //let now_time = now.format("%H:%M:%S.%4f").to_string();

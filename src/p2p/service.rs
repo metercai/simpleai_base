@@ -33,10 +33,17 @@ use crate::p2p::config::*;
 use crate::p2p::error::P2pError;
 use crate::token_utils;
 use crate::claims::IdClaim;
-
+use crate::systeminfo::SystemInfo;
+use lazy_static::lazy_static;
 
 const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
 const TOKEN_SERVER_PORT: u16 = 2316;
+lazy_static! {
+    static ref  BOOT_NODES: Vec<PeerIdWithMultiaddr> = vec![
+    PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E").unwrap(),
+    PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E").unwrap()
+    ];
+}
 
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
 pub(crate) trait EventHandler: Debug + Send + 'static {
@@ -53,9 +60,9 @@ pub(crate) struct Client {
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim) -> Result<(Client, Server<E>), Box<dyn Error>> {
+pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
-    let server = Server::new(config, sys_claim, cmd_receiver).await?;
+    let server = Server::new(config, sys_claim, sysinfo, cmd_receiver).await?;
     let local_peer_id = server.get_peer_id().to_base58();
     let client = Client {
         cmd_sender,
@@ -156,26 +163,33 @@ impl<E: EventHandler> Server<E> {
     pub(crate) async fn new(
         config: Config,
         sys_claim: &IdClaim,
+        sysinfo: &SystemInfo,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error>> {
         let mut metric_registry = Registry::default();
-        let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", sys_claim.get_symbol_hash());
+        let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &sys_claim.get_symbol_hash());
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
-            try_from_bytes(Zeroizing::new(token_utils::read_key_or_generate_key("System", sys_claim.get_symbol_hash(), sys_phrase, false, false)?))?));
+            try_from_bytes(Zeroizing::new(token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)))?));
 
         let is_relay_server = if let Some(v) = config.is_relay_server { v } else { false };
         let pubsub_topics: Vec<_> = config.pubsub_topics.clone();
         let req_resp_config = config.req_resp.clone();
 
         let netifs_ip = utils::get_ipaddr_from_netif()?;
-        let locale_ip = utils::get_ipaddr_from_stream(config.address.clone().dns_ip)?;
-        let public_ip = utils::get_ipaddr_from_public().await?;
+        let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
+        let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
         let is_global = if locale_ip == public_ip { true } else { false };
+        tracing::info!("P2PServer({:?}/{:?}) ready to start up : public_ip({:?}) is_relay_server({})", 
+            locale_ip, 
+            netifs_ip, 
+            public_ip, 
+            is_relay_server
+        );
         let mut swarm = if is_global || is_relay_server {
             libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
-                    tcp::Config::default().port_reuse(true).nodelay(true),
+                    tcp::Config::default().nodelay(true),
                     noise::Config::new,
                     yamux::Config::default,
                 )?
@@ -191,7 +205,7 @@ impl<E: EventHandler> Server<E> {
             libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
-                    tcp::Config::default().port_reuse(true).nodelay(true),
+                    tcp::Config::default().nodelay(true),
                     noise::Config::new,
                     yamux::Config::default,
                 )?
@@ -232,7 +246,7 @@ impl<E: EventHandler> Server<E> {
 
         let base58_peer_id = swarm.local_peer_id().to_base58();
         let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
-        tracing::info!("P2PServer({}) start up : ip({}) port({}) listenerID({})", short_peer_id, listened_ip, listened_port, expected_listener_id);
+        tracing::info!("P2PServer({}) start up in {}:{} and listenerID({}), peer_id({})", short_peer_id, listened_ip, listened_port, expected_listener_id, base58_peer_id);
 
         match config.address.relay_nodes {
             Some(ref relay_node) => {
@@ -245,15 +259,10 @@ impl<E: EventHandler> Server<E> {
 
         swarm.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
 
-        match config.address.boot_nodes {
-            Some(ref boot_nodes) => {
-                let boot_nodes_clone = boot_nodes.clone();
-                for boot_node in boot_nodes.into_iter() {
-                    swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
-                };
-            }
-            None => {}
-        };
+    
+        for boot_node in BOOT_NODES.iter() {
+            swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
+        }
 
         swarm.behaviour_mut().discover_peers();
 

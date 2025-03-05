@@ -5,7 +5,7 @@ use crate::p2p::error::P2pError;
 use libp2p::{multiaddr, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 pub(crate) struct Config {
     pub(crate) address: Address,
     pub(crate) is_relay_server: Option<bool>,
@@ -18,7 +18,7 @@ pub(crate) struct Config {
     pub(crate) req_resp: ReqRespConfig
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 pub(crate) struct Address {
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
     pub(crate) relay_nodes: Option<PeerIdWithMultiaddr>,
@@ -38,10 +38,23 @@ pub struct ReqRespConfig {
     pub max_response_size: Option<usize>,
 }
 impl Config {
-    pub(crate) fn from_file(path: &Path) -> Result<Self, Box<dyn Error>> {
-        let config: Self = toml::from_str(&std::fs::read_to_string(path)?).unwrap();
+    pub(crate) fn from_file(path: &Path) -> Self {
+        let file_content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("Failed to read file: {}", e);
+                return Self::default();
+            }
+        };
 
-        Ok(Self{
+        let config = match toml::from_str::<Self>(&file_content) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("Failed to parse TOML: {}", e);
+                return Self::default();
+            }
+        };
+        Self{
             address: config.address,
             is_relay_server: config.is_relay_server,
             pubsub_topics: config.pubsub_topics,
@@ -51,7 +64,7 @@ impl Config {
             node_status_interval: config.node_status_interval,
             request_interval: config.request_interval,
             req_resp: config.req_resp
-        })
+        }
     }
     pub(crate) fn get_is_relay_server(&self) -> bool {
         if let Some(v) = self.is_relay_server { v } else { false }

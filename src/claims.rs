@@ -12,6 +12,7 @@ use ripemd::Ripemd160;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
+use tracing_subscriber::field::debug;
 use crate::token_utils;
 use directories_next::BaseDirs;
 
@@ -37,6 +38,11 @@ pub struct GlobalClaims {
 }
 
 impl GlobalClaims {
+
+    pub fn instance() -> Arc<Mutex<GlobalClaims>> {
+        GLOBAL_CLAIMS.clone()
+    }
+
     fn new() -> Self {
         let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
         let root_dir = sysinfo.root_dir.clone();
@@ -97,6 +103,7 @@ impl GlobalClaims {
         let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&device_name, None, Some(disk_uuid.clone()));
         let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
+        debug!("device_symbol_hash: {}", URL_SAFE_NO_PAD.encode(device_symbol_hash));
         match fs::read_dir(root_path) {
             Ok(entries) => {
                 for entry in entries {
@@ -109,7 +116,7 @@ impl GlobalClaims {
                                     if !claim.is_default() {
                                         let did = claim.gen_did();
                                         claims.insert(did.clone(), claim.clone());
-                                        debug!("Load did_claim({}): {}", did, claim.to_json_string());
+                                        debug!("Load did_claim({}): symbol_hash={}, {}", did, URL_SAFE_NO_PAD.encode(claim.get_symbol_hash()), claim.to_json_string());
                                         if claim.id_type == "System" && claim.get_symbol_hash() == system_symbol_hash  {
                                             sys_did = did;
                                         } else if claim.id_type == "Device" && claim.get_symbol_hash() == device_symbol_hash {
@@ -131,7 +138,7 @@ impl GlobalClaims {
                 eprintln!("Failed to read directory: {}", e);
             }
         }
-        println!("{} [SimpleAI] Loaded claims from local: len={}", token_utils::now_string(), claims.len());
+        println!("{} [SimpleAI] Loaded claims from local: len={}, sys_did={}, dev_did={}", token_utils::now_string(), claims.len(), sys_did, device_did);
 
         GlobalClaims {
             claims,
@@ -153,7 +160,6 @@ impl GlobalClaims {
         let disk_uuid = sysinfo.disk_uuid.clone();
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = GlobalClaims::get_system_vars();
-
         let mut sys_did = self.sys_did.clone();
         let mut device_did = self.device_did.clone();
         let mut guest = self.guest.clone();
@@ -197,24 +203,11 @@ impl GlobalClaims {
         let guest_name = format!("guest_{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
         let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
-        (root_name, system_phrase, host_name, device_phrase, guest_name, guest_phrase)
+        let system_name = token_utils::truncate_nickname(&root_name);
+        let device_name = token_utils::truncate_nickname(&host_name);
+        (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
     }
 
-    fn generate_random_string(length: usize) -> String {
-        let mut rng = rand::thread_rng();
-        let chars: String = (0..length)
-            .map(|_| {
-                let idx = rng.gen_range(0..62);
-                match idx {
-                    0..=9 => (b'0' + idx) as char,
-                    10..=35 => (b'a' + idx - 10) as char,
-                    36..=61 => (b'A' + idx - 36) as char,
-                    _ => unreachable!(),
-                }
-            })
-            .collect();
-        chars
-    }
 
     pub(crate) fn get_system_did(&self) -> String {
         self.sys_did.clone()
@@ -286,10 +279,6 @@ impl GlobalClaims {
         path_file.to_string_lossy().to_string()
     }
 
-    pub fn instance() -> Arc<Mutex<GlobalClaims>> {
-        GLOBAL_CLAIMS.clone()
-    }
-
     pub fn local_len(&self) -> usize {
         self.claims.len()
     }
@@ -317,6 +306,7 @@ impl GlobalClaims {
 
     pub(crate) fn generate_did_claim(id_type: &str, nickname: &str, telephone: Option<String>, id_card: Option<String>,  phrase: &str)
                                      -> IdClaim {
+        debug!("generate_did_claim: id_type={}, nickname={}", id_type, nickname);
         let nickname = token_utils::truncate_nickname(nickname);
         let id_card = id_card.unwrap_or("-".to_string());
         let telephone = telephone.unwrap_or("-".to_string());
@@ -325,6 +315,7 @@ impl GlobalClaims {
         let face_image_hash = token_utils::calc_sha256(format!("{}:face_image:-", nickname).as_bytes());
         let file_hash_hash = token_utils::calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
         let claim = IdClaim::new(id_type, &phrase, &nickname, telephone_hash, id_card_hash, face_image_hash, file_hash_hash);
+        debug!("generate_did_claim result: {}", claim.to_json_string());
         claim
     }
 
@@ -603,6 +594,7 @@ impl IdClaim {
 
     #[staticmethod]
     pub fn get_symbol_hash_by_source(nickname: &str, telephone: Option<String>, id_card: Option<String>) -> [u8; 32] {
+        let nickname = token_utils::truncate_nickname(nickname);
         let id_card = id_card.unwrap_or("-".to_string());
         let telephone = telephone.unwrap_or("-".to_string());
         let id_card_hash = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(

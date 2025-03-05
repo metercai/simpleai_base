@@ -225,11 +225,11 @@ impl SystemInfo {
         sysinfo.loopback_port = loopback_port;
         sysinfo.mac_address = mac_address;
         sysinfo.public_ip = public_ip.unwrap_or(Ipv4Addr::new(0, 0, 0, 0)).to_string();
-        sysinfo.location = location.unwrap_or("CN".to_string()).to_string();
+        sysinfo.location = location;
         sysinfo.pyhash = pyhash;
         sysinfo.uihash = uihash;
 
-        //println!("sysinfo is finished");
+        debug!("sysinfo is finished");
         sysinfo
     }
 }

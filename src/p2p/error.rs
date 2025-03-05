@@ -1,8 +1,10 @@
+use std::error::Error;
 use std::io;
 use std::fmt;
 use libp2p::{gossipsub, multiaddr, swarm, TransportError};
 use tokio::sync::oneshot;
 use std::net::AddrParseError;
+
 #[derive(thiserror::Error, Debug)]
 pub enum P2pError {
     #[error("Invalid secret key: {0}")]
@@ -29,6 +31,8 @@ pub enum P2pError {
     ReqwestError(#[from] reqwest::Error),
     #[error("io Error ")]
     IoError(#[from] io::Error),
+    #[error("Config error: {0}")]
+    ConfigError(#[from] Box<dyn Error + Send + Sync>),
     #[error("Unknown error")]
     Unknown,
 }

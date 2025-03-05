@@ -25,13 +25,13 @@ use crate::claims::{GlobalClaims, IdClaim, UserContext, DidEntryPoint};
 use crate::systeminfo::SystemInfo;
 use crate::cert_center::GlobalCerts;
 use crate::user_mgr::{OnlineUsers, MessageQueue};
+use crate::p2p;
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.1";
 
 use once_cell::sync::OnceCell;
 
-// 定义一个全局的 OnceCell
-static TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
+static SYNC_TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
 
 
 #[derive(Clone, Debug)]
@@ -88,6 +88,7 @@ impl SimpleAI {
             = GlobalClaims::get_system_vars();
         debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
+        let systemskeys = token_utils::SystemKeys::instance();
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
             let mut claims = claims.lock().unwrap();
@@ -107,7 +108,6 @@ impl SimpleAI {
         let root_dir = sysbaseinfo.root_dir.clone();
         let disk_uuid = sysbaseinfo.disk_uuid.clone();
         let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
-        debug!("guest_symbol_hash=by_source{}, by_claim({})", URL_SAFE_NO_PAD.encode(guest_symbol_hash), URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()));
         let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_claim.get_symbol_hash());
         debug!("guest_name({}): guest_symbol_hash={}, guest_hash_id={}, guest_phrase={}", guest_claim.nickname, URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()), guest_hash_id, guest_phrase);
 
@@ -167,6 +167,12 @@ impl SimpleAI {
         debug!("upstream_did: {}, admin_did: {}", upstream_did, admin);
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
+        let local_claim_clone = local_claim.clone();
+        let sysinfo_clone = sysinfo_clone.clone();
+        let p2p_handle = token_utils::TOKIO_RUNTIME.spawn(async move {
+            p2p::start("p2pconfig.toml".to_string(), &local_claim_clone, &sysinfo_clone).await
+        });
+
         Self {
             sys_name,
             did: local_did,
@@ -221,7 +227,7 @@ impl SimpleAI {
             let upstream_url =  self.did_entry_point.get_entry_point(&upstream_did.clone());
             let sys_did = self.get_sys_did();
             let dev_did = self.get_device_did();
-            TASK_HANDLE.get_or_init(|| {
+            SYNC_TASK_HANDLE.get_or_init(|| {
                 let sys_did_owned = sys_did.clone();
                 let dev_did_owned = dev_did.clone();
                 let upstream_did_owned = upstream_did.clone();
@@ -1836,6 +1842,7 @@ async fn sync_upstream(
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
     loop {
+        let mut upstream_did = upstream_did.clone();
         let result_string = {
             let mut request = json!({});
             let online_users_list = {
@@ -1869,12 +1876,37 @@ async fn sync_upstream(
             if let Some(user_online) = ping_vars.get("user_online") {
                 let user_online_array: Vec<&str> = user_online.split(":").collect();
                 if user_online_array.len() >= 3 {
-                    let nodes = user_online_array[0].parse().unwrap_or(0);
-                    let users = user_online_array[1].parse().unwrap_or(0);
+                    let nodes = user_online_array[0].parse().unwrap_or(1);
+                    let users = user_online_array[1].parse().unwrap_or(1);
                     let top_list = user_online_array[2].to_string();
-                    {
+                    if nodes > 1 && users > 1 {
                         let mut users_guard = online_users.lock().await;
                         users_guard.set_nodes_users(nodes, users, top_list.clone());
+                    } else if nodes == 0 && users == 0 {
+                        let claims = GlobalClaims::instance();
+                        let (local_claim, device_claim) = {
+                            let mut claims = claims.lock().unwrap();
+                            (claims.get_claim_from_local(sys_did), claims.get_claim_from_local(dev_did))
+                        };
+                        let last_timestamp = {
+                            let mq = message_queue.lock().await;
+                            mq.get_last_timestamp().unwrap_or_else(|| 0u64);
+                        };
+                        let mut request = json!({});
+                        request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
+                        request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
+                        request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
+
+                        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+                        let upstream_url = {
+                            let ep = entry_point.lock().await;
+                            ep.get_entry_point(token_utils::TOKEN_TM_DID)
+                        };
+                        let response = request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await;
+                        let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+                        upstream_did = if let Some(new_did) = ping_vars.get("upstream_did") {
+                            new_did.clone()
+                        } else { upstream_did.clone() };
                     }
                 }
             }

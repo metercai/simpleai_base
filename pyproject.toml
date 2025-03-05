@@ -5,12 +5,19 @@ build-backend = "maturin"
 [project]
 name = "simpleai_base"
 requires-python = ">=3.10"
+description = "Python bindings for simpleai_base"
+authors = [
+    {name = "Meter", email = "925457@qq.com"},
+]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
+dependencies = [
+    "psutil",
+]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"

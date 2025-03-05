@@ -20,6 +20,7 @@ mod params_mapper;
 mod cert_center;
 mod rest_service;
 mod user_mgr;
+mod p2p;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {

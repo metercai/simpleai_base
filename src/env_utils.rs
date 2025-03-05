@@ -66,20 +66,37 @@ pub(crate) async fn get_ipaddr_from_public(is_out: bool ) -> Result<Ipv4Addr, To
     Ok(ip_addr)
 }
 
-pub(crate) async fn get_location() -> Result<String, TokenError> {
-    //println!("get_location, in");
-    let response = token_utils::REQWEST_CLIENT.get("http://ip-api.com/json")
-        .send()
-        .await?
-        .text()
-        .await?;
-    let json: Value = serde_json::from_str(&response)?;
-    let country_code = json["countryCode"].as_str().map(|s| s.to_string()).unwrap_or("CN".to_string());
-    debug!("get_location country_code: {}", country_code);
+pub(crate) async fn get_location() -> String {
+    debug!("get_location, in");
 
-    //println!("get_location, out, country_code: {country_code}");
-    //print!(".");
-    Ok(country_code)
+    match token_utils::REQWEST_CLIENT.get("https://ip-api.com/json")
+        .send()
+        .await {
+            Ok(response) => match response.text().await {
+                Ok(text) => match serde_json::from_str::<Value>(&text) {
+                    Ok(json) => {
+                        let country_code = json["countryCode"]
+                            .as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or("CN".to_string());
+                        debug!("get_location country_code: {}", country_code);
+                        country_code
+                    },
+                    Err(_) => {
+                        debug!("Failed to parse JSON response, using default CN");
+                        "CN".to_string()
+                    }
+                },
+                Err(_) => {
+                    debug!("Failed to get response text, using default CN");
+                    "CN".to_string()
+                }
+            },
+            Err(_) => {
+                debug!("Failed to send request, using default CN");
+                "CN".to_string()
+            }
+    }
 }
 
 pub(crate) async fn get_port_availability(ip: Ipv4Addr, port: u16) -> u16 {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::io::Write;
 use std::time::{Duration, SystemTime};
 use serde_json::{json, Value};
@@ -10,6 +10,7 @@ use directories_next::BaseDirs;
 use pkcs8::{EncryptedPrivateKeyInfo, PrivateKeyInfo, LineEnding, ObjectIdentifier, SecretDocument};
 
 use ed25519_dalek::{VerifyingKey, SigningKey, Signer, Signature, Verifier};
+use tracing_subscriber::field::debug;
 use x25519_dalek::{StaticSecret, PublicKey};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -110,22 +111,26 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Clone, Debug)]
-struct SystemKeys {
+pub(crate) struct SystemKeys {
     system_key: [u8; 32],
     device_key: [u8; 32],
     file_crypt_key: [u8; 32],
 }
 impl SystemKeys {
     fn new() -> Self {
+        debug!("Init SystemKeys");
         let id_hash = [0u8; 32];
         let device_key = read_key_or_generate_key("Device", &id_hash, "None", false, true);
+        debug!("Loaded device key");
         let system_key = read_key_or_generate_key("System", &id_hash, "None", false, true);
+        debug!("Loaded system key");
         let device_key_hash = calc_sha256(&device_key);
         let local_key_hash = calc_sha256(&system_key);
         let mut com_hash = [0u8; 64];
         com_hash[..32].copy_from_slice(&device_key_hash);
         com_hash[32..].copy_from_slice(&local_key_hash);
         let file_crypt_key = calc_sha256(com_hash.as_ref());
+        debug!("Init SystemKeys finished");
         Self {
             system_key,
             device_key,
@@ -854,7 +859,10 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
     let device_phrase = format!("{}/{}/{}/{}/{}/{}/{}/{}", sysinfo.host_name, sysinfo.disk_uuid,
                                 sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
                                 sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
-    let device_key = _read_key_or_generate_key(device_key_file.as_path(), device_phrase.as_str(), regen, through);
+    debug!("read_key_or_generate_key: file={}", device_key_file.display());
+    let device_key = if through && (key_type == "Device" || key_type == "System") {
+        _read_key_or_generate_key(device_key_file.as_path(), device_phrase.as_str(), regen, through)
+    } else { SystemKeys::instance().lock().unwrap().get_device_key() };
     let system_key = match key_type {
         "System" | "User" => {
             let (sys_hash_id, sys_phrase) = get_key_hash_id_and_phrase("System", symbol_hash);
@@ -865,7 +873,9 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
             let phrase_text = format!("{}|{}|{}",
                                       URL_SAFE_NO_PAD.encode(device_key.as_slice()),
                                       local_phrase, sys_phrase);
-            _read_key_or_generate_key(system_key_file.as_path(), phrase_text.as_str(), regen, through)
+            if through && key_type == "System" {
+                _read_key_or_generate_key(system_key_file.as_path(), phrase_text.as_str(), regen, through)
+            } else { SystemKeys::instance().lock().unwrap().get_system_key() }
         },
         _ => device_key
     };
@@ -914,8 +924,10 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, throug
             }
             if priv_key == [0; 32] {
                 let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
+                debug!("_read_key_or_generate_key, SecretDocument");
                 priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&phrase_bytes) {
                     Ok(key) => {
+                        debug!("_read_key_or_generate_key, EncryptedPrivateKeyInfo");
                         let mut pkey: [u8; 32] = [0; 32];
                         pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
                         pkey
