@@ -395,7 +395,7 @@ impl<E: EventHandler> Server<E> {
                 message_id: id,
                 message,
             }) => {
-                tracing::info!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
+                tracing::debug!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
                         String::from_utf8_lossy(&message.data));
                 self.handle_inbound_broadcast(message)
             },

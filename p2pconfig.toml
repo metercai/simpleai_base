@@ -1,9 +1,0 @@
-address.listen = '/ip4/192.168.9.248'
-#address.announce = '/ip4/124.222.60.66/tcp/2316'
-address.boot_nodes =["/ip4/124.222.60.66/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E"]
-
-pubsub_topics = ['blocks', 'news', 'channels']
-metrics_path = '/metrics' 
-discovery_interval = 40
-
-req_resp.request_timeout = 60

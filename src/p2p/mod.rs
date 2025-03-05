@@ -87,7 +87,7 @@ async fn broadcast(client: Client, interval: u64) {
         let short_id = client.get_peer_id();
         let now_time = Local::now();
         let message = format!("From {} at {}!", short_id, now_time);
-        tracing::info!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
+        tracing::debug!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
         let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
     }
 }
@@ -109,9 +109,13 @@ async fn request(client: Client, interval: u64) {
             let target_id = target.chars().skip(target.len() - 7).collect::<String>();
             let request = format!("Hello {}, request from {} at {}!", target_id, short_id, now_time);
             tracing::info!("📣 >>>> Outbound request: {:?}", request);
-            let response = client
-                .request(target, request.as_bytes().to_vec()).await
-                .unwrap();
+            let response = match client.request(target, request.as_bytes().to_vec()).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    tracing::error!("请求失败: {:?}", e);
+                    continue; // 跳过这次失败的请求，继续下一次循环
+                }
+            };
             let now_time2: DateTime<Local> = Local::now();
             tracing::info!(
             "📣 <<<< Inbound response: Time({}) {:?}", now_time2,
