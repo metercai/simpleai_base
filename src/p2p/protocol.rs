@@ -166,14 +166,14 @@ impl Behaviour {
 
     pub(crate) fn discover_peers(&mut self) {
         if self.known_peers().is_empty() {
-            tracing::info!("☕ Discovery process paused due to no boot node");
-        } else {
-            tracing::info!("☕ Starting a discovery process");
-            for boot_node in BOOT_NODES.iter() {
-                self.kademlia.add_address(&boot_node.peer_id(), boot_node.address());
-            }
-            let _ = self.kademlia.bootstrap();
+            tracing::info!("☕ The known peers is empty and the default boot node will be added.");
+        } 
+        for boot_node in BOOT_NODES.iter() {
+            self.kademlia.add_address(&boot_node.peer_id(), boot_node.address());
         }
+        tracing::info!("☕ Starting a discovery process: known_peers={}", self.known_peers().len());
+        let _ = self.kademlia.bootstrap();
+        
     }
 
     pub(crate) fn known_peers(&mut self) -> HashMap<PeerId, Vec<Multiaddr>> {
