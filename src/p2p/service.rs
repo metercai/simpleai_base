@@ -40,8 +40,8 @@ const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
 const TOKEN_SERVER_PORT: u16 = 2316;
 lazy_static! {
     static ref  BOOT_NODES: Vec<PeerIdWithMultiaddr> = vec![
-    PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E").unwrap(),
-    PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E").unwrap()
+    PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X").unwrap(),
+    //PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWFHKN2kYDzPtfQrikN6bGkAnqeJLYt7eNNg9dZa5wxd9E").unwrap()
     ];
 }
 
