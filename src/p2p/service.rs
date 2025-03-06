@@ -601,10 +601,17 @@ impl<E: EventHandler> Server<E> {
         }
     }
 
+    fn get_external_address(&self) -> Vec<Multiaddr> {
+        self.network_service.external_addresses()
+            .map(|addr| addr.clone())
+            .collect()
+    }
+
     fn get_status(&mut self) -> NodeStatus {
         let known_peers = self.network_service.behaviour_mut().known_peers();
         let pubsub_peers = self.network_service.behaviour_mut().pubsub_peers();
         let connection_quality = self.connection_quality.try_lock().unwrap().clone();
+        let external_addresses = self.get_external_address();
         let total_in = 0;
         let total_out = 0;
         NodeStatus {
@@ -613,6 +620,7 @@ impl<E: EventHandler> Server<E> {
             known_peers_count: known_peers.len(),
             known_peers,
             pubsub_peers,
+            external_addresses,
             connection_quality,
             total_inbound_bytes: total_in,
             total_outbound_bytes: total_out,
@@ -767,6 +775,7 @@ pub(crate) struct NodeStatus {
     pub(crate) known_peers_count: usize,
     pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
     pub(crate) pubsub_peers: HashMap<PeerId, Vec<TopicHash>>,
+    pub(crate) external_addresses: Vec<Multiaddr>,
     pub(crate) connection_quality: HashMap<PeerId, ConnectionQuality>,
     pub(crate) total_inbound_bytes: u64,
     pub(crate) total_outbound_bytes: u64,
@@ -777,7 +786,12 @@ impl NodeStatus {
         let short_id = (|| {
             self.local_peer_id[self.local_peer_id.len() - 7..].to_string()
         })();
-        let head= format!("NodeStatus({}), peers({})[", short_id, self.known_peers_count);
+        let external_addresses = self.external_addresses
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let head= format!("NodeStatus({}:<{}>), peers({})[", short_id, external_addresses, self.known_peers_count);
         let peers = self.known_peers.iter()
             .map(|(peer_id, multiaddrs)| {
                 let base58_peer_id = peer_id.to_base58();
@@ -788,12 +802,12 @@ impl NodeStatus {
                         if let (Some(Protocol::Ip4(ip4)), Some(Protocol::Tcp(port))) = (parts.get(0), parts.get(1)) {
                             Some(format!("{}:{}", ip4, port))
                         } else {
-                            None
+                            Some(addr.to_string())
                         }
                     })
                     .collect::<Vec<_>>()
                     .join(",");
-                let rtt = self.connection_quality.get(peer_id).map(|q| format!("RTT={:.2}ms", q.avg_rtt)).unwrap_or("RTT=?".to_string());
+                let rtt = self.connection_quality.get(peer_id).map(|q| format!("{:.2}ms", q.avg_rtt)).unwrap_or("?".to_string());
                 format!("({}:{}:<{}>)", short_peer_id, rtt, ip_addrs)
             }).collect::<Vec<_>>().join(";");
         let listeneds: String = self.listened_addresses
@@ -803,7 +817,7 @@ impl NodeStatus {
                 if let (Some(Protocol::Ip4(ip4)), Some(Protocol::Tcp(port))) = (parts.get(0), parts.get(1)) {
                     Some(format!("{}:{}", ip4, port))
                 } else {
-                    None
+                    Some(addr.to_string())
                 }
             })
             .collect::<Vec<_>>()
