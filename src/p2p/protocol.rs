@@ -1,4 +1,4 @@
-use libp2p::{autonat, dcutr, mdns};
+use libp2p::{autonat, dcutr, mdns, upnp};
 use libp2p::identify;
 use libp2p::kad;
 use libp2p::ping;
@@ -17,6 +17,7 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
 };
+use rand::rngs::OsRng;
 use lazy_static::lazy_static;
 
 use crate::p2p::req_resp;
@@ -33,17 +34,18 @@ pub(crate) const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/
 
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour {
-    relay: Toggle<relay::Behaviour>,
-    relay_client: Toggle<relay::client::Behaviour>,
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    mdns: Toggle<mdns::tokio::Behaviour>,
-    dcutr: Toggle<dcutr::Behaviour>,
+    mdns: mdns::tokio::Behaviour,
     pub(crate) pubsub: gossipsub::Behaviour,
-    // `req_resp` is used for sending requests and responses.
     req_resp: request_response::Behaviour<req_resp::GenericCodec>,
-
+    relay: Toggle<relay::Behaviour>,
+    relay_client: Toggle<relay::client::Behaviour>,
+    autonat: Toggle<autonat::v2::server::Behaviour>,
+    autonat_client: Toggle<autonat::v2::client::Behaviour>,
+    dcutr: Toggle<dcutr::Behaviour>,
+    upnp: Toggle<upnp::tokio::Behaviour>,
 }
 
 impl Behaviour {
@@ -70,33 +72,46 @@ impl Behaviour {
             kademlia
         };
 
-        let is_relayserver = match relay_client {
-            Some(ref _val) => false,
-            None => true,
-        };
-        let relay = if is_relayserver {
+        let autonat = if is_global {
+            Some(autonat::v2::server::Behaviour::new(OsRng)
+            )
+        } else {
+            None
+        }.into();
+
+        let autonat_client = if !is_global {
+            Some(autonat::v2::client::Behaviour::new(
+                OsRng,
+                autonat::v2::client::Config::default()
+                .with_probe_interval(Duration::from_secs(2)),
+            ))
+        } else {
+            None
+        }.into();
+
+        let relay = if is_global {
             Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()))
         } else {
             None
         }.into();
 
-        let mdns = if is_relayserver {
-            None
-        } else {
-            Some(mdns::tokio::Behaviour::new(
-                mdns::Config::default(), pub_key.clone().to_peer_id()).expect("Mdns service initialization failed！"))
-        }.into();
+        let mdns = 
+            mdns::tokio::Behaviour::new(
+                mdns::Config::default(), pub_key.clone().to_peer_id()).expect("Mdns service initialization failed！");
 
-        let dcutr = if is_relayserver {
-            None
-        } else {
+        let dcutr = if !is_global {
             Some(dcutr::Behaviour::new(pub_key.clone().to_peer_id()))
+        } else {
+            None
         }.into();
 
+        let upnp = if !is_global {
+            Some(upnp::tokio::Behaviour::default())
+        } else {
+            None
+        }.into();
 
         Self {
-            relay,
-            relay_client: relay_client.into(),
             ping: ping::Behaviour::new(ping::Config::default().with_interval(Duration::from_secs(15))),
             identify: identify::Behaviour::new(
                 identify::Config::new("token/0.1.0".to_string(), pub_key.clone()).with_agent_version(
@@ -105,9 +120,14 @@ impl Behaviour {
             ),
             kademlia,
             mdns,
-            dcutr,
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),
             req_resp: Self::new_req_resp(req_resp_config),
+            relay,
+            relay_client: relay_client.into(),
+            autonat,
+            autonat_client,
+            dcutr,
+            upnp,
         }
     }
 

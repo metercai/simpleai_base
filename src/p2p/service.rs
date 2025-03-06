@@ -6,14 +6,14 @@ use std::{
         str::FromStr,
         io,
         net::{Ipv4Addr, IpAddr},
-        time::Duration };
+        time::{Duration, Instant} };
 use tokio::{
         select,
-        sync::oneshot,
+        sync::{oneshot, Mutex},
         time::{self, Interval},
         sync::mpsc::{self, UnboundedSender, UnboundedReceiver} };
 use libp2p::{
-        kad, tcp, identify, noise, yamux, ping, mdns,
+        kad, tcp, identify, noise, yamux, ping, mdns, autonat, relay, dcutr, upnp,
         core::multiaddr::Protocol,
         identity::{Keypair, ed25519},
         futures::{StreamExt, FutureExt},
@@ -22,7 +22,7 @@ use libp2p::{
         gossipsub::{self, TopicHash},
         request_response::{self, OutboundFailure, OutboundRequestId, ResponseChannel},
         Swarm, Multiaddr, PeerId,};
-
+use futures::{executor::block_on};
 use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
 
@@ -149,6 +149,31 @@ pub(crate) struct Server<E: EventHandler> {
     /// but we need to keep the original topic names for broadcasting.
     pubsub_topics: Vec<String>,
     metrics: Metrics,
+    is_global: bool,
+    upnp_mapped: bool,
+    connection_failure_counts: Mutex<HashMap<PeerId, Vec<Instant>>>,
+    connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
+}
+
+#[derive(Debug, Clone)]
+struct ConnectionQuality {
+    // 平均 RTT (毫秒)
+    avg_rtt: f64,
+    // RTT 样本数
+    rtt_samples: usize,
+    // 最后更新时间
+    last_updated: Instant,
+    // 连接类型 (直连、中继等)
+    connection_type: ConnectionType,
+    // 连接评分 (0-100)
+    score: u8,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ConnectionType {
+    Direct,
+    Relayed,
+    Unknown,
 }
 
 impl<E: EventHandler> Server<E> {
@@ -171,30 +196,14 @@ impl<E: EventHandler> Server<E> {
         let netifs_ip = utils::get_ipaddr_from_netif()?;
         let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
         let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
-        let is_global = if locale_ip == public_ip { true } else { false };
-        tracing::info!("P2PServer({:?}/{:?}) ready to start up : public_ip({:?}) is_relay_server({})", 
+        let is_global = if locale_ip == public_ip || is_relay_server { true } else { false };
+        tracing::info!("P2PServer({:?}/{:?}) ready to start up : public_ip({:?}) is_global({})", 
             locale_ip, 
             netifs_ip, 
             public_ip, 
-            is_relay_server
+            is_global
         );
-        let mut swarm = if is_global || is_relay_server {
-            libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
-                .with_tokio()
-                .with_tcp(
-                    tcp::Config::default().nodelay(true),
-                    noise::Config::new,
-                    yamux::Config::default,
-                )?
-                .with_quic()
-                .with_dns()?
-                .with_bandwidth_metrics(&mut metric_registry)
-                .with_behaviour(|key| {
-                    Behaviour::new(key.clone(), None, is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
-                })?
-                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-                .build()
-        } else {
+        let mut swarm =
             libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
@@ -206,56 +215,60 @@ impl<E: EventHandler> Server<E> {
                 .with_dns()?
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
                 .with_bandwidth_metrics(&mut metric_registry)
-                .with_behaviour(|key, relay_client| {
+                .with_behaviour(|key, relay_client | {
                     Behaviour::new(key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-                .build()
-        };
+                .build();
 
-        let locale_port = if is_global || is_relay_server { TOKEN_SERVER_PORT } else { 0 };
-        let expected_listener_id = swarm
-            .listen_on(Multiaddr::empty().with(Protocol::Ip4(locale_ip)).with(Protocol::Tcp(locale_port)))?;
+        let locale_port = if is_global { TOKEN_SERVER_PORT } else { 0 };
+        swarm
+            .listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", locale_port).parse().unwrap())
+            .unwrap();
+        swarm
+            .listen_on(format!("/ip4/0.0.0.0/tcp/{}", locale_port).parse().unwrap())
+            .unwrap();
 
-        let mut listened_num = 0;
-        let mut listened_ip = String::new();
-        let mut listened_port = String::new();
-        while listened_num < 1 {
-            if let SwarmEvent::NewListenAddr {
-                listener_id,
-                address,
-            } = swarm.next().await.unwrap()
-            {
-                if listener_id == expected_listener_id {
-                    listened_num += 1;
-                }
-                let parts = address.iter().collect::<Vec<_>>();
-                if let (Some(Protocol::Ip4(ip4)), Some(Protocol::Tcp(port))) = (parts.get(0), parts.get(1)) {
-                    listened_ip = ip4.to_string();
-                    listened_port = port.to_string();
+        let mut listened_addresses = Vec::new();
+
+        block_on(async {
+            let mut delay = futures_timer::Delay::new(std::time::Duration::from_secs(1)).fuse();
+            loop {
+                futures::select! {
+            event = swarm.next() => {
+                match event.unwrap() {
+                    SwarmEvent::NewListenAddr { address, .. } => {
+                        tracing::info!(%address, "📣 P2P node listening on address");
+                        listened_addresses.push(address);
+                    }
+                    event => panic!("{event:?}"),
                 }
             }
+            _ = delay => {
+                break;
+            }
         }
+            }
+        });
+
 
         let base58_peer_id = swarm.local_peer_id().to_base58();
         let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
-        tracing::info!("P2PServer({}) start up in {}:{} and listenerID({}), peer_id({})", short_peer_id, listened_ip, listened_port, expected_listener_id, base58_peer_id);
+        tracing::info!("P2P_node({}) start up, peer_id({})", short_peer_id, base58_peer_id);
 
-        match config.address.relay_nodes {
-            Some(ref relay_node) => {
-                let relay_addr = Multiaddr::from_str(format!("{}/p2p/{}", relay_node.address(), relay_node.peer_id()).as_str())?;
-                let id = swarm.listen_on(relay_addr.clone().with(Protocol::P2pCircuit))?;
-                tracing::info!("P2PServer({}) listenerID({}) for relay({})", short_peer_id, id, relay_addr);
-            }
-            None => {}
+        swarm.behaviour_mut().kademlia
+            .set_mode(Some(kad::Mode::Server));
+
+        if let Some(ref relay_node) = config.address.relay_nodes {
+            let relay_addr = Multiaddr::from_str(format!("{}/p2p/{}", relay_node.address(), relay_node.peer_id()).as_str())?;
+            swarm.dial(relay_addr.clone()).unwrap();
+            let id = swarm.listen_on(relay_addr.clone().with(Protocol::P2pCircuit))?;
+            tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, relay_addr);
         }
-
-        swarm.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
 
         match config.address.boot_nodes {
             Some(ref boot_nodes) => {
-                let boot_nodes_clone = boot_nodes.clone();
-                for boot_node in boot_nodes.into_iter() {
+                for boot_node in boot_nodes.iter() {
                     swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
                 };
             }
@@ -286,13 +299,17 @@ impl<E: EventHandler> Server<E> {
         Ok(Self {
             network_service: swarm,
             local_peer_id: local_keypair.public().into(),
-            listened_addresses: Vec::new(),
+            listened_addresses,
             cmd_receiver,
             event_handler: OnceCell::new(),
             discovery_ticker,
             pending_outbound_requests: HashMap::new(),
             pubsub_topics,
-            metrics
+            metrics,
+            is_global,
+            upnp_mapped: false,
+            connection_failure_counts: Mutex::new(HashMap::new()),
+            connection_quality: Mutex::new(HashMap::new()),
         })
     }
 
@@ -343,20 +360,35 @@ impl<E: EventHandler> Server<E> {
         let behaviour_ev = match event {
             SwarmEvent::Behaviour(ev) => ev,
             SwarmEvent::NewListenAddr { address, .. } => {
-                tracing::info!(%address, "📣 P2P node listening on address");
+                tracing::info!(%address, "📣 P2P_node listening on address");
                 return self.update_listened_addresses(); },
 
             SwarmEvent::ListenerClosed {
                 reason, addresses, ..
             } => return Self::log_listener_close(reason, addresses),
 
+            SwarmEvent::ExternalAddrConfirmed { address } 
+            => {
+                tracing::info!("External address confirmed from relay node: {address}");
+                return;
+            }
+
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
+                tracing::info!(peer=%peer_id, ?endpoint, "Established new connection");
+                return;
+            }
+            
             // Can't connect to the `peer`, remove it from the DHT.
             SwarmEvent::OutgoingConnectionError {
                 peer_id: Some(peer),
                 ..
             } => {
-                tracing::info!("1, OutgoingConnectionError, remove_peer: {:?}", event);
-                return self.network_service.behaviour_mut().remove_peer(&peer)
+                if self.record_peer_failure(&peer, "连接失败") {
+                    self.network_service.behaviour_mut().remove_peer(&peer);
+                }
+                return;
             },
 
             _ => return,
@@ -366,20 +398,31 @@ impl<E: EventHandler> Server<E> {
 
     fn handle_behaviour_event(&mut self, ev: BehaviourEvent) {
         tracing::debug!("{:?}", ev);
-        // self.metrics.record(&ev);
+        self.record_event_metrics(&ev);
         match ev {
+            BehaviourEvent::Ping(ping::Event {
+                peer,
+                result: Ok(rtt),
+                ..
+            }) => {
+                self.update_connection_quality(&peer, rtt);
+            },
+            
             // The remote peer is unreachable, remove it from the DHT.
             BehaviourEvent::Ping(ping::Event {
                 peer,
                 result: Err(_),
                 ..
             }) => {
-                tracing::info!("2, Ping Err, remove_peer: {:?}", ev);
-                self.network_service.behaviour_mut().remove_peer(&peer)
+                if self.record_peer_failure(&peer, "Ping 失败") {
+                    tracing::info!("Ping 失败次数达到阈值，移除节点: {:?}", peer);
+                    self.network_service.behaviour_mut().remove_peer(&peer)
+                }
             },
+
             BehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
                 for (peer_id, multiaddr) in list {
-                    tracing::info!("mDNS discovered a new peer: {peer_id}");
+                    tracing::info!("mDNS discovered a new peer: {peer_id} at {multiaddr}");
                     self.add_addresses(&peer_id, vec![multiaddr]);
                     self.network_service.behaviour_mut().pubsub.add_explicit_peer(&peer_id);
                 }
@@ -435,6 +478,49 @@ impl<E: EventHandler> Server<E> {
                 error,
                 ..
             }) => self.handle_outbound_failure(request_id, error),
+
+            BehaviourEvent::AutonatClient(autonat::v2::client::Event {
+                server,
+                tested_addr,
+                bytes_sent,
+                result: Ok(()),
+            }) => {
+                self.network_service.add_external_address(tested_addr.clone());
+                tracing::info!("Tested {tested_addr} with {server}. Sent {bytes_sent} bytes for verification. Everything Ok and verified.");
+            }
+            BehaviourEvent::AutonatClient(autonat::v2::client::Event {
+                server,
+                tested_addr,
+                bytes_sent,
+                result: Err(e),
+            }) => {
+                tracing::info!("Tested {tested_addr} with {server}. Sent {bytes_sent} bytes for verification. Failed with {e:?}.");
+            }
+
+            BehaviourEvent::Upnp(upnp::Event::NewExternalAddr(addr)) => {
+                tracing::info!("UPnP 映射成功，外部地址: {}", addr);
+                self.network_service.add_external_address(addr);
+                self.upnp_mapped = true;
+            }
+            BehaviourEvent::Upnp(upnp::Event::GatewayNotFound) => {
+                tracing::warn!("UPnP 网关未找到");
+            }
+            BehaviourEvent::Upnp(upnp::Event::NonRoutableGateway) => {
+                tracing::warn!("UPnP 网关不可路由");
+            }
+
+            BehaviourEvent::RelayClient(
+                relay::client::Event::ReservationReqAccepted { .. },
+            ) => {
+                //assert!(opts.mode == Mode::Listen);
+                tracing::info!("Relay accepted our reservation request");
+            }
+            BehaviourEvent::RelayClient(event) => {
+                tracing::info!(?event)
+            }
+            BehaviourEvent::Dcutr(event) => {
+                tracing::info!(?event)
+            }
 
             _ => {}
         }
@@ -509,9 +595,7 @@ impl<E: EventHandler> Server<E> {
         for addr in addresses.into_iter() {
             let parts = addr.iter().collect::<Vec<_>>();
             if let Protocol::Ip4(ip4) = parts[0] {
-                if !ip4.is_private() {
-                    self.network_service.behaviour_mut().add_address(peer_id, addr);
-                }
+                self.network_service.behaviour_mut().add_address(peer_id, addr);
             }
         }
     }
@@ -519,12 +603,16 @@ impl<E: EventHandler> Server<E> {
     fn get_status(&mut self) -> NodeStatus {
         let known_peers = self.network_service.behaviour_mut().known_peers();
         let pubsub_peers = self.network_service.behaviour_mut().pubsub_peers();
+        let total_in = 0;
+        let total_out = 0;
         NodeStatus {
             local_peer_id: self.local_peer_id.to_base58(),
             listened_addresses: self.listened_addresses.clone(),
             known_peers_count: known_peers.len(),
             known_peers,
             pubsub_peers,
+            total_inbound_bytes: total_in,
+            total_outbound_bytes: total_out,
         }
     }
 
@@ -572,6 +660,100 @@ impl<E: EventHandler> Server<E> {
             }
         }
     }
+
+    fn record_peer_failure(&mut self, peer: &PeerId, failure_type: &str) -> bool {
+        const MAX_FAILURE_COUNT: usize = 3;
+        const FAILURE_WINDOW_SECS: u64 = 60;
+        let now = Instant::now();
+        
+        // 使用 try_lock 而不是 lock.await
+        if let Ok(mut failure_counts) = self.connection_failure_counts.try_lock() {
+            let failures = failure_counts.entry(peer.clone()).or_insert_with(Vec::new);
+            failures.push(now);
+            
+            // 移除超过时间窗口的失败记录
+            let cutoff = now - Duration::from_secs(FAILURE_WINDOW_SECS);
+            failures.retain(|&time| time >= cutoff);
+            let recent_failures = failures.len();
+            
+            if recent_failures >= MAX_FAILURE_COUNT {
+                tracing::info!("节点失败次数达到阈值({}次/{}秒)，移除节点: {:?}，最后失败类型: {}", 
+                              MAX_FAILURE_COUNT, FAILURE_WINDOW_SECS, peer, failure_type);
+                // 重置计数器
+                failure_counts.remove(peer);
+                
+                // 同时从 gossipsub 的对等节点列表中移除
+                self.network_service.behaviour_mut().pubsub.remove_explicit_peer(peer);
+                tracing::info!("已从 gossipsub 对等节点列表中移除节点: {:?}", peer);
+                
+                return true; // 应该移除节点
+            } else {
+                tracing::info!("节点失败(第{}次/{}秒)，失败类型: {}，暂不移除节点: {:?}", 
+                              recent_failures, FAILURE_WINDOW_SECS, failure_type, peer);
+                return false; // 不需要移除节点
+            }
+        } else {
+            // 如果无法获取锁，记录警告并默认不移除节点
+            tracing::warn!("无法获取失败计数锁，暂不处理节点失败: {:?}, 类型: {}", peer, failure_type);
+            return false;
+        }
+    }
+
+    fn update_connection_quality(&self, peer: &PeerId, rtt: Duration) {
+        if let Ok(mut quality_map) = self.connection_quality.try_lock() {
+            let quality = quality_map.entry(peer.clone()).or_insert_with(|| ConnectionQuality {
+                avg_rtt: 0.0,
+                rtt_samples: 0,
+                last_updated: Instant::now(),
+                connection_type: ConnectionType::Unknown,
+                score: 50, // 初始评分
+            });
+            
+            // 更新 RTT 平均值 (使用指数移动平均)
+            let rtt_ms = rtt.as_millis() as f64;
+            if quality.rtt_samples == 0 {
+                quality.avg_rtt = rtt_ms;
+            } else {
+                // 权重因子 (0.2 表示新样本占 20% 权重)
+                let alpha = 0.2;
+                quality.avg_rtt = (1.0 - alpha) * quality.avg_rtt + alpha * rtt_ms;
+            }
+            
+            quality.rtt_samples += 1;
+            quality.last_updated = Instant::now();
+            
+            // 更新评分 (RTT 越低评分越高，简单线性映射)
+            // 假设 RTT < 50ms 为最佳 (100分)，RTT > 500ms 为最差 (0分)
+            let score = if quality.avg_rtt < 50.0 {
+                100
+            } else if quality.avg_rtt > 500.0 {
+                0
+            } else {
+                ((500.0 - quality.avg_rtt) / 450.0 * 100.0) as u8
+            };
+            
+            quality.score = score;
+            
+            tracing::debug!(
+                "更新节点 {:?} 的连接质量: RTT={:.2}ms, 样本数={}, 评分={}",
+                peer, quality.avg_rtt, quality.rtt_samples, quality.score
+            );
+        }
+    }
+
+    fn record_event_metrics(&self, event: &BehaviourEvent) {
+        // 根据事件类型记录不同的指标
+        match event {
+            BehaviourEvent::Ping(_) => {
+                // 记录 Ping 事件指标
+            },
+            BehaviourEvent::Pubsub(_) => {
+                // 记录 Pubsub 事件指标
+            },
+            // 其他事件类型...
+            _ => {}
+        }
+    }
 }
 
 /// The node status, for debugging.
@@ -582,6 +764,8 @@ pub(crate) struct NodeStatus {
     pub(crate) known_peers_count: usize,
     pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
     pub(crate) pubsub_peers: HashMap<PeerId, Vec<TopicHash>>,
+    pub(crate) total_inbound_bytes: u64,
+    pub(crate) total_outbound_bytes: u64,
 }
 
 impl NodeStatus {
