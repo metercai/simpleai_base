@@ -238,10 +238,10 @@ impl<E: EventHandler> Server<E> {
             event = swarm.next() => {
                 match event.unwrap() {
                     SwarmEvent::NewListenAddr { address, .. } => {
-                        tracing::info!(%address, "📣 P2P node listening on address");
+                        tracing::info!(%address, "📣 P2P node listening on address:");
                         listened_addresses.push(address);
                     }
-                    event => panic!("{event:?}"),
+                    event => {},
                 }
             }
             _ = delay => {
@@ -455,10 +455,11 @@ impl<E: EventHandler> Server<E> {
                     .. }, connection_id 
             }) => {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
+                    tracing::info!("Identify: P2P_node({}) add_peer({:?}, {:?})", self.get_short_id(), peer_id, listen_addrs);
                     self.add_addresses(&peer_id, listen_addrs);
                 };
                 self.network_service.add_external_address(observed_addr.clone());
-                tracing::info!("P2PServer({}) add_external_address({:?})", self.get_short_id(), observed_addr.clone());
+                tracing::info!("Identify: P2P_node({}) add_external_address({:?})", self.get_short_id(), observed_addr.clone());
             }
 
             BehaviourEvent::ReqResp(request_response::Event::Message {
@@ -603,6 +604,7 @@ impl<E: EventHandler> Server<E> {
     fn get_status(&mut self) -> NodeStatus {
         let known_peers = self.network_service.behaviour_mut().known_peers();
         let pubsub_peers = self.network_service.behaviour_mut().pubsub_peers();
+        let connection_quality = self.connection_quality.try_lock().unwrap().clone();
         let total_in = 0;
         let total_out = 0;
         NodeStatus {
@@ -611,6 +613,7 @@ impl<E: EventHandler> Server<E> {
             known_peers_count: known_peers.len(),
             known_peers,
             pubsub_peers,
+            connection_quality,
             total_inbound_bytes: total_in,
             total_outbound_bytes: total_out,
         }
@@ -764,6 +767,7 @@ pub(crate) struct NodeStatus {
     pub(crate) known_peers_count: usize,
     pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
     pub(crate) pubsub_peers: HashMap<PeerId, Vec<TopicHash>>,
+    pub(crate) connection_quality: HashMap<PeerId, ConnectionQuality>,
     pub(crate) total_inbound_bytes: u64,
     pub(crate) total_outbound_bytes: u64,
 }
@@ -789,7 +793,8 @@ impl NodeStatus {
                     })
                     .collect::<Vec<_>>()
                     .join(",");
-                format!("({}:{})", short_peer_id, ip_addrs)
+                let rtt = self.connection_quality.get(peer_id).map(|q| format!("RTT={:.2}ms", q.avg_rtt)).unwrap_or("RTT=?".to_string());
+                format!("({}:{}:<{}>)", short_peer_id, rtt, ip_addrs)
             }).collect::<Vec<_>>().join(";");
         let listeneds: String = self.listened_addresses
             .iter()
