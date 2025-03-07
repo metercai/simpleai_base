@@ -197,7 +197,7 @@ impl<E: EventHandler> Server<E> {
         let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
         let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
         let is_global = if locale_ip == public_ip || is_relay_server { true } else { false };
-        tracing::info!("P2PServer({:?}/{:?}) ready to start up : public_ip({:?}) is_global({})", 
+        tracing::info!("P2P_node({:?}/{:?}) ready to start up : public_ip({:?}) is_global({})",
             locale_ip, 
             netifs_ip, 
             public_ip, 
