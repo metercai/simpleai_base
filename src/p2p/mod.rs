@@ -72,7 +72,6 @@ impl P2p {
         token_utils::TOKIO_RUNTIME.spawn(async move {
             let task_run = server.run();
             let task_node_status = get_node_status(client_clone.clone(), config_clone.get_node_status_interval());
-            let task_request = request(client_clone.clone(), config_clone.get_request_interval());
             let task_broadcast_online = broadcast_online_users(
                 client_clone.clone(), 
                 online_users_clone.clone(), 
@@ -82,7 +81,6 @@ impl P2p {
             tokio::join!(
                 task_run, 
                 task_node_status, 
-                task_request,
                 task_broadcast_online
             );
         });
