@@ -115,7 +115,7 @@ impl Behaviour {
             ping: ping::Behaviour::new(ping::Config::default().with_interval(Duration::from_secs(15))),
             identify: identify::Behaviour::new(
                 identify::Config::new("token/0.1.0".to_string(), pub_key.clone()).with_agent_version(
-                    format!("p2pserver/{}", env!("CARGO_PKG_VERSION")),
+                    format!("p2p_node/{}", env!("CARGO_PKG_VERSION")),
                 ),
             ),
             kademlia,
@@ -144,7 +144,7 @@ impl Behaviour {
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_initial_delay(Duration::from_millis(500))
             .heartbeat_interval(Duration::from_millis(5000))
-            .history_length(10)
+            .history_length(50)
             .history_gossip(10)
             .validation_mode(gossipsub::ValidationMode::Strict)
             .message_id_fn(message_id_fn)
@@ -191,7 +191,7 @@ impl Behaviour {
         for boot_node in BOOT_NODES.iter() {
             self.kademlia.add_address(&boot_node.peer_id(), boot_node.address());
         }
-        tracing::info!("☕ Starting a discovery process: known_peers={}", self.known_peers().len());
+        tracing::debug!("☕ Starting a discovery process: known_peers={}", self.known_peers().len());
         let _ = self.kademlia.bootstrap();
         
     }
@@ -220,19 +220,19 @@ impl Behaviour {
     pub(crate) fn broadcast(&mut self, topic: String, message: Vec<u8>) -> Result<(), Box<dyn Error>> {
         let topic = gossipsub::IdentTopic::new(topic);
         self.pubsub.publish(topic.clone(), message)?;
-        tracing::info!("☕ =====>>>  Broadcast message to topic {}", topic);
+        tracing::debug!("☕ =====>>>  Broadcast message to topic {}", topic);
         Ok(())
     }
 
     pub(crate) fn add_address(&mut self, peer_id: &PeerId, addr: Multiaddr) {
         if can_add_to_dht(&addr) {
-            tracing::info!("☕ Adding address {} from {:?} to the DHT.", addr, peer_id);
+            tracing::debug!("☕ Adding address {} from {:?} to the DHT.", addr, peer_id);
             self.kademlia.add_address(peer_id, addr);
         }
     }
 
     pub(crate) fn remove_peer(&mut self, peer_id: &PeerId) {
-        tracing::info!("☕ Removing peer {} from the DHT.", peer_id);
+        tracing::debug!("☕ Removing peer {} from the DHT.", peer_id);
         self.kademlia.remove_peer(peer_id);
     }
 

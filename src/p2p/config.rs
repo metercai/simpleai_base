@@ -21,7 +21,7 @@ pub(crate) struct Config {
 #[derive(Clone, Default, Deserialize)]
 pub(crate) struct Address {
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
-    pub(crate) relay_nodes: Option<PeerIdWithMultiaddr>,
+    pub(crate) relay_nodes: Option<Vec<PeerIdWithMultiaddr>>,
     pub(crate) dns_ip: Option<String>,
 }
 
@@ -66,18 +66,38 @@ impl Config {
             req_resp: config.req_resp
         }
     }
+
+    pub fn from_toml(config_str: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        // 如果是 YAML 格式
+        // let config: Config = serde_yaml::from_str(config_str)?;
+        // Ok(config)
+        
+        // 如果是 TOML 格式
+        let config: Config = toml::from_str(config_str)?;
+        Ok(config)
+    }
+
+    pub fn from_json(config_str: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let config: Config = serde_json::from_str(config_str)?;
+        Ok(config)
+    }
+
     pub(crate) fn get_is_relay_server(&self) -> bool {
         if let Some(v) = self.is_relay_server { v } else { false }
     }
+
     pub(crate) fn get_discovery_interval(&self) -> u64 {
         if let Some(v) = self.discovery_interval { v } else { 30 }
     }
+
     pub(crate) fn get_broadcast_interval(&self) -> u64 {
         if let Some(v) = self.broadcast_interval { v } else { 60 }
     }
+
     pub(crate) fn get_node_status_interval(&self) -> u64 {
         if let Some(v) = self.node_status_interval { v } else { 35 }
     }
+
     pub(crate) fn get_request_interval(&self) -> u64 {
         if let Some(v) = self.request_interval { v } else { 70 }
     }

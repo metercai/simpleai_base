@@ -25,7 +25,7 @@ use crate::claims::{GlobalClaims, IdClaim, UserContext, DidEntryPoint};
 use crate::systeminfo::SystemInfo;
 use crate::cert_center::GlobalCerts;
 use crate::user_mgr::{OnlineUsers, MessageQueue};
-use crate::p2p;
+use crate::p2p::P2p;
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.1";
 
@@ -33,8 +33,18 @@ use once_cell::sync::OnceCell;
 
 static SYNC_TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
 
+pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
+address.relay_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc']
+pubsub_topics = ['system']
+metrics_path = '/metrics' 
+discovery_interval = 30
+node_status_interval = 30
+broadcast_interval = 70
+request_interval = 80
+req_resp.request_timeout = 60
+"#;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[pyclass]
 pub struct SimpleAI {
     pub sys_name: String,
@@ -65,8 +75,10 @@ pub struct SimpleAI {
     user_base_dir: String,
     global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
+    online_all: OnlineUsers,
     message_queue: MessageQueue,
     did_entry_point: DidEntryPoint,
+    p2p_handle: Arc<Mutex<Option<tokio::task::JoinHandle<P2p>>>>,
 }
 
 #[pymethods]
@@ -136,12 +148,10 @@ impl SimpleAI {
             sysinfo_handle.await.expect("Sysinfo Task panicked")
         });
 
-        let sys_did = local_did.clone();
-        let dev_did = device_did.clone();
-        let sysinfo_clone = sysinfo.clone();
         let mut upstream_did = String::new();
         let did_entry_point = DidEntryPoint::new();
         let online_users = OnlineUsers::new(60, 2);
+        let online_all = OnlineUsers::new(3600, 30);
         let message_queue = MessageQueue::new(global_local_vars.clone());
         let did_entry_point_sync_arc = Arc::new(Mutex::new(did_entry_point.clone()));
         claims.lock().unwrap().set_entry_point(did_entry_point_sync_arc.clone());
@@ -167,12 +177,6 @@ impl SimpleAI {
         debug!("upstream_did: {}, admin_did: {}", upstream_did, admin);
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
 
-        let local_claim_clone = local_claim.clone();
-        let sysinfo_clone = sysinfo_clone.clone();
-        let p2p_handle = token_utils::TOKIO_RUNTIME.spawn(async move {
-            p2p::start("p2pconfig.toml".to_string(), &local_claim_clone, &sysinfo_clone).await
-        });
-
         Self {
             sys_name,
             did: local_did,
@@ -194,8 +198,10 @@ impl SimpleAI {
             user_base_dir: String::new(),
             global_local_vars,
             online_users,
+            online_all,
             message_queue,
             did_entry_point: DidEntryPoint::new(),
+            p2p_handle: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -243,8 +249,93 @@ impl SimpleAI {
                     tokio::join!(task1, task2);
                 })
             });
+            self.p2p_start();
         }
         upstream_did
+    }
+
+    fn get_p2p_config(&self) -> String {
+        let config_path = Path::new("p2pconfig.toml");
+        if config_path.exists() {
+            match fs::read_to_string(config_path) {
+                Ok(content) => {
+                    debug!("使用本地 p2pconfig.toml 文件配置");
+                    content
+                },
+                Err(e) => {
+                    debug!("读取 p2pconfig.toml 文件失败: {}, 使用默认配置", e);
+                    DEFAULT_P2P_CONFIG.to_string()
+                }
+            }
+        } else {
+            debug!("未找到 p2pconfig.toml 文件，使用默认配置");
+            DEFAULT_P2P_CONFIG.to_string()
+        }
+    }
+
+    pub fn p2p_start(&mut self) -> String {
+        // 如果已经有运行的服务，返回提示信息
+        {
+            let mut p2p_handle = self.p2p_handle.lock().unwrap();
+            if p2p_handle.is_some() {
+                return "P2P 服务已经在运行中".to_string();
+            }
+        }
+        
+        // 获取 P2P 配置
+        let p2p_config = self.get_p2p_config();
+        
+        // 获取必要的参数
+        let local_claim = {
+            let mut claims = self.claims.lock().unwrap();
+            claims.get_claim_from_local(&self.did)
+        };
+        
+        let sysinfo_clone = self.sysinfo.clone();
+        let online_users = Arc::new(Mutex::new(self.online_users.clone()));
+        let online_all = Arc::new(Mutex::new(self.online_all.clone()));
+        let message_queue =  Arc::new(Mutex::new(self.message_queue.clone()));
+        let claims = Arc::new(Mutex::new(self.claims.lock().unwrap().clone()));
+        let certificates = Arc::new(Mutex::new(self.certificates.lock().unwrap().clone()));
+        // 启动 P2P 服务
+        let handle = token_utils::TOKIO_RUNTIME.spawn(async move {
+            P2p::start(p2p_config, &local_claim, &sysinfo_clone, online_users, online_all, message_queue, claims, certificates).await
+        });
+        let mut p2p_handle = self.p2p_handle.lock().unwrap();
+        *p2p_handle = Some(handle);
+        "P2P 服务启动成功".to_string()
+    }
+    
+    /// 停止 P2P 服务
+    pub fn p2p_stop(&mut self) -> String {
+        // 如果没有运行的服务，返回提示信息
+        let mut p2p_handle = self.p2p_handle.lock().unwrap();
+        if p2p_handle.is_none() {
+            return "P2P 服务未运行".to_string();
+        }
+        
+        // 取出并中止 P2P 服务
+        if let Some(handle) = p2p_handle.take() {
+            handle.abort();
+            debug!("P2P 服务已停止");
+            "P2P 服务已停止".to_string()
+        } else {
+            "P2P 服务未运行".to_string()
+        }
+    }
+    
+    /// 重启 P2P 服务
+    pub fn p2p_restart(&mut self) -> String {
+        // 先停止服务
+        let stop_result = self.p2p_stop();
+        
+        // 等待一小段时间确保服务完全停止
+        std::thread::sleep(Duration::from_millis(500));
+        
+        // 再启动服务
+        let start_result = self.p2p_start();
+        
+        format!("P2P 服务重启: {}, {}", stop_result, start_result)
     }
 
     pub fn get_sysinfo(&self) -> SystemInfo {

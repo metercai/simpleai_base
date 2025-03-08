@@ -43,7 +43,7 @@ pub(crate) trait EventHandler: Debug + Send + 'static {
     /// Handles an inbound request from a remote peer.
     fn handle_inbound_request(&self, request: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
     /// Handles an broadcast message from a remote peer.
-    fn handle_broadcast(&self, topic: &str, message: Vec<u8>);
+    fn handle_broadcast(&self, topic: &str, message: Vec<u8>, sender: PeerId);
 }
 
 #[derive(Clone, Debug)]
@@ -89,7 +89,7 @@ impl Client {
     pub async fn broadcast(&self, topic: String, message: Vec<u8>) {
         let _ = self.cmd_sender.send(Command::Broadcast {
             topic: topic.into(),
-            message,
+            message: message,
         });
     }
 
@@ -131,6 +131,7 @@ pub(crate) enum Command {
 }
 
 pub(crate) struct Server<E: EventHandler> {
+    sys_did: String,
     /// The actual network service.
     network_service: Swarm<Behaviour>,
     /// The local peer id.
@@ -259,11 +260,13 @@ impl<E: EventHandler> Server<E> {
         swarm.behaviour_mut().kademlia
             .set_mode(Some(kad::Mode::Server));
 
-        if let Some(ref relay_node) = config.address.relay_nodes {
-            let relay_addr = Multiaddr::from_str(format!("{}/p2p/{}", relay_node.address(), relay_node.peer_id()).as_str())?;
-            swarm.dial(relay_addr.clone()).unwrap();
-            let id = swarm.listen_on(relay_addr.clone().with(Protocol::P2pCircuit))?;
-            tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, relay_addr);
+        if let Some(ref relay_nodes) = config.address.relay_nodes {
+            for relay_node in relay_nodes {
+                let relay_addr = Multiaddr::from_str(format!("{}/p2p/{}", relay_node.address(), relay_node.peer_id()).as_str())?;
+                swarm.dial(relay_addr.clone()).unwrap();
+                let id = swarm.listen_on(relay_addr.clone().with(Protocol::P2pCircuit))?;
+                tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, relay_addr);
+            }
         }
 
         match config.address.boot_nodes {
@@ -297,6 +300,7 @@ impl<E: EventHandler> Server<E> {
         let discovery_ticker = time::interval_at(instant, Duration::from_secs(interval_secs));
 
         Ok(Self {
+            sys_did: sys_claim.gen_did(),
             network_service: swarm,
             local_peer_id: local_keypair.public().into(),
             listened_addresses,
@@ -376,7 +380,7 @@ impl<E: EventHandler> Server<E> {
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
-                tracing::info!(peer=%peer_id, ?endpoint, "Established new connection");
+                tracing::info!(peer=%endpoint.get_remote_address(), "Established new connection");
                 return;
             }
             
@@ -455,11 +459,11 @@ impl<E: EventHandler> Server<E> {
                     .. }, connection_id 
             }) => {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
-                    tracing::info!("Identify: P2P_node({}) add_peer({:?}, {:?})", self.get_short_id(), peer_id, listen_addrs);
+                    tracing::info!("P2P_node({}) add peer({:?}, {:?})", self.get_short_id(), peer_id, listen_addrs);
                     self.add_addresses(&peer_id, listen_addrs);
                 };
                 self.network_service.add_external_address(observed_addr.clone());
-                tracing::info!("Identify: P2P_node({}) add_external_address({:?})", self.get_short_id(), observed_addr.clone());
+                tracing::info!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
             }
 
             BehaviourEvent::ReqResp(request_response::Event::Message {
@@ -574,8 +578,13 @@ impl<E: EventHandler> Server<E> {
     fn handle_inbound_broadcast(&mut self, message: gossipsub::Message) {
         if let Some(handler) = self.event_handler.get() {
             let topic_hash = message.topic;
+            if message.source.is_none() {
+                tracing::warn!("❗ 收到没有源节点信息的广播消息，已丢弃");
+                return;
+            }
+            let peer_id = message.source.unwrap();
             match self.get_topic(&topic_hash) {
-                Some(topic) => handler.handle_broadcast(&topic, message.data),
+                Some(topic) => handler.handle_broadcast(&topic, message.data, peer_id),
                 None => {
                     tracing::warn!("❗ Received broadcast for unknown topic: {:?}", topic_hash);
                     debug_assert!(false);
@@ -808,7 +817,7 @@ impl NodeStatus {
                     .collect::<Vec<_>>()
                     .join(",");
                 let rtt = self.connection_quality.get(peer_id).map(|q| format!("{:.2}ms", q.avg_rtt)).unwrap_or("?".to_string());
-                format!("({}:{}:<{}>)", short_peer_id, rtt, ip_addrs)
+                format!("({}:{})", short_peer_id, rtt)
             }).collect::<Vec<_>>().join(";");
         let listeneds: String = self.listened_addresses
             .iter()
@@ -830,8 +839,8 @@ impl NodeStatus {
 
                 format!("({}:{})", short_peer_id, topics)
             }).collect::<Vec<_>>().join(";");
-        format!("{}{}], listened({})({}), pubsubs({})({})", head, peers,
-                self.listened_addresses.len(), listeneds,
+        format!("{}{}], listened({}), pubsubs({})({})", head, peers,
+                self.listened_addresses.len(),
                 self.pubsub_peers.len(), pubsubs)
     }
 }
