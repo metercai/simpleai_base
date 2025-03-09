@@ -27,7 +27,7 @@ use crate::cert_center::GlobalCerts;
 use crate::user_mgr::{OnlineUsers, MessageQueue};
 use crate::p2p::P2p;
 
-pub(crate) static TOKEN_API_VERSION: &str = "v1.2.1";
+pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";
 
 use once_cell::sync::OnceCell;
 
