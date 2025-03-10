@@ -1,26 +1,25 @@
 use base58::ToBase58;
-
+use std::sync::{Arc, Mutex};
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
-use crate::claims::{GlobalClaims, IdClaim, UserContext};
-use crate::systeminfo::SystemInfo;
-use crate::params_mapper::ComfyTaskParams;
-use crate::token_utils::calc_sha256;
-use std::sync::{Arc, Mutex};
+use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
+use crate::utils::systeminfo::SystemInfo;
+use crate::utils::params_mapper::ComfyTaskParams;
+use crate::dids::token_utils::calc_sha256;
+use crate::dids::token_utils;
 
-mod claims;
-mod env_utils;
-mod token_utils;
-mod error;
+
 mod token;
-mod systeminfo;
-mod env_data;
-mod params_mapper;
-mod cert_center;
+
+
+
 mod rest_service;
-mod user_mgr;
+
 mod p2p;
+mod dids;
+mod utils;
+mod user;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {

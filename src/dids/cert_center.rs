@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::{error, warn, info, debug, trace};
 
-use crate::claims::{IdClaim, GlobalClaims};
-use crate::token_utils;
+use crate::dids::claims::{IdClaim, GlobalClaims};
+use crate::dids::token_utils;
 
 lazy_static::lazy_static! {
     static ref GLOBAL_CERTS: Arc<Mutex<GlobalCerts>> = Arc::new(Mutex::new(GlobalCerts::new()));

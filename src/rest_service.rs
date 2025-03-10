@@ -6,7 +6,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::error;
 
 use crate::token::SimpleAI;
-use crate::token_utils;
+use crate::dids::token_utils;
 
 // 共享状态类型
 type SharedAI = Arc<Mutex<SimpleAI>>;

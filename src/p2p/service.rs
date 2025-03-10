@@ -22,6 +22,7 @@ use libp2p::{
         gossipsub::{self, TopicHash},
         request_response::{self, OutboundFailure, OutboundRequestId, ResponseChannel},
         Swarm, Multiaddr, PeerId,};
+use std::sync::Arc;
 use futures::{executor::block_on};
 use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
@@ -31,9 +32,10 @@ use crate::p2p::protocol::*;
 use crate::p2p::req_resp::*;
 use crate::p2p::config::*;
 use crate::p2p::error::P2pError;
-use crate::token_utils;
-use crate::claims::IdClaim;
-use crate::systeminfo::SystemInfo;
+use crate::dids::token_utils;
+use crate::dids::claims::IdClaim;
+use crate::utils::systeminfo::SystemInfo;
+use crate::user::user_mgr::OnlineUsers;
 
 const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
 const TOKEN_SERVER_PORT: u16 = 2316;
@@ -54,9 +56,9 @@ pub(crate) struct Client {
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error>> {
+pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, online_nodes: Arc<std::sync::Mutex<OnlineUsers>>, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
-    let server = Server::new(config, sys_claim, sysinfo, cmd_receiver).await?;
+    let server = Server::new(config, sys_claim, online_nodes, sysinfo, cmd_receiver).await?;
     let local_peer_id = server.get_peer_id().to_base58();
     let client = Client {
         cmd_sender,
@@ -153,6 +155,7 @@ pub(crate) struct Server<E: EventHandler> {
     metrics: Metrics,
     is_global: bool,
     upnp_mapped: bool,
+    online_nodes: Arc<std::sync::Mutex<OnlineUsers>>,
     connection_failure_counts: Mutex<HashMap<PeerId, Vec<Instant>>>,
     connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
 }
@@ -183,6 +186,7 @@ impl<E: EventHandler> Server<E> {
     pub(crate) async fn new(
         config: Config,
         sys_claim: &IdClaim,
+        online_nodes: Arc<std::sync::Mutex<OnlineUsers>>,
         sysinfo: &SystemInfo,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error>> {
@@ -255,7 +259,8 @@ impl<E: EventHandler> Server<E> {
 
 
         let base58_peer_id = swarm.local_peer_id().to_base58();
-        let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+        let sys_did = sys_claim.gen_did();
+        let short_peer_id = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
         tracing::info!("P2P_node({}) start up, peer_id({})", short_peer_id, base58_peer_id);
 
         swarm.behaviour_mut().kademlia
@@ -301,7 +306,7 @@ impl<E: EventHandler> Server<E> {
         let discovery_ticker = time::interval_at(instant, Duration::from_secs(interval_secs));
 
         Ok(Self {
-            sys_did: sys_claim.gen_did(),
+            sys_did,
             network_service: swarm,
             local_peer_id: local_keypair.public().into(),
             listened_addresses,
@@ -313,6 +318,7 @@ impl<E: EventHandler> Server<E> {
             metrics,
             is_global,
             upnp_mapped: false,
+            online_nodes,
             connection_failure_counts: Mutex::new(HashMap::new()),
             connection_quality: Mutex::new(HashMap::new()),
         })
@@ -505,15 +511,15 @@ impl<E: EventHandler> Server<E> {
             }
 
             BehaviourEvent::Upnp(upnp::Event::NewExternalAddr(addr)) => {
-                tracing::info!("UPnP 映射成功，外部地址: {}", addr);
+                tracing::info!("UPnP address: {}", addr);
                 self.network_service.add_external_address(addr);
                 self.upnp_mapped = true;
             }
             BehaviourEvent::Upnp(upnp::Event::GatewayNotFound) => {
-                tracing::warn!("UPnP 网关未找到");
+                tracing::debug!("UPnP gateway not found");
             }
             BehaviourEvent::Upnp(upnp::Event::NonRoutableGateway) => {
-                tracing::warn!("UPnP 网关不可路由");
+                tracing::debug!("UPnP gateway unreachable");
             }
 
             BehaviourEvent::RelayClient(
@@ -627,6 +633,7 @@ impl<E: EventHandler> Server<E> {
         let total_out = 0;
         NodeStatus {
             local_peer_id: self.local_peer_id.to_base58(),
+            local_sys_did: self.sys_did.clone(),
             listened_addresses: self.listened_addresses.clone(),
             known_peers_count: known_peers.len(),
             known_peers,
@@ -642,8 +649,12 @@ impl<E: EventHandler> Server<E> {
         self.local_peer_id.clone()
     }
 
+    fn get_node_did(&self) -> String {
+        self.sys_did.clone()
+    }
+
     fn get_short_id(&self) -> String {
-        let base58_peer_id = self.local_peer_id.to_base58();
+        let base58_peer_id = self.sys_did.clone(); //self.local_peer_id.to_base58();
         let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
         short_peer_id
     }
@@ -782,6 +793,7 @@ impl<E: EventHandler> Server<E> {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct NodeStatus {
     pub(crate) local_peer_id: String,
+    pub(crate) local_sys_did: String,
     pub(crate) listened_addresses: Vec<Multiaddr>,
     pub(crate) known_peers_count: usize,
     pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
@@ -795,7 +807,7 @@ pub(crate) struct NodeStatus {
 impl NodeStatus {
     pub(crate) fn short_format(&self) -> String {
         let short_id = (|| {
-            self.local_peer_id[self.local_peer_id.len() - 7..].to_string()
+            self.local_sys_did[self.local_sys_did.len() - 7..].to_string()
         })();
         let external_addresses = self.external_addresses
             .iter()

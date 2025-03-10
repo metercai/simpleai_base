@@ -50,7 +50,7 @@ if-addrs = "0.13"
 futures = "0.3"
 futures-timer = "3"
 hyper = { version = "0.14", features = ["server", "tcp", "http1"] }
-libp2p = { version = "0.55.0", features = ["gossipsub", "request-response", "dcutr", "mdns", "autonat", "dns", "tokio", "noise", "tcp", "yamux", "identify", "kad", "ping", "relay", "metrics", "rsa", "macros", "quic", "websocket", "upnp"] }  # 直接指定版本
+libp2p = { version = "0.55.0", features = ["gossipsub", "request-response", "dcutr", "mdns", "autonat", "dns", "tokio", "noise", "tcp", "yamux", "identify", "kad", "ping", "relay", "metrics", "rsa", "macros", "quic", "websocket", "upnp", "rendezvous"] }
 prometheus-client = "0.22.1"
 toml = "0.8.10"
 async-trait = "0.1"

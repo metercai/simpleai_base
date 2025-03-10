@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 use serde::{Serialize, Deserialize};
 use pyo3::prelude::*;
-use crate::token_utils;
-use crate::GlobalClaims;
+use crate::dids::token_utils;
+use crate::dids::claims::GlobalClaims;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]

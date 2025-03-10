@@ -13,7 +13,7 @@ use rand::Rng;
 use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use tracing_subscriber::field::debug;
-use crate::token_utils;
+use crate::dids::token_utils;
 use directories_next::BaseDirs;
 use crate::p2p;
 

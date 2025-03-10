@@ -59,11 +59,11 @@ impl OnlineUsers {
         }
     }
 
-    pub fn log_access(&self, user_id: String) {
+    pub fn log_access(&self, user_id: String) -> bool{
         {
             let registered = self.registered_users.read().unwrap();
             if !registered.contains(&user_id) {
-                return;
+                return false;
             }
         }
 
@@ -72,6 +72,7 @@ impl OnlineUsers {
             let mut queue = self.user_queue.lock().unwrap();
             queue.push_back((user_id, now));
         }
+        true
     }
 
     pub fn log_access_batch(&self, batch_ids: String) {

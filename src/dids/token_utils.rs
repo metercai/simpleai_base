@@ -25,15 +25,15 @@ use argon2::Argon2;
 use chrono::{Local, Timelike};
 
 use tracing::{debug, info};
-use crate::systeminfo::SystemBaseInfo;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 use tracing_subscriber::fmt::format;
 
-use crate::error::TokenError;
-use crate::claims::{GlobalClaims, IdClaim, UserContext};
-use crate::claims;
+use crate::utils::systeminfo::SystemBaseInfo;
+use crate::utils::error::TokenError;
+use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
+use crate::dids::claims;
 
 const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 

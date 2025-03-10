@@ -22,13 +22,13 @@ mod req_resp;
 
 use crate::p2p::service::{Client, Server, EventHandler};
 use crate::p2p::error::P2pError;
-use crate::claims::{GlobalClaims, IdClaim};
-use crate::user_mgr::{MessageQueue, OnlineUsers};
+use crate::dids::claims::{GlobalClaims, IdClaim};
+use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 use once_cell::sync::OnceCell;
 use once_cell::sync::Lazy;
-use crate::token_utils;
-use crate::systeminfo::SystemInfo;
-use crate::cert_center::GlobalCerts;
+use crate::dids::token_utils;
+use crate::utils::systeminfo::SystemInfo;
+use crate::dids::cert_center::GlobalCerts;
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
@@ -67,7 +67,7 @@ impl P2p {
         claims: Arc<Mutex<GlobalClaims>>, certificates: Arc<Mutex<GlobalCerts>>
     ) {
         let config = config::Config::from_toml(&config.clone()).expect("无法解析配置字符串");
-        let result = service::new(config.clone(), sys_claim, sysinfo).await;
+        let result = service::new(config.clone(), sys_claim, online_nodes.clone(), sysinfo).await;
         let (client, mut server) = match result {
             Ok((c, s)) => (c, s),
             Err(e) => panic!("无法启动服务: {:?}", e),
@@ -157,7 +157,7 @@ impl P2p {
                             return claim;
                         },
                         Err(e) => {
-                            tracing::warn!("解析上游节点 {} 返回的声明失败: {:?}", upstream_peer_id, e);
+                            tracing::debug!("解析上游节点 {} 返回的声明失败: {:?}", upstream_peer_id, e);
                         }
                     }
                 } else {
@@ -168,7 +168,7 @@ impl P2p {
             tracing::debug!("没有配置上游节点");
         }
         
-        tracing::warn!("无法从任何上游节点获取用户 {} 的声明", did);
+        tracing::debug!("无法从任何上游节点获取用户 {} 的声明", did);
         IdClaim::default()
     }
 
@@ -190,15 +190,14 @@ impl P2p {
             if let Some(peer_id) = self.did_node_map.get(&target) {
                 peer_id.clone()
             } else {
-                tracing::warn!("用户 ID {} 未找到对应的节点信息", target);
+                tracing::warn!("user_did({}) does not belong to a node", target);
                 return String::new();
             }
         };
 
         let known_peers = self.client.get_known_peers().await;
         if !known_peers.contains(&target_peer_id) {
-            tracing::warn!("目标节点 {} 不在已知节点列表中", target);
-            return String::new();
+            tracing::warn!("The target node({}) is not in the known node list", target);
         }
             
         let now_time: DateTime<Local> = Local::now();

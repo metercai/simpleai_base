@@ -17,14 +17,14 @@ use qrcode::render::svg;
 
 use pyo3::prelude::*;
 
-use crate::token_utils;
+use crate::dids::token_utils;
 use crate::{exchange_key, issue_key};
-use crate::error::TokenError;
-use crate::env_data::EnvData;
-use crate::claims::{GlobalClaims, IdClaim, UserContext, DidEntryPoint};
-use crate::systeminfo::SystemInfo;
-use crate::cert_center::GlobalCerts;
-use crate::user_mgr::{OnlineUsers, MessageQueue};
+use crate::utils::error::TokenError;
+use crate::utils::env_data::EnvData;
+use crate::dids::claims::{GlobalClaims, IdClaim, UserContext, DidEntryPoint};
+use crate::utils::systeminfo::SystemInfo;
+use crate::dids::cert_center::GlobalCerts;
+use crate::user::user_mgr::{OnlineUsers, MessageQueue};
 use crate::p2p::{P2p, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";

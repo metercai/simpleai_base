@@ -8,7 +8,7 @@ use libp2p::request_response::{self, OutboundRequestId, ResponseChannel, Protoco
 use libp2p::gossipsub::{self, IdentTopic, TopicHash};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, StreamProtocol};
-use libp2p::{identity, Multiaddr, PeerId};
+use libp2p::{identity, Multiaddr, PeerId, rendezvous};
 use std::{
     str::FromStr,
     net::IpAddr,
@@ -34,16 +34,18 @@ pub(crate) const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/
 
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour {
+    pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
+    pub(crate) pubsub: gossipsub::Behaviour,
+    pub(crate) req_resp: request_response::Behaviour<req_resp::GenericCodec>,
     ping: ping::Behaviour,
     identify: identify::Behaviour,
-    pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
     mdns: mdns::tokio::Behaviour,
-    pub(crate) pubsub: gossipsub::Behaviour,
-    req_resp: request_response::Behaviour<req_resp::GenericCodec>,
     relay: Toggle<relay::Behaviour>,
     relay_client: Toggle<relay::client::Behaviour>,
     autonat: Toggle<autonat::v2::server::Behaviour>,
     autonat_client: Toggle<autonat::v2::client::Behaviour>,
+    rendezvous: Toggle<rendezvous::server::Behaviour>,
+    rendezvous_client: Toggle<rendezvous::client::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     upnp: Toggle<upnp::tokio::Behaviour>,
 }
@@ -95,6 +97,18 @@ impl Behaviour {
             None
         }.into();
 
+        let rendezvous = if is_global{
+            Some(rendezvous::server::Behaviour::new(rendezvous::server::Config::default()))
+        } else {
+            None
+        }.into();
+
+        let rendezvous_client = if !is_global{
+            Some(rendezvous::client::Behaviour::new(local_key.clone()))
+        } else {
+            None
+        }.into();
+
         let mdns = 
             mdns::tokio::Behaviour::new(
                 mdns::Config::default(), pub_key.clone().to_peer_id()).expect("Mdns service initialization failed！");
@@ -126,6 +140,8 @@ impl Behaviour {
             relay_client: relay_client.into(),
             autonat,
             autonat_client,
+            rendezvous,
+            rendezvous_client,
             dcutr,
             upnp,
         }

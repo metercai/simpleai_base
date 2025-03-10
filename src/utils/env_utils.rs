@@ -21,9 +21,9 @@ use tokio::time::{self, Duration};
 use tracing::{debug, info};
 use lazy_static::lazy_static;
 
-use crate::error::TokenError;
-use crate::systeminfo::SystemBaseInfo;
-use crate::token_utils;
+use crate::utils::error::TokenError;
+use crate::utils::systeminfo::SystemBaseInfo;
+use crate::dids::token_utils;
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB chunks
 
