@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use tracing_subscriber::field::debug;
 use crate::token_utils;
 use directories_next::BaseDirs;
+use crate::p2p;
 
 
 
@@ -337,52 +338,19 @@ impl GlobalClaims {
     }
 
     pub fn get_claim_from_global(&mut self, did: &str) -> IdClaim {
-        let claim = self.get_claim_from_local(did);
+        let mut claim = self.get_claim_from_local(did);
         if claim.is_default() {
-            // get claim from global
-            let mut request: Value = json!({});
-            request["user_symbol"] = serde_json::to_value("").unwrap();
-            request["user_did"] = serde_json::to_value(did).unwrap();
-            let upstream_url = self.entry_point.lock().unwrap().get_entry_point( &self.get_upstream_did());
-            debug!("get claim from global with did: {}", did);
-            let result = token_utils::TOKIO_RUNTIME.block_on(async {
-                match token_utils::REQWEST_CLIENT.post(
-                    format!("{}{}", upstream_url, "get_use_claim"))
-                    .header("Sys-Did", self.sys_did.to_string())
-                    .header("Dev-Did", self.device_did.to_string())
-                    .body(serde_json::to_string(&request).unwrap())
-                    .send().await {
-                    Ok(res) => {
-                        let status_code = res.status();
-                        match res.text().await {
-                            Ok(text) => {
-                                debug!("[Upstream] response: {}", text);
-                                if status_code.is_success() { text } else { "Unknown".to_string() }
-                            },
-                            Err(e) => {
-                                debug!("Failed to read response body: {}", e);
-                                "Unknown".to_string()
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        debug!("Failed to request token api: {}", e);
-                        "Unknown".to_string()
-                    }
+            if let Some(p2p) = p2p::get_instance() {
+                claim = token_utils::TOKIO_RUNTIME.block_on(async {
+                    p2p.get_claim(did.to_string()).await
+                });
+                if !claim.is_default() {
+                    debug!("成功通过 P2P 网络获取用户 {} 的声明", did);
+                    self.push_claim(&claim);
                 }
-            });
-            let claim = if result != "Unknown" {
-                serde_json::from_str(&result).unwrap_or(IdClaim::default())
-            } else {
-                IdClaim::default()
-            };
-            if !claim.is_default() {
-                self.push_claim(&claim);
             }
-            claim
-
-        } else { claim  }
-
+        }
+        claim
     }
 
     pub(crate) fn load_claim_from_local(did: &str) -> IdClaim {

@@ -25,7 +25,7 @@ use crate::claims::{GlobalClaims, IdClaim, UserContext, DidEntryPoint};
 use crate::systeminfo::SystemInfo;
 use crate::cert_center::GlobalCerts;
 use crate::user_mgr::{OnlineUsers, MessageQueue};
-use crate::p2p::P2p;
+use crate::p2p::{P2p, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";
 
@@ -33,16 +33,6 @@ use once_cell::sync::OnceCell;
 
 static SYNC_TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
 
-pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
-address.relay_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc']
-pubsub_topics = ['system']
-metrics_path = '/metrics' 
-discovery_interval = 30
-node_status_interval = 30
-broadcast_interval = 70
-request_interval = 80
-req_resp.request_timeout = 60
-"#;
 
 #[derive(Clone)]
 #[pyclass]
@@ -76,9 +66,9 @@ pub struct SimpleAI {
     global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
     online_all: OnlineUsers,
+    online_nodes: OnlineUsers,
     message_queue: MessageQueue,
     did_entry_point: DidEntryPoint,
-    p2p_handle: Arc<Mutex<Option<tokio::task::JoinHandle<P2p>>>>,
 }
 
 #[pymethods]
@@ -151,7 +141,9 @@ impl SimpleAI {
         let mut upstream_did = String::new();
         let did_entry_point = DidEntryPoint::new();
         let online_users = OnlineUsers::new(60, 2);
-        let online_all = OnlineUsers::new(3600, 30);
+        let online_all = OnlineUsers::new(300, 5);
+        let online_nodes = OnlineUsers::new(300, 5);
+    
         let message_queue = MessageQueue::new(global_local_vars.clone());
         let did_entry_point_sync_arc = Arc::new(Mutex::new(did_entry_point.clone()));
         claims.lock().unwrap().set_entry_point(did_entry_point_sync_arc.clone());
@@ -199,9 +191,9 @@ impl SimpleAI {
             global_local_vars,
             online_users,
             online_all,
+            online_nodes,
             message_queue,
             did_entry_point: DidEntryPoint::new(),
-            p2p_handle: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -276,7 +268,7 @@ impl SimpleAI {
     pub fn p2p_start(&mut self) -> String {
         // 如果已经有运行的服务，返回提示信息
         {
-            let mut p2p_handle = self.p2p_handle.lock().unwrap();
+            let mut p2p_handle = P2P_HANDLE.lock().unwrap();
             if p2p_handle.is_some() {
                 return "P2P 服务已经在运行中".to_string();
             }
@@ -294,22 +286,24 @@ impl SimpleAI {
         let sysinfo_clone = self.sysinfo.clone();
         let online_users = Arc::new(Mutex::new(self.online_users.clone()));
         let online_all = Arc::new(Mutex::new(self.online_all.clone()));
+        let online_nodes = Arc::new(Mutex::new(self.online_nodes.clone()));
         let message_queue =  Arc::new(Mutex::new(self.message_queue.clone()));
         let claims = Arc::new(Mutex::new(self.claims.lock().unwrap().clone()));
         let certificates = Arc::new(Mutex::new(self.certificates.lock().unwrap().clone()));
         // 启动 P2P 服务
         let handle = token_utils::TOKIO_RUNTIME.spawn(async move {
-            P2p::start(p2p_config, &local_claim, &sysinfo_clone, online_users, online_all, message_queue, claims, certificates).await
+            P2p::start(p2p_config, &local_claim, &sysinfo_clone, online_users, online_all, online_nodes, message_queue, claims, certificates).await
         });
-        let mut p2p_handle = self.p2p_handle.lock().unwrap();
+        let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         *p2p_handle = Some(handle);
+
         "P2P 服务启动成功".to_string()
     }
     
     /// 停止 P2P 服务
     pub fn p2p_stop(&mut self) -> String {
         // 如果没有运行的服务，返回提示信息
-        let mut p2p_handle = self.p2p_handle.lock().unwrap();
+        let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         if p2p_handle.is_none() {
             return "P2P 服务未运行".to_string();
         }
@@ -317,6 +311,10 @@ impl SimpleAI {
         // 取出并中止 P2P 服务
         if let Some(handle) = p2p_handle.take() {
             handle.abort();
+            {
+                let mut p2p_instance_guard = P2P_INSTANCE.lock().unwrap();
+                *p2p_instance_guard = None;
+            }
             debug!("P2P 服务已停止");
             "P2P 服务已停止".to_string()
         } else {
@@ -1762,6 +1760,7 @@ impl SimpleAI {
             request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await
         });
         let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+        debug!("register_upstream, response: {}", response);
         if let Some(message_list) = ping_vars.get("message_list") {
             self.message_queue.push_messages(message_list.to_string());
         }
@@ -1833,7 +1832,7 @@ impl SimpleAI {
 }
 
 async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
-    debug!("[Upstream] request: {}{} with params: {}", upstream_url, api_name, encoded_params);
+    debug!("[Upstream] request: {}{} with params: {}, sys={}, dev={}, ver={}", upstream_url, api_name, encoded_params, sys_did, dev_did, TOKEN_API_VERSION);
     match token_utils::REQWEST_CLIENT.post(format!("{}{}", upstream_url, api_name))
         .header("Sys-Did", sys_did.to_string())
         .header("Dev-Did", dev_did.to_string())
@@ -1963,7 +1962,7 @@ async fn sync_upstream(
         };
 
         if result_string != "Unknown" {
-            let ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
+            let mut ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
             if let Some(user_online) = ping_vars.get("user_online") {
                 let user_online_array: Vec<&str> = user_online.split(":").collect();
                 if user_online_array.len() >= 3 {
@@ -1973,7 +1972,9 @@ async fn sync_upstream(
                     if nodes > 1 && users > 1 {
                         let mut users_guard = online_users.lock().await;
                         users_guard.set_nodes_users(nodes, users, top_list.clone());
+                        debug!("{} [Upstream] set_nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
                     } else if nodes == 0 && users == 0 {
+                        debug!("{} [Upstream] get null nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
                         let claims = GlobalClaims::instance();
                         let (local_claim, device_claim) = {
                             let mut claims = claims.lock().unwrap();
@@ -1981,7 +1982,7 @@ async fn sync_upstream(
                         };
                         let last_timestamp = {
                             let mq = message_queue.lock().await;
-                            mq.get_last_timestamp().unwrap_or_else(|| 0u64);
+                            mq.get_last_timestamp().unwrap_or_else(|| 0u64)
                         };
                         let mut request = json!({});
                         request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
@@ -1994,11 +1995,12 @@ async fn sync_upstream(
                             ep.get_entry_point(token_utils::TOKEN_TM_DID)
                         };
                         let response = request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await;
-                        let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+                        ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+                        debug!("{} [Upstream] repair ping: {}", token_utils::now_string(), response);
                         upstream_did = if let Some(new_did) = ping_vars.get("upstream_did") {
                             new_did.clone()
                         } else { upstream_did.clone() };
-                    }
+                    } 
                 }
             }
 

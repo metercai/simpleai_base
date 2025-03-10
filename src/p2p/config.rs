@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Deserialize)]
 pub(crate) struct Config {
     pub(crate) address: Address,
-    pub(crate) is_relay_server: Option<bool>,
+    pub(crate) is_upstream_server: Option<bool>,
     pub(crate) pubsub_topics: Vec<String>,
     pub(crate) metrics_path: String,
     pub(crate) discovery_interval: Option<u64>,
@@ -21,7 +21,7 @@ pub(crate) struct Config {
 #[derive(Clone, Default, Deserialize)]
 pub(crate) struct Address {
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
-    pub(crate) relay_nodes: Option<Vec<PeerIdWithMultiaddr>>,
+    pub(crate) upstream_nodes: Option<Vec<PeerIdWithMultiaddr>>,
     pub(crate) dns_ip: Option<String>,
 }
 
@@ -56,7 +56,7 @@ impl Config {
         };
         Self{
             address: config.address,
-            is_relay_server: config.is_relay_server,
+            is_upstream_server: config.is_upstream_server,
             pubsub_topics: config.pubsub_topics,
             metrics_path: config.metrics_path,
             discovery_interval: config.discovery_interval,
@@ -82,8 +82,8 @@ impl Config {
         Ok(config)
     }
 
-    pub(crate) fn get_is_relay_server(&self) -> bool {
-        if let Some(v) = self.is_relay_server { v } else { false }
+    pub(crate) fn get_is_upstream_server(&self) -> bool {
+        if let Some(v) = self.is_upstream_server { v } else { false }
     }
 
     pub(crate) fn get_discovery_interval(&self) -> u64 {

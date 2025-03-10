@@ -50,6 +50,7 @@ pub(crate) trait EventHandler: Debug + Send + 'static {
 pub(crate) struct Client {
     cmd_sender: UnboundedSender<Command>,
     peer_id: String,
+    sys_did: String,
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
@@ -60,6 +61,7 @@ pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sy
     let client = Client {
         cmd_sender,
         peer_id: local_peer_id[local_peer_id.len() - 7..].to_string(),
+        sys_did: sys_claim.gen_did(),
     };
 
     Ok((client, server))
@@ -67,11 +69,17 @@ pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sy
 
 impl Client {
     /// Get the short peer id of the local node.
-    pub fn get_peer_id(&self) -> String {
+    pub(crate) fn get_peer_id(&self) -> String {
         self.peer_id.clone()
     }
+
+    /// Get the did of the local node.
+    pub(crate) fn get_sys_did(&self) -> String {
+        self.sys_did.clone()
+    }
+
     /// Send a blocking request to the `target` peer.
-    pub async fn request(&self, target: &str, request: Vec<u8>) -> Result<Vec<u8>, P2pError> {
+    pub(crate) async fn request(&self, target: &str, request: Vec<u8>) -> Result<Vec<u8>, P2pError> {
         let target = target.parse().map_err(|_| P2pError::InvalidPeerId)?;
 
         let (responder, receiver) = oneshot::channel();
@@ -86,7 +94,7 @@ impl Client {
     }
 
     /// Publish a message to the given topic.
-    pub async fn broadcast(&self, topic: String, message: Vec<u8>) {
+    pub(crate) async fn broadcast(&self, topic: String, message: Vec<u8>) {
         let _ = self.cmd_sender.send(Command::Broadcast {
             topic: topic.into(),
             message: message,
@@ -102,14 +110,7 @@ impl Client {
             .collect()
     }
 
-    /// Get status of the node for debugging.
-    // pub(crate) fn get_node_status(&self) -> NodeStatus {
-    //     let (responder, receiver) = oneshot::channel();
-    //     let _ = self.cmd_sender.send(Command::GetStatus(responder));
-    //     receiver.blocking_recv().unwrap_or_default()
-    // }
-
-    pub async fn get_node_status(&self) -> NodeStatus {
+    pub(crate) async fn get_node_status(&self) -> NodeStatus {
         let (responder, receiver) = oneshot::channel();
         let _ = self.cmd_sender.send(Command::GetStatus(responder));
         receiver.await.unwrap_or_default()
@@ -190,14 +191,14 @@ impl<E: EventHandler> Server<E> {
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)))?));
 
-        let is_relay_server = if let Some(v) = config.is_relay_server { v } else { false };
+        let is_upstream_server = if let Some(v) = config.is_upstream_server { v } else { false };
         let pubsub_topics: Vec<_> = config.pubsub_topics.clone();
         let req_resp_config = config.req_resp.clone();
 
         let netifs_ip = utils::get_ipaddr_from_netif()?;
         let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
         let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
-        let is_global = if locale_ip == public_ip || is_relay_server { true } else { false };
+        let is_global = if locale_ip == public_ip || is_upstream_server { true } else { false };
         tracing::info!("P2P_node({:?}/{:?}) ready to start up : public_ip({:?}) is_global({})",
             locale_ip, 
             netifs_ip, 
@@ -260,12 +261,12 @@ impl<E: EventHandler> Server<E> {
         swarm.behaviour_mut().kademlia
             .set_mode(Some(kad::Mode::Server));
 
-        if let Some(ref relay_nodes) = config.address.relay_nodes {
-            for relay_node in relay_nodes {
-                let relay_addr = Multiaddr::from_str(format!("{}/p2p/{}", relay_node.address(), relay_node.peer_id()).as_str())?;
-                swarm.dial(relay_addr.clone()).unwrap();
-                let id = swarm.listen_on(relay_addr.clone().with(Protocol::P2pCircuit))?;
-                tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, relay_addr);
+        if let Some(ref upstream_nodes) = config.address.upstream_nodes {
+            for upstream_node in upstream_nodes {
+                let upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
+                swarm.dial(upstream_addr.clone()).unwrap();
+                let id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
+                tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, upstream_addr);
             }
         }
 
@@ -389,7 +390,8 @@ impl<E: EventHandler> Server<E> {
                 peer_id: Some(peer),
                 ..
             } => {
-                if self.record_peer_failure(&peer, "连接失败") {
+                if self.record_peer_failure(&peer, "Connection") {
+                    tracing::info!("Connection failures has reached the threshold, remove the node: {:?}", peer);
                     self.network_service.behaviour_mut().remove_peer(&peer);
                 }
                 return;
@@ -418,8 +420,8 @@ impl<E: EventHandler> Server<E> {
                 result: Err(_),
                 ..
             }) => {
-                if self.record_peer_failure(&peer, "Ping 失败") {
-                    tracing::info!("Ping 失败次数达到阈值，移除节点: {:?}", peer);
+                if self.record_peer_failure(&peer, "Ping") {
+                    tracing::info!("Ping failures has reached the threshold, remove the node: {:?}", peer);
                     self.network_service.behaviour_mut().remove_peer(&peer)
                 }
             },
@@ -579,14 +581,14 @@ impl<E: EventHandler> Server<E> {
         if let Some(handler) = self.event_handler.get() {
             let topic_hash = message.topic;
             if message.source.is_none() {
-                tracing::warn!("❗ 收到没有源节点信息的广播消息，已丢弃");
+                tracing::debug!("❗ 收到没有源节点信息的广播消息，已丢弃");
                 return;
             }
             let peer_id = message.source.unwrap();
             match self.get_topic(&topic_hash) {
                 Some(topic) => handler.handle_broadcast(&topic, message.data, peer_id),
                 None => {
-                    tracing::warn!("❗ Received broadcast for unknown topic: {:?}", topic_hash);
+                    tracing::debug!("❗ Received broadcast for unknown topic: {:?}", topic_hash);
                     debug_assert!(false);
                 }
             }
@@ -697,24 +699,24 @@ impl<E: EventHandler> Server<E> {
             let recent_failures = failures.len();
             
             if recent_failures >= MAX_FAILURE_COUNT {
-                tracing::info!("节点失败次数达到阈值({}次/{}秒)，移除节点: {:?}，最后失败类型: {}", 
+                tracing::debug!("节点失败次数达到阈值({}次/{}秒)，移除节点: {:?}，最后失败类型: {}", 
                               MAX_FAILURE_COUNT, FAILURE_WINDOW_SECS, peer, failure_type);
                 // 重置计数器
                 failure_counts.remove(peer);
                 
                 // 同时从 gossipsub 的对等节点列表中移除
                 self.network_service.behaviour_mut().pubsub.remove_explicit_peer(peer);
-                tracing::info!("已从 gossipsub 对等节点列表中移除节点: {:?}", peer);
+                tracing::info!("Removed node from gossipsub node list: {:?}", peer);
                 
                 return true; // 应该移除节点
             } else {
-                tracing::info!("节点失败(第{}次/{}秒)，失败类型: {}，暂不移除节点: {:?}", 
+                tracing::debug!("节点失败(第{}次/{}秒)，失败类型: {}，暂不移除节点: {:?}", 
                               recent_failures, FAILURE_WINDOW_SECS, failure_type, peer);
                 return false; // 不需要移除节点
             }
         } else {
             // 如果无法获取锁，记录警告并默认不移除节点
-            tracing::warn!("无法获取失败计数锁，暂不处理节点失败: {:?}, 类型: {}", peer, failure_type);
+            tracing::debug!("无法获取失败计数锁，暂不处理节点失败: {:?}, 类型: {}", peer, failure_type);
             return false;
         }
     }
@@ -837,7 +839,7 @@ impl NodeStatus {
                 let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
                 let topics = (*topichashs).iter().map(|topic| topic.to_string()).collect::<Vec<_>>().join(", ");
 
-                format!("({}:{})", short_peer_id, topics)
+                format!("{}:{}", short_peer_id, (*topichashs).len())
             }).collect::<Vec<_>>().join(";");
         format!("{}{}], listened({}), pubsubs({})({})", head, peers,
                 self.listened_addresses.len(),
