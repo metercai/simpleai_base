@@ -7,7 +7,7 @@ use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::utils::systeminfo::SystemInfo;
 use crate::utils::params_mapper::ComfyTaskParams;
 use crate::dids::token_utils::calc_sha256;
-use crate::dids::token_utils;
+use crate::dids::{token_utils, DidToken, TOKEN_TM_DID};
 
 
 mod token;
@@ -20,6 +20,7 @@ mod p2p;
 mod dids;
 mod utils;
 mod user;
+mod shared;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {
@@ -44,10 +45,10 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let timestamp = parts[2].to_string();
     let signature_str = parts[3].to_string();
     let text = format!("{}|{}|{}|{}|{}", did, "Member", encrypt_item_key, memo_base64, timestamp);
-    let claims = GlobalClaims::instance();
+    let didtoken = DidToken::instance();
     let (system_did, upstream_did) = {
-        let claims = claims.lock().unwrap();
-        (claims.get_system_did(), claims.get_upstream_did())
+        let didtoken = didtoken.lock().unwrap();
+        (didtoken.get_sys_did(), didtoken.get_upstream_did())
     };
     let text_system = format!("{}|{}", system_did, text);
     let claim_system = GlobalClaims::load_claim_from_local(&system_did);
@@ -59,7 +60,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     if token_utils::verify_signature(&text_upstream, &signature_str, &claim_upstream.get_cert_verify_key()) {
         return true;
     }
-    let root_did = token_utils::TOKEN_TM_DID;
+    let root_did = TOKEN_TM_DID;
     let text_root = format!("{}|{}", root_did, text);
     let claim_root = GlobalClaims::load_claim_from_local(root_did);
     token_utils::verify_signature(&text_root, &signature_str, &claim_root.get_cert_verify_key())

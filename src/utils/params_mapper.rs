@@ -5,7 +5,7 @@ use serde_json::Value;
 use serde::{Serialize, Deserialize};
 use pyo3::prelude::*;
 use crate::dids::token_utils;
-use crate::dids::claims::GlobalClaims;
+use crate::user::TokenUser;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
@@ -169,9 +169,9 @@ impl ComfyTaskParams {
         let filename = format!("{}_api.json", flow_name);
         let filename_with_path = format!("workflows/{}", filename);
         let flow_file = {
-            let claims = GlobalClaims::instance();
-            let claims = claims.lock().unwrap();
-            claims.get_path_in_user_dir(&self.user_did, &filename_with_path)
+            let tokenuser = TokenUser::instance();
+            let tokenuser = tokenuser.lock().unwrap();
+            tokenuser.get_path_in_user_dir(&self.user_did, &filename_with_path)
         };
         let flow_file = Path::new(&flow_file);
         let flow_file = match flow_file.exists() {

@@ -34,6 +34,8 @@ use crate::utils::systeminfo::SystemBaseInfo;
 use crate::utils::error::TokenError;
 use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::dids::claims;
+use crate::issue_key;
+use crate::exchange_key;
 
 const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 
@@ -43,72 +45,11 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
     parameters: None,
 };
 
-pub(crate) static TOKEN_TM_URL: &str = "http://120.79.179.136:3030/api_";
-pub(crate) static TOKEN_TM_DID: &str = "6eR3Pzp9e2VSUC6suwPSycQ93qi6T";
-
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
-    pub static ref ADMIN_DEFAULT: Mutex<AdminDefault> = Mutex::new(AdminDefault::new());
-}
-
-pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
-    Runtime::new().expect("Failed to create Tokio runtime")
-});
-
-pub struct AdminDefault {
-    data: HashMap<String, String>,
-}
-impl AdminDefault {
-    pub fn new() -> Self {
-        let mut data= HashMap::new();
-        data.insert("comfyd_active_checkbox".to_string(), "True".to_string());
-        data.insert("fast_comfyd_checkbox".to_string(), "False".to_string());
-        data.insert("reserved_vram".to_string(), "0".to_string());
-        data.insert("minicpm_checkbox".to_string(), "False".to_string());
-        data.insert("advanced_logs".to_string(), "False".to_string());
-        data.insert("wavespeed_strength".to_string(), "0.12".to_string());
-        data.insert("topbar_button_quantity".to_string(), "10".to_string());
-        Self {
-            data,
-        }
-    }
-    pub fn get(&self, key: &str) -> String {
-        self.data.get(key).unwrap_or(&"None".to_string()).to_string()
-    }
-    pub fn insert(&mut self, key: String, value: String) {
-        self.data.insert(key, value);
-    }
-    pub fn remove(&mut self, key: &str) -> String {
-        self.data.remove(key).unwrap_or("None".to_string())
-    }
-}
-
-pub static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(3)) // 连接超时时间
-        .timeout(Duration::from_secs(5)) // 总超时时间
-        .build()
-        .expect("Failed to build reqwest client")
-});
-
-
-#[macro_export]
-macro_rules! exchange_key {
-    ($did:expr) => {
-        format!("{}_exchange", $did)
-    };
-}
-
-#[macro_export]
-macro_rules! issue_key {
-    ($did:expr) => {
-        format!("{}_issue", $did)
-    };
-}
-
-lazy_static::lazy_static! {
     static ref SYSTEM_KEYS: Arc<Mutex<SystemKeys>> = Arc::new(Mutex::new(SystemKeys::new()));
 }
+
 
 #[derive(Clone, Debug)]
 pub(crate) struct SystemKeys {

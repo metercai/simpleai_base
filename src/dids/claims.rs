@@ -13,8 +13,7 @@ use rand::Rng;
 use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use tracing_subscriber::field::debug;
-use crate::dids::token_utils;
-use directories_next::BaseDirs;
+use crate::dids::{self, TOKIO_RUNTIME, token_utils};
 use crate::p2p;
 
 
@@ -31,11 +30,7 @@ pub struct GlobalClaims {
     claims: HashMap<String, IdClaim>,       // 留存本地的身份自证
     sys_did: String,                      // 系统did
     device_did: String,                    // 设备id
-    admin: String,                        // 管理员账号
     guest: String,                        // 游客账号
-    upstream: String,                      // 上游节点
-    user_base_dir: String,                // 用户目录
-    entry_point: Arc<Mutex<DidEntryPoint>>,
 }
 
 impl GlobalClaims {
@@ -50,7 +45,7 @@ impl GlobalClaims {
         let disk_uuid = sysinfo.disk_uuid.clone();
 
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
-            = GlobalClaims::get_system_vars();
+            = dids::get_system_vars();
 
         let mut sys_did = "Unknown".to_string();
         let mut device_did = "Unknown".to_string();
@@ -139,76 +134,52 @@ impl GlobalClaims {
                 eprintln!("Failed to read directory: {}", e);
             }
         }
+
+        if device_did == "Unknown" {
+            let device_claim = GlobalClaims::generate_did_claim
+                ("Device", &device_name, None, Some(disk_uuid.clone()), &device_phrase);
+            device_did = device_claim.gen_did();
+            claims.insert(device_did.clone(), device_claim.clone());
+            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!("{}_{}.did", device_claim.id_type.to_lowercase(), device_claim.gen_did()));
+            fs::write(did_file_path, device_claim.to_json_string()).unwrap()
+        }
+        if sys_did == "Unknown"  {
+            let local_claim = GlobalClaims::generate_did_claim
+                ("System", &system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &sys_phrase);
+            sys_did = local_claim.gen_did();
+            claims.insert(sys_did.clone(), local_claim.clone());
+            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!("{}_{}.did", local_claim.id_type.to_lowercase(), local_claim.gen_did()));
+            fs::write(did_file_path, local_claim.to_json_string()).unwrap()
+        }
+        if  guest == "Unknown"  {
+            let guest_claim = GlobalClaims::generate_did_claim
+                ("User", &guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &guest_phrase);
+            guest = guest_claim.gen_did();
+            claims.insert(guest.clone(), guest_claim.clone());
+            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!("{}_{}.did", guest_claim.id_type.to_lowercase(), guest_claim.gen_did()));
+            fs::write(did_file_path, guest_claim.to_json_string()).unwrap()
+        }
+
         println!("{} [SimpleAI] Loaded claims from local: len={}, sys_did={}, dev_did={}", token_utils::now_string(), claims.len(), sys_did, device_did);
 
         GlobalClaims {
             claims,
             sys_did,
             device_did,
-            admin: String::new(),
             guest,
-            upstream: String::new(),
-            user_base_dir: String::new(),
-            entry_point: Arc::new(Mutex::new(DidEntryPoint::new())),
         }
     }
 
 
 
-    pub(crate) fn init_sys_dev_guest_did(&mut self) -> (String, IdClaim, String, IdClaim, String, IdClaim) {
-        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
-        let root_dir = sysinfo.root_dir.clone();
-        let disk_uuid = sysinfo.disk_uuid.clone();
-        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
-            = GlobalClaims::get_system_vars();
-        let mut sys_did = self.sys_did.clone();
-        let mut device_did = self.device_did.clone();
-        let mut guest = self.guest.clone();
-        if device_did == "Unknown" {
-            let device_claim = GlobalClaims::generate_did_claim
-                ("Device", &device_name, None, Some(disk_uuid.clone()), &device_phrase);
-            device_did = device_claim.gen_did();
-            self.push_claim(&device_claim);
-            }
-        if sys_did == "Unknown"  {
-            let local_claim = GlobalClaims::generate_did_claim
-                ("System", &system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &sys_phrase);
-            sys_did = local_claim.gen_did();
-            self.push_claim(&local_claim);
-            }
-        if  guest == "Unknown"  {
-            let guest_claim = GlobalClaims::generate_did_claim
-                ("User", &guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &guest_phrase);
-            guest = guest_claim.gen_did();
-            self.push_claim(&guest_claim);
-            }
-        self.sys_did = sys_did.clone();
-        self.device_did = device_did.clone();
-        self.guest = guest.clone();
-
-        (sys_did.clone(), self.get_claim_from_local(&sys_did),
-         device_did.clone(), self.get_claim_from_local(&device_did),
-         guest.clone(), self.get_claim_from_local(&guest))
+    pub(crate) fn get_sys_dev_guest_did(&mut self) -> (String, IdClaim, String, IdClaim, String, IdClaim) {
+        let sys_did = self.sys_did.clone();
+        let device_did = self.device_did.clone();
+        let guest = self.guest.clone();
+        (self.sys_did.clone(), self.get_claim_from_local(&sys_did),
+         self.device_did.clone(), self.get_claim_from_local(&device_did),
+         self.guest.clone(), self.get_claim_from_local(&guest))
     }
-
-    pub(crate) fn get_system_vars() -> (String, String, String, String, String, String) {
-        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
-        let zeroed_key: [u8; 32] = [0; 32];
-        let root_dir = sysinfo.root_dir.clone();
-        let disk_uuid = sysinfo.disk_uuid.clone();
-        let host_name = sysinfo.host_name.clone();
-        let root_name = sysinfo.root_name.clone();
-
-        let (_, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
-        let (sys_hash_id, system_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
-        let guest_name = format!("guest_{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
-        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
-        let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
-        let system_name = token_utils::truncate_nickname(&root_name);
-        let device_name = token_utils::truncate_nickname(&host_name);
-        (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
-    }
-
 
     pub(crate) fn get_system_did(&self) -> String {
         self.sys_did.clone()
@@ -220,64 +191,6 @@ impl GlobalClaims {
 
     pub(crate) fn get_guest_did(&self) -> String {
         self.guest.clone()
-    }
-
-    pub(crate) fn get_admin_did(&self) -> String {
-        self.admin.clone()
-    }
-
-    pub(crate) fn get_upstream_did(&self) -> String {
-        self.upstream.clone()
-    }
-
-    pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
-        self.admin = admin_did.to_string();
-    }
-
-    pub(crate) fn set_upstream_did(&mut self, upstream_did: &str) {
-        self.upstream = upstream_did.to_string();
-    }
-
-    pub(crate) fn set_entry_point(&mut self, entry_point: Arc<Mutex<DidEntryPoint>>) {
-        self.entry_point = entry_point;
-    }
-    pub(crate) fn set_user_base_dir(&mut self, user_base_dir: &str) {
-        self.user_base_dir = user_base_dir.to_string();
-    }
-
-    pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
-        if !IdClaim::validity(did) {
-            return "Invalid_did".to_string();
-        }
-        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
-        let user_base_dir = if self.user_base_dir.is_empty() {
-            match BaseDirs::new() {
-                Some(dirs) => dirs.home_dir().to_path_buf().join(".simpleai.vip").join("users"),
-                None => PathBuf::from(sysinfo.root_dir.clone()).join(".simpleai.vip").join("users"),
-            }
-        } else {
-            PathBuf::from(self.user_base_dir.clone())
-        };
-        if !user_base_dir.exists() {
-            if let Err(e) = fs::create_dir_all(&user_base_dir) {
-                eprintln!("Failed to create directory {}: {}", user_base_dir.display(), e);
-                // 可以根据需要处理错误，例如返回一个默认路径或抛出错误
-            }
-        }
-
-        let did_path =
-            self.device_did.from_base58().expect("Failed to decode base58").iter()
-                .zip(did.from_base58().expect("Failed to decode base58").iter())
-                .map(|(&x, &y)| x ^ y).collect::<Vec<_>>().to_base58();
-
-        let path_file =  if did == self.admin {
-                user_base_dir.join(format!("admin_{}", did_path)).join(catalog)
-            } else if did == self.guest {
-                user_base_dir.join("guest_user").join(catalog)
-            } else {
-            user_base_dir.join(did_path).join(catalog)
-        };
-        path_file.to_string_lossy().to_string()
     }
 
     pub fn local_len(&self) -> usize {
@@ -341,8 +254,8 @@ impl GlobalClaims {
         let mut claim = self.get_claim_from_local(did);
         if claim.is_default() {
             if let Some(p2p) = p2p::get_instance() {
-                claim = token_utils::TOKIO_RUNTIME.block_on(async {
-                    p2p.get_claim(did.to_string()).await
+                claim = TOKIO_RUNTIME.block_on(async {
+                    p2p.get_claim_from_upstream(did.to_string()).await
                 });
                 if !claim.is_default() {
                     debug!("成功通过 P2P 网络获取用户 {} 的声明", did);
@@ -750,32 +663,5 @@ impl Default for UserContext {
             aes_key_encrypted: "Default_aes_key_encrypted".to_string(),
             sig: "Unknown".to_string(),
         }
-    }
-}
-
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[pyclass]
-pub struct DidEntryPoint {
-    entry_point: HashMap<String, String>,
-}
-
-#[pymethods]
-impl DidEntryPoint {
-    #[new]
-    pub fn new() -> Self {
-        let mut entry_point = HashMap::new();
-        entry_point.insert(token_utils::TOKEN_TM_DID.to_string(), token_utils::TOKEN_TM_URL.to_string());
-        Self {
-            entry_point,
-        }
-    }
-
-    pub fn add_entry_point(&mut self, did: &str, entry_point: &str) {
-        self.entry_point.insert(did.to_string(), entry_point.to_string());
-    }
-
-    pub fn get_entry_point(&self, did: &str) -> String {
-        self.entry_point.get(did).cloned().unwrap_or_else(|| token_utils::TOKEN_TM_URL.to_string())
     }
 }

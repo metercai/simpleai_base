@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use tracing::{error, warn, info, debug, trace};
 
 use crate::dids::claims::{IdClaim, GlobalClaims};
-use crate::dids::token_utils;
+use crate::dids::{self, DidToken, TOKEN_TM_DID, token_utils};
+
 
 lazy_static::lazy_static! {
     static ref GLOBAL_CERTS: Arc<Mutex<GlobalCerts>> = Arc::new(Mutex::new(GlobalCerts::new()));
@@ -17,28 +18,31 @@ pub struct GlobalCerts {
     // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
     // encrypted_key由for_did交换派生密钥加密, sig由证书密钥签, 整体由接受系统did的交换派生密钥加密
     issued_certs: HashMap<String, String>,
-    token_db: Arc<Mutex<sled::Db>>,
     claims: Arc<Mutex<GlobalClaims>>,
     sys_did: String,
 }
 
 impl GlobalCerts {
     pub fn new() -> Self {
-        let db_path = token_utils::get_path_in_sys_key_dir("token.db");
-        let config = sled::Config::new()
-            .path(db_path)
-            .cache_capacity(10_000)
-            .flush_every_ms(Some(1000));
-        let seld_db: sled::Db = config.open().expect("Failed to open token database");
-        let token_db = Arc::new(Mutex::new(seld_db));
+        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
+            = dids::get_system_vars();
         let claims = GlobalClaims::instance();
+        let sys_did = {
+            let claims = claims.lock().unwrap();
+            claims.get_system_did()
+        };
+        let mut user_certs = HashMap::new();
+        let mut issued_certs = HashMap::new();
+        let _ = token_utils::load_token_of_user_certificates(&sys_did, &mut user_certs);
+        let _ = token_utils::load_token_of_issued_certs(&sys_did, &mut issued_certs);
+
+
 
         Self {
-            user_certs: HashMap::new(),
-            issued_certs: HashMap::new(),
-            token_db,
+            user_certs,
+            issued_certs,
             claims,
-            sys_did: String::new(),
+            sys_did: sys_did,
         }
     }
 
@@ -46,25 +50,17 @@ impl GlobalCerts {
         GLOBAL_CERTS.clone()
     }
 
-    pub fn load_certificates_from_local(&mut self, sys_did: &str) {
-        self.sys_did = sys_did.to_string();
-        let _ = token_utils::load_token_of_user_certificates(sys_did, &mut self.user_certs);
-        let _ = token_utils::load_token_of_issued_certs(sys_did, &mut self.issued_certs);
-    }
-
-    pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> {
-        self.token_db.clone()
-    }
 
     pub fn get_register_cert(&self, for_did: &str) -> String {
-        let member_cert = self.get_member_cert(token_utils::TOKEN_TM_DID, for_did);
+        let member_cert = self.get_member_cert(TOKEN_TM_DID, for_did);
         if member_cert != "Unknown" {
             debug!("get global register cert, {}", member_cert);
             return member_cert;
         }
         let upstream_did = {
-            let claims = self.claims.lock().unwrap();
-            claims.get_upstream_did()
+            let didtoken = DidToken::instance();
+            let upstream_did = didtoken.lock().unwrap().get_upstream_did();
+            upstream_did
         };
         if !upstream_did.is_empty() {
             let member_cert = self.get_member_cert(&upstream_did, for_did);

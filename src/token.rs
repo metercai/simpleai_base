@@ -17,15 +17,18 @@ use qrcode::render::svg;
 
 use pyo3::prelude::*;
 
-use crate::dids::token_utils;
+use crate::dids::{self, DidToken, token_utils};
 use crate::{exchange_key, issue_key};
 use crate::utils::error::TokenError;
 use crate::utils::env_data::EnvData;
-use crate::dids::claims::{GlobalClaims, IdClaim, UserContext, DidEntryPoint};
+use crate::dids::claims::{GlobalClaims, IdClaim, UserContext, };
 use crate::utils::systeminfo::SystemInfo;
 use crate::dids::cert_center::GlobalCerts;
+use crate::dids::TOKEN_TM_DID;
 use crate::user::user_mgr::{OnlineUsers, MessageQueue};
+use crate::user::{TokenUser, DidEntryPoint, AdminDefault};
 use crate::p2p::{P2p, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
+use crate::shared::{self, SharedData};
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";
 
@@ -38,37 +41,17 @@ static SYNC_TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new()
 #[pyclass]
 pub struct SimpleAI {
     pub sys_name: String,
-    pub did: String,
-    token_db: Arc<Mutex<sled::Db>>,
-    // 用户绑定授权的缓存，来自user_{did}.token
-    pub authorized: Arc<Mutex<sled::Tree>>, //HashMap<String, UserContext>,
-    pub user_sessions: Arc<Mutex<sled::Tree>>, //HashMap<sessionid_key, String>,
-    pub sysinfo: SystemInfo,
-    // 留存本地的身份自证, 用根密钥签
-    claims: Arc<Mutex<GlobalClaims>>,
-    // 专项密钥，源自pk.pem的派生，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}, 用途=['exchange', 'issue']
-    crypt_secrets: HashMap<String, String>,
-    // 授权给本系统的他证, key={issue_did}|{for_did}|{用途}，value={encrypted_key}|{memo}|{time}|{sig},
-    // encrypted_key由for_did交换派生密钥加密, sig由证书密钥签，用途=['Member']
-    certificates: Arc<Mutex<GlobalCerts>>, // HashMap<String, String>,
-    // 颁发的certificate，key={issue_did}|{for_did}|{用途}，value=encrypt_with_for_sys_did({issue_did}|{for_did}|{用途}|{encrypted_key}|{memo}|{time}|{sig})
-    // encrypted_key由for_did交换派生密钥加密, sig由证书密钥签, 整体由接受系统did的交换派生密钥加密
-    // issued_certs: HashMap<String, String>,
-    device: String,
-    admin: String,
-    node_mode: String,
-    guest: String,
-    guest_phrase: String,
+    pub sys_did: String,
+    pub device_did: String,
+    pub guest_did: String,
+
+    didtoken: Arc<Mutex<DidToken>>,
+    tokenuser: Arc<Mutex<TokenUser>>,
     ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
-    blacklist: Vec<String>, // 黑名单
-    upstream_did: String,
-    user_base_dir: String,
     global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
-    online_all: OnlineUsers,
-    online_nodes: OnlineUsers,
-    message_queue: MessageQueue,
-    did_entry_point: DidEntryPoint,
+    last_timestamp: u64,
+    shared_data: &'static SharedData,
 }
 
 #[pymethods]
@@ -81,136 +64,115 @@ impl SimpleAI {
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        let sysbaseinfo = token_utils::SYSTEM_BASE_INFO.clone();
-        let sysinfo_handle = token_utils::TOKIO_RUNTIME.spawn(async move {
-            SystemInfo::generate().await
-        });
-
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
-            = GlobalClaims::get_system_vars();
+            = dids::get_system_vars();
         debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
-        let systemskeys = token_utils::SystemKeys::instance();
-        let claims = GlobalClaims::instance();
-        let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
-            let mut claims = claims.lock().unwrap();
-            claims.init_sys_dev_guest_did()
+        let didtoken = DidToken::instance();
+        let (sys_did, device_did, guest_did, token_db) = {
+            let didtoken = didtoken.lock().unwrap();
+            (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did(), didtoken.get_token_db())
         };
-
-        let mut crypt_secrets = HashMap::new();
-        let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
-        let blacklist = token_utils::load_did_blacklist_from_file();
-
-        debug!("get admin and blacklist: admin={}, blacklist={:?}", admin, blacklist);
-
-        let crypt_secrets_len = crypt_secrets.len();
-        token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
-        token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
-
-        let root_dir = sysbaseinfo.root_dir.clone();
-        let disk_uuid = sysbaseinfo.disk_uuid.clone();
-        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
-        let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_claim.get_symbol_hash());
-        debug!("guest_name({}): guest_symbol_hash={}, guest_hash_id={}, guest_phrase={}", guest_claim.nickname, URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()), guest_hash_id, guest_phrase);
-
-        token_utils::init_user_crypt_secret(&mut crypt_secrets, &guest_claim, &guest_phrase);
-        if crypt_secrets.len() > crypt_secrets_len {
-            token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
-        }
-
-        let certificates = GlobalCerts::instance();
-        let token_db = {
-            let mut certificates = certificates.lock().unwrap();
-            let _ = certificates.load_certificates_from_local(&local_did);
-            certificates.get_token_db()
-        };
-        let (authorized_tree, ready_users_tree, user_sessions_tree, global_local_vars_tree) = {
+        let (ready_users_tree, global_local_vars_tree) = {
             let token_db = token_db.lock().unwrap();
-            (token_db.open_tree("authorized").unwrap(), token_db.open_tree("ready_users").unwrap(),
-             token_db.open_tree("user_sessions").unwrap(), token_db.open_tree("global_local_vars").unwrap())
+            (token_db.open_tree("ready_users").unwrap(), token_db.open_tree("global_local_vars").unwrap())
         };
-        let authorized = Arc::new(Mutex::new(authorized_tree));
         let ready_users = Arc::new(Mutex::new(ready_users_tree));
-        let user_sessions = Arc::new(Mutex::new(user_sessions_tree));
         let global_local_vars = Arc::new(Mutex::new(global_local_vars_tree));
 
-        let sysinfo = token_utils::TOKIO_RUNTIME.block_on(async {
-            sysinfo_handle.await.expect("Sysinfo Task panicked")
-        });
-
-        let mut upstream_did = String::new();
-        let did_entry_point = DidEntryPoint::new();
         let online_users = OnlineUsers::new(60, 2);
-        let online_all = OnlineUsers::new(300, 5);
-        let online_nodes = OnlineUsers::new(300, 5);
-    
         let message_queue = MessageQueue::new(global_local_vars.clone());
-        let did_entry_point_sync_arc = Arc::new(Mutex::new(did_entry_point.clone()));
-        claims.lock().unwrap().set_entry_point(did_entry_point_sync_arc.clone());
-
-        upstream_did = if admin == token_utils::TOKEN_TM_DID {
-            token_utils::TOKEN_TM_DID.to_string()
-        } else {
-            upstream_did
-        };
-
-        let admin = if !admin.is_empty() {
-            if guest_did != admin {
-                let mut claims = claims.lock().unwrap();
-                claims.set_admin_did(&admin);
-                admin
-            } else { "".to_string()  }
-        } else { admin };
-
-        if !upstream_did.is_empty() {
-            claims.lock().unwrap().set_upstream_did(&upstream_did.clone());
-        }
-
-        debug!("upstream_did: {}, admin_did: {}", upstream_did, admin);
-        debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
+        let mut shared_data = shared::get_shared_data();
+        shared_data.set_message_queue(message_queue);
 
         Self {
             sys_name,
-            did: local_did,
-            device: device_did,
-            admin,
-            node_mode: "online".to_string(),
-            token_db,
-            authorized,
-            user_sessions,
-            sysinfo,
-            claims,
-            crypt_secrets,
-            certificates,
-            guest: guest_did,
-            guest_phrase,
+            sys_did,
+            device_did,
+            guest_did,
+            didtoken,
+            tokenuser: TokenUser::instance(),
             ready_users,
-            blacklist,
-            upstream_did,
-            user_base_dir: String::new(),
             global_local_vars,
             online_users,
-            online_all,
-            online_nodes,
-            message_queue,
-            did_entry_point: DidEntryPoint::new(),
+            last_timestamp: 0,
+            shared_data,
         }
     }
 
 
     pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
-    pub fn get_sys_did(&self) -> String { self.did.clone() }
-    pub fn get_upstream_did(&mut self) -> String {
-        if self.admin == token_utils::TOKEN_TM_DID {
-            self.upstream_did = token_utils::TOKEN_TM_DID.to_string();
-            return self.upstream_did.clone();
+    pub fn get_sys_did(&self) -> String { self.sys_did.clone() }
+
+    pub fn get_device_did(&self) -> String {
+        self.device_did.clone()
+    }
+    pub fn get_guest_did(&self) -> String {
+        self.guest_did.clone()
+    }
+    pub fn is_guest(&self, did: &str) -> bool {
+        did == self.guest_did.as_str()
+    }
+
+    pub fn get_sysinfo(&self) -> SystemInfo {
+        self.didtoken.lock().unwrap().get_sysinfo()
+    }
+
+    pub fn get_node_mode(&mut self) -> String {
+        let system_did = self.get_sys_did();
+        let node_mode = self.get_local_vars_base("node_mode_type", "online", &system_did);
+        {
+            let mut didtoken = self.didtoken.lock().unwrap();
+            didtoken.set_node_mode(&node_mode);
+            didtoken.get_node_mode()
         }
-        if !self.upstream_did.is_empty() && !self.upstream_did.starts_with("Unknown") {
-            return self.upstream_did.clone();
+    }
+
+    pub fn set_node_mode(&mut self, mode: &str) {
+        let system_did = self.get_sys_did();
+        let current_mode = self.get_local_vars_base("node_mode_type", "online", &system_did);
+        if mode != current_mode.as_str() {
+            let local_key = format!("{}_{}", self.get_sys_did(), "node_mode_type");
+            let local_value = mode.to_string();
+            let ivec_data = sled::IVec::from(local_value.as_bytes());
+            {
+                let global_local_vars = self.global_local_vars.lock().unwrap();
+                let _ = global_local_vars.insert(&local_key, ivec_data);
+            }
+            self.didtoken.lock().unwrap().set_node_mode(&mode);
+        }
+    }
+
+    pub(crate) fn get_admin_did(&self) -> String {
+        self.didtoken.lock().unwrap().get_admin_did()
+    }
+
+    pub fn set_admin_did(&mut self, did: &str) {
+        self.didtoken.lock().unwrap().set_admin_did(did)
+    }
+
+    pub fn is_admin(&self, did: &str) -> bool {
+        did == self.get_admin_did()
+    }
+
+    pub fn absent_admin(&self) -> bool {
+        self.get_admin_did().is_empty()
+    }
+
+
+    pub fn get_upstream_did(&mut self) -> String {
+        if self.get_admin_did() == dids::TOKEN_TM_DID {
+            self.didtoken.lock().unwrap().set_upstream_did(dids::TOKEN_TM_DID);
+            self.p2p_start();
+            return dids::TOKEN_TM_DID.to_string();
+        }
+        let upstream_did = self.didtoken.lock().unwrap().get_upstream_did();
+        if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
+            return upstream_did.clone();
         }
         let timeout = Duration::from_secs(6);
         let start_time = Instant::now();
-        let mut upstream_did = self.upstream_did.clone();
+        let mut upstream_did = upstream_did.clone();
         while start_time.elapsed() < timeout {
             if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
                 break;
@@ -220,9 +182,8 @@ impl SimpleAI {
         }
         debug!("get upstream_did from root: {}", upstream_did);
         if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
-            self.upstream_did = upstream_did.clone();
-            self.claims.lock().unwrap().set_upstream_did(&upstream_did.clone());
-            let upstream_url =  self.did_entry_point.get_entry_point(&upstream_did.clone());
+            self.didtoken.lock().unwrap().set_upstream_did(&upstream_did.clone());
+            let upstream_url =  self.tokenuser.lock().unwrap().get_did_entry_point(&upstream_did.clone());
             let sys_did = self.get_sys_did();
             let dev_did = self.get_device_did();
             SYNC_TASK_HANDLE.get_or_init(|| {
@@ -230,14 +191,15 @@ impl SimpleAI {
                 let dev_did_owned = dev_did.clone();
                 let upstream_did_owned = upstream_did.clone();
 
-                let entry_point = Arc::new(tokio::sync::Mutex::new(self.did_entry_point.clone()));
+                let entry_point = self.tokenuser.lock().unwrap().get_entry_point();
+                let entry_point = Arc::new(tokio::sync::Mutex::new(entry_point));
                 let online_users = Arc::new(tokio::sync::Mutex::new(self.online_users.clone()));
-                let message_queue =  Arc::new(tokio::sync::Mutex::new(self.message_queue.clone()));
+                let message_queue =  self.shared_data.get_message_queue().clone();
 
-                token_utils::TOKIO_RUNTIME.spawn(async move {
+                dids::TOKIO_RUNTIME.spawn(async move {
                     let task1 = submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned);
                     let task2 = sync_upstream(&sys_did_owned, &dev_did_owned, upstream_did_owned,
-                                               entry_point, online_users, message_queue);
+                                              entry_point, online_users, message_queue);
                     tokio::join!(task1, task2);
                 })
             });
@@ -246,27 +208,9 @@ impl SimpleAI {
         upstream_did
     }
 
-    fn get_p2p_config(&self) -> String {
-        let config_path = Path::new("p2pconfig.toml");
-        if config_path.exists() {
-            match fs::read_to_string(config_path) {
-                Ok(content) => {
-                    debug!("使用本地 p2pconfig.toml 文件配置");
-                    content
-                },
-                Err(e) => {
-                    debug!("读取 p2pconfig.toml 文件失败: {}, 使用默认配置", e);
-                    DEFAULT_P2P_CONFIG.to_string()
-                }
-            }
-        } else {
-            debug!("未找到 p2pconfig.toml 文件，使用默认配置");
-            DEFAULT_P2P_CONFIG.to_string()
-        }
-    }
+
 
     pub fn p2p_start(&mut self) -> String {
-        // 如果已经有运行的服务，返回提示信息
         {
             let mut p2p_handle = P2P_HANDLE.lock().unwrap();
             if p2p_handle.is_some() {
@@ -274,25 +218,13 @@ impl SimpleAI {
             }
         }
         
-        // 获取 P2P 配置
         let p2p_config = self.get_p2p_config();
-        
-        // 获取必要的参数
-        let local_claim = {
-            let mut claims = self.claims.lock().unwrap();
-            claims.get_claim_from_local(&self.did)
+        let (local_claim, sysinfo) = {
+            let didtoken = self.didtoken.lock().unwrap();
+            (didtoken.get_claim_from_local(&self.get_sys_did()), didtoken.get_sysinfo())
         };
-        
-        let sysinfo_clone = self.sysinfo.clone();
-        let online_users = Arc::new(Mutex::new(self.online_users.clone()));
-        let online_all = Arc::new(Mutex::new(self.online_all.clone()));
-        let online_nodes = Arc::new(Mutex::new(self.online_nodes.clone()));
-        let message_queue =  Arc::new(Mutex::new(self.message_queue.clone()));
-        let claims = Arc::new(Mutex::new(self.claims.lock().unwrap().clone()));
-        let certificates = Arc::new(Mutex::new(self.certificates.lock().unwrap().clone()));
-        // 启动 P2P 服务
-        let handle = token_utils::TOKIO_RUNTIME.spawn(async move {
-            P2p::start(p2p_config, &local_claim, &sysinfo_clone, online_users, online_all, online_nodes, message_queue, claims, certificates).await
+        let handle = dids::TOKIO_RUNTIME.spawn(async move {
+            P2p::start(p2p_config, &local_claim, &sysinfo).await
         });
         let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         *p2p_handle = Some(handle);
@@ -336,48 +268,30 @@ impl SimpleAI {
         format!("P2P 服务重启: {}, {}", stop_result, start_result)
     }
 
-    pub fn get_sysinfo(&self) -> SystemInfo {
-        self.sysinfo.clone()
-    }
-
-    pub fn get_device_did(&self) -> String {
-        self.device.clone()
-    }
-    pub fn get_guest_did(&self) -> String {
-        self.guest.clone()
-    }
-
-    pub fn get_node_mode(&mut self) -> String {
-        let system_did = self.get_sys_did();
-        self.node_mode = self.get_local_vars_base("node_mode_type", "online", &system_did);
-        self.node_mode.clone()
-    }
-
-    pub fn set_node_mode(&mut self, mode: &str) {
-        if mode != self.node_mode {
-            let local_key = format!("{}_{}", self.did, "node_mode_type");
-            let local_value = mode.to_string();
-            let global_local_vars = self.global_local_vars.lock().unwrap();
-            let ivec_data = sled::IVec::from(local_value.as_bytes());
-            let _ = global_local_vars.insert(&local_key, ivec_data);
+    fn get_p2p_config(&self) -> String {
+        let config_path = Path::new("p2pconfig.toml");
+        if config_path.exists() {
+            match fs::read_to_string(config_path) {
+                Ok(content) => {
+                    debug!("使用本地 p2pconfig.toml 文件配置");
+                    content
+                },
+                Err(e) => {
+                    debug!("读取 p2pconfig.toml 文件失败: {}, 使用默认配置", e);
+                    DEFAULT_P2P_CONFIG.to_string()
+                }
+            }
+        } else {
+            debug!("未找到 p2pconfig.toml 文件，使用默认配置");
+            DEFAULT_P2P_CONFIG.to_string()
         }
-        self.node_mode = mode.to_string();
     }
 
-    pub(crate) fn get_admin_did(&self) -> String {
-        self.admin.clone()
+    pub fn get_global_status(&self, did: &str, last_timestamp: u64) -> String {
+        let user_list = self.online_users.get_full_list();
+        self.shared_data.get_last(did, last_timestamp, Some(&user_list))
     }
 
-    pub fn set_admin(&mut self, did: &str) {
-        self.admin = {
-            let mut claims = self.claims.lock().unwrap();
-            claims.set_admin_did(did);
-            did.to_string()
-        };
-        token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
-    }
-
-    //pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> { self.token_db.clone() }
 
     pub fn get_online_users_number(&self) -> usize {
         self.online_users.get_number()
@@ -411,23 +325,23 @@ impl SimpleAI {
     }
 
     pub fn get_global_msg_number(&self) -> usize {
-        self.message_queue.get_msg_number()
+        self.shared_data.get_message_queue().get_msg_number(&self.get_sys_did())
     }
 
     pub fn get_global_msg_all(&self) -> String {
-        self.message_queue.get_messages(0)
+        self.shared_data.get_message_queue().get_messages(&self.get_sys_did(), 0)
     }
 
     pub fn remove_old_global_msg(&self, timestamp: u64) {
-        self.message_queue.remove_old_messages(timestamp);
+        self.shared_data.get_message_queue().remove_old_messages(&self.get_sys_did(), timestamp);
     }
 
     pub fn get_global_msg_list(&self, last_timestamp: u64) -> String {
-        self.message_queue.get_messages(last_timestamp)
+        self.shared_data.get_message_queue().get_messages(&self.get_sys_did(), last_timestamp)
     }
 
     pub fn put_global_message(&self, message: &str) {
-        let _ = self.message_queue.push_messages(message.to_string());
+        let _ = self.shared_data.get_message_queue().push_messages(&self.get_sys_did(), message.to_string());
     }
 
     pub fn put_global_var(&mut self, key: &str, value: &str) {
@@ -437,13 +351,6 @@ impl SimpleAI {
         let _ = global_local_vars.insert(&key, ivec_data);
     }
 
-/*    pub fn put_global_vars(&mut self, vars: &HashMap<String, String>) {
-        let global_local_vars = self.global_local_vars.lock().unwrap();
-        for (key, value) in vars.iter() {
-            let ivec_data = sled::IVec::from(value.as_bytes());
-            let _ = global_local_vars.insert(&format!("global_{}", key), ivec_data);
-        }
-    }*/
 
     pub fn get_global_vars_json(&mut self) -> String {
         let prefix = "global_";
@@ -476,14 +383,14 @@ impl SimpleAI {
 
     pub fn get_local_admin_vars(&mut self, key: &str) -> String {
         let admin_key = format!("admin_{}", key);
-        let default = token_utils::ADMIN_DEFAULT.lock().unwrap().get(key).to_string();
-        let admin = self.admin.clone();
+        let default = AdminDefault::instance().lock().unwrap().get(key).to_string();
+        let admin = self.get_admin_did();
         self.get_local_vars_base(&admin_key, &default, &admin)
     }
 
     fn get_local_vars_base(&mut self, key: &str, default: &str, user_did: &str) -> String {
         let (local_did, local_key) = if key.starts_with("admin_") {
-            (self.admin.clone(), key.to_string())
+            (self.get_admin_did(), key.to_string())
         } else {
             (user_did.to_string(), format!("{}_{}", user_did, key))
         };
@@ -498,12 +405,12 @@ impl SimpleAI {
             }
         };
         if local_key.starts_with("admin_") && value != "Default"{
-            value = self.decrypt_by_did(&value, &local_did, 0);
+            value = self.didtoken.lock().unwrap().decrypt_by_did(&value, &local_did, 0);
         }
         if value == "Default" || value == "Unknown" {
             if local_key.starts_with("admin_") {
                 let local_key = local_key.replace("admin_", "");
-                let admin_default = token_utils::ADMIN_DEFAULT.lock().unwrap().get(&local_key).to_string();
+                let admin_default = AdminDefault::instance().lock().unwrap().get(&local_key).to_string();
                 admin_default
             } else {
                 default.to_string()
@@ -514,9 +421,10 @@ impl SimpleAI {
 
     pub fn set_local_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        let admin = self.admin.clone();
+        let admin = self.get_admin_did();
         let (local_key, local_value) = if key.starts_with("admin_") && admin == user_did  {
-            (key.to_string(), self.encrypt_for_did(&value.as_bytes(), &admin, 0))
+            let encrypted_value = self.didtoken.lock().unwrap().encrypt_for_did(&value.as_bytes(), &admin, 0);
+            (key.to_string(), encrypted_value)
         } else {
             if key.starts_with("admin_") {
                 return;
@@ -531,8 +439,8 @@ impl SimpleAI {
 
     pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        let admin = self.admin.clone();
-        let guest = self.guest.clone();
+        let admin = self.get_admin_did();
+        let guest = self.get_guest_did();
         if admin == user_did {
             let local_key = format!("{}_{}", guest, key);
             let local_value = value.to_string();
@@ -542,130 +450,23 @@ impl SimpleAI {
         }
     }
 
-    pub fn is_guest(&self, did: &str) -> bool {
-        did == self.guest.as_str()
-    }
 
-    pub fn is_admin(&self, did: &str) -> bool {
-        did == self.admin.as_str()
-    }
-
-    pub fn absent_admin(&self) -> bool {
-        self.admin.is_empty()
-    }
-
-    pub fn push_claim(&mut self, claim: &IdClaim) {
-        let mut claims = self.claims.lock().unwrap();
-        claims.push_claim(claim);
-    }
-
-    pub fn pop_claim(&mut self, did: &str) -> IdClaim {
-        let mut claims = self.claims.lock().unwrap();
-        claims.pop_claim(did)
-    }
-
-    pub fn get_claim(&mut self, for_did: &str) -> IdClaim {
-        let mut claims = self.claims.lock().unwrap();
-        if self.admin == token_utils::TOKEN_TM_DID {
-            claims.get_claim_from_local(for_did)
-        } else {
-            claims.get_claim_from_global(for_did)
-        }
-    }
-
-    pub fn get_claim_from_local(&mut self, for_did: &str) -> IdClaim {
-        let mut claims = self.claims.lock().unwrap();
-        claims.get_claim_from_local(for_did)
-    }
-
-    pub fn get_register_cert(&mut self, user_did: &str) -> String {
-        let register_cert = {
-            let certificates = self.certificates.lock().unwrap();
-            certificates.get_register_cert(user_did)
-        };
-        if register_cert != "Unknown".to_string() {
-            return register_cert;
-        }
-        let admin_did = self.admin.clone();
-        let node_mode = self.get_node_mode();
-        if user_did == self.guest || (node_mode != "online" && user_did == admin_did)  {
-            let system_did = self.did.clone();
-            let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
-            let register_cert = {
-                let mut certificates = self.certificates.lock().unwrap();
-                let _ = certificates.push_user_cert_text(&issue_cert);
-                certificates.get_register_cert(user_did)
-            };
-            debug!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}", user_did, system_did, node_mode);
-            register_cert
-        } else {
-            "Unknown".to_string()
-        }
-    }
-
-    pub fn is_registered(&mut self, user_did: &str) -> bool {
-        if user_did == "Unknown" {
-            return false;
-        }
-        let cert_str = self.get_register_cert(user_did);
-        if cert_str.is_empty() || cert_str == "Unknown" {
-            return false;
-        }
-        let parts: Vec<&str> = cert_str.split('|').collect();
-        if parts.len() != 4 {
-            return false;
-        }
-        let encrypt_item_key = parts[0].to_string();
-        let memo_base64 = parts[1].to_string();
-        let timestamp = parts[2].to_string();
-        let signature_str = parts[3].to_string();
-        if self.get_node_mode() == "online" {
-            let text = format!("{}|{}|{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-            let claim = GlobalClaims::load_claim_from_local(token_utils::TOKEN_TM_DID);
-            debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
-            if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
-                return true;
-            }
-        }
-        if !self.upstream_did.is_empty() && self.get_node_mode() == "online" {
-            let text = format!("{}|{}|{}|{}|{}|{}", self.upstream_did, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-            let claim = GlobalClaims::load_claim_from_local(&self.upstream_did);
-            debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
-            if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
-                return true;
-            }
-        }
-        let text = format!("{}|{}|{}|{}|{}|{}", self.get_sys_did(), user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-        let claim = GlobalClaims::load_claim_from_local(&self.get_sys_did());
-        debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
-        if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
-            return true;
-        }
-        false
-    }
-
-    fn remove_context(&mut self, user_did: &str) {
-        let context = self.get_user_context(user_did);
-        let mut authorized = self.authorized.lock().unwrap();
-        let key = format!("{}_{}", user_did, self.get_sys_did());
-        let _ = match authorized.contains_key(&key).unwrap() {
-            false => {},
-            true => {
-                let _ = authorized.remove(&key);
-            }
-        };
-        let _ = token_utils::update_user_token_to_file(&context, "remove");
-    }
 
     pub fn reset_admin(&mut self, admin_did: &str) -> String {
         if IdClaim::validity(admin_did) {
-            let admin_claim = self.get_claim(admin_did);
-            if !admin_claim.is_default() && self.is_registered(admin_did) {
-                let old_admin = self.admin.clone();
-                self.admin = admin_did.to_string();
-                self.remove_context(admin_did);
-                self.remove_context(&old_admin);
-                println!("{} [UserBase] reset_admin: {}", token_utils::now_string(), admin_did);
+            let (admin_claim, is_registered) ={
+                let mut didtoken = self.didtoken.lock().unwrap();
+                (didtoken.get_claim(admin_did), didtoken.is_registered(admin_did))
+            };
+            if !admin_claim.is_default() && is_registered {
+                let old_admin = self.get_admin_did();
+                self.set_admin_did(admin_did);
+                {
+                    let mut tokenuser = self.tokenuser.lock().unwrap();
+                    tokenuser.remove_context(admin_did);
+                    tokenuser.remove_context(&old_admin);
+                }
+                println!("{} [UserBase] reset_admin to {}", token_utils::now_string(), admin_did);
                 return "OK".to_string();
             }
         }
@@ -677,59 +478,45 @@ impl SimpleAI {
         if mode == "isolated" && node_mode != "isolated" {
             println!("{} [UserBase] reset node mode to isolated", token_utils::now_string());
             // 清除非 device，system，guest 的 crypt_secrets
-            let mut remove_did = Vec::new();
-            self.crypt_secrets.retain(|key, _| {
-                if let Some((did, _)) = key.split_once('_') {
-                    let retain = did == self.device || did == self.did || did == self.guest;
-                    if !retain {
-                        remove_did.push(did.to_string());
-                    }
-                    retain
-                } else {
-                    false
-                }
-            });
+            let remove_dids = self.didtoken.lock().unwrap().remove_crypt_secrets_for_users();
             // 清除非 guest 的 token
-            for did in &remove_did {
-                self.remove_context(did);
+            {
+                let mut tokenuser = self.tokenuser.lock().unwrap();
+                for did in &remove_dids {
+                    tokenuser.remove_context(did);
+                }
             }
             let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
-                = GlobalClaims::get_system_vars();
+                = dids::get_system_vars();
             let admin_name = guest_name.replace("guest_", "admin_");
             let admin_symbol_hash = IdClaim::get_symbol_hash_by_source(&admin_name, Some("8610000000001".to_string()), None);
             let (admin_hash_id, admin_phrase) = token_utils::get_key_hash_id_and_phrase("User", &admin_symbol_hash);
             let admin_did= {
-                let user_did = self.reverse_lookup_did_by_symbol(admin_symbol_hash);
+                let user_did = self.didtoken.lock().unwrap().reverse_lookup_did_by_symbol(admin_symbol_hash);
                 let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", admin_hash_id));
                 if user_did != "Unknown" && identity_file.exists() {
                     let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
-                    self.import_user(&URL_SAFE_NO_PAD.encode(admin_symbol_hash), &encrypted_identity, &admin_phrase);
+                    self.tokenuser.lock().unwrap().import_user(&URL_SAFE_NO_PAD.encode(admin_symbol_hash), &encrypted_identity, &admin_phrase);
                     user_did
                 } else {
-                    let (admin_did, admin_phrase) = self.create_user(&admin_name, &String::from("8610000000001"), None, None);
+                    let (admin_did, admin_phrase) = self.tokenuser.lock().unwrap().create_user(&admin_name, &String::from("8610000000001"), None, None);
                     admin_did
                 }
             };
             let admin_phrase_base58 = admin_phrase.as_bytes().to_base58();
             println!("{} [UserBase] local admin/本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
-            self.set_admin(&admin_did);
+            self.set_admin_did(&admin_did);
             self.set_node_mode(mode);
-            self.sign_user_context(&admin_did, &admin_phrase);
+            self.tokenuser.lock().unwrap().sign_user_context(&admin_did, &admin_phrase);
             (admin_did, admin_name, admin_phrase_base58)
         } else if mode == "online" && node_mode != "online" { //
             println!("{} [UserBase] reset node mode to online", token_utils::now_string());
-            let admin_did = self.admin.clone();
+            let admin_did = self.get_admin_did();
             if !admin_did.is_empty() {
-                self.crypt_secrets.retain(|key, _| {
-                    if let Some((did, _)) = key.split_once('_') {
-                        did == self.device || did == self.did || did == self.guest
-                    } else {
-                        false
-                    }
-                });
-                self.remove_context(&admin_did);
+                let _remove_dids = self.didtoken.lock().unwrap().remove_crypt_secrets_for_users();
+                self.tokenuser.lock().unwrap().remove_context(&admin_did);
             }
-            self.set_admin("");
+            self.set_admin_did("");
             self.set_node_mode(mode);
             ("".to_string(), "".to_string(), "".to_string())
         } else {
@@ -737,109 +524,12 @@ impl SimpleAI {
         }
     }
 
-    pub(crate) fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
-                       -> (String, String) {
-        let nickname = token_utils::truncate_nickname(nickname);
-        if !token_utils::is_valid_telephone(telephone) {
-            return ("Unknown".to_string(), "Unknown".to_string());
-        }
-        let user_telephone = telephone.to_string();
-        let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(user_telephone.clone()), None);
-        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
-        let phrase = phrase.unwrap_or(user_phrase);
-        let user_claim = GlobalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase);
-        self.push_claim(&user_claim);
-        let user_did = user_claim.gen_did();
-        let crypt_secrets_len = self.crypt_secrets.len();
-        token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &user_claim, &phrase);
-        if self.crypt_secrets.len() > crypt_secrets_len {
-            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
-        }
-        let identity = self.export_user(&nickname, &user_telephone, &phrase);
-        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-        fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-        println!("{} [UserBase] Create user and save identity_file: {}", token_utils::now_string(), identity_file.display());
 
-        (user_did, phrase)
-    }
-
-    pub fn remove_user(&mut self, user_symbol_hash_base64: &str) -> String {
-        let user_symbol_hash = token_utils::convert_base64_to_key(user_symbol_hash_base64);
-        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
-        let (user_did, claim) = {
-            let mut claims = self.claims.lock().unwrap();
-            let user_did = claims.reverse_lookup_did_by_symbol(&user_symbol_hash);
-            let claim = claims.get_claim_from_local(&user_did);
-            (user_did, claim)
-        };
-        debug!("{} [UserBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
-        if user_did != "Unknown" {
-            if !claim.is_default() {
-                let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
-                if let Err(e) = fs::remove_file(user_key_file.clone()) {
-                    debug!("delete user_key_file error: {}", e);
-                } else {
-                    debug!("user_key_file was deleted: {}", user_key_file.display());
-                }
-                self.pop_claim(&user_did);
-                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
-                if identity_file.exists() {
-                    if let Err(e) = fs::remove_file(identity_file.clone()) {
-                        debug!("delete identity_file error: {}", e);
-                    } else {
-                        debug!("identity_file was deleted: {}", identity_file.display());
-                    }
-                }
-                let exchange_key_value = self.crypt_secrets.remove(&exchange_key!(user_did));
-                let issue_key_value = self.crypt_secrets.remove(&issue_key!(user_did));
-                if exchange_key_value.is_some() || issue_key_value.is_some() {
-                    let _ = token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
-                }
-            }
-        }
-        user_did
-    }
-
-
-    pub fn import_user(&mut self, symbol_hash_base64: &str, encrypted_identity: &str, phrase: &str) -> String {
-        let user_claim = token_utils::import_identity(symbol_hash_base64, &URL_SAFE_NO_PAD.decode(encrypted_identity).unwrap(), phrase);
-        if user_claim.is_default() {
-            return "Unknown".to_string();
-        }
-        self.push_claim(&user_claim);
-        let user_did = user_claim.gen_did();
-        let crypt_secrets_len = self.crypt_secrets.len();
-        token_utils::init_user_crypt_secret(&mut self.crypt_secrets, &user_claim, &phrase);
-        if self.crypt_secrets.len() > crypt_secrets_len {
-            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
-        }
-        debug!("{} [UserBase] Import user: {}", token_utils::now_string(), user_did);
-
-        user_did
-    }
-
-    pub fn export_user(&self, nickname: &str, telephone: &str, phrase: &str) -> String {
-        let nickname = token_utils::truncate_nickname(nickname);
-        let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
-        let (user_did, claim) = {
-            let mut claims = self.claims.lock().unwrap();
-            let user_did = claims.reverse_lookup_did_by_symbol(&symbol_hash);
-            let claim = claims.get_claim_from_local(&user_did);
-            (user_did, claim)
-        };
-        println!("{} [UserBase] Export user: {}, nickname={}, telephone={}", token_utils::now_string(), user_did, nickname, telephone);
-
-        URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
-    }
 
     pub fn export_isolated_admin_qrcode_svg(&mut self) -> String{
-        if self.get_node_mode() == "isolated" && !self.admin.is_empty() {
-            let admin = self.admin.clone();
-            let admin_claim = {
-                let claims = GlobalClaims::instance();
-                let mut claims = claims.lock().unwrap();
-                claims.get_claim_from_local(&admin)
-            };
+        if self.get_node_mode() == "isolated" && !self.get_admin_did().is_empty() {
+            let admin = self.get_admin_did();
+            let admin_claim = self.get_claim_from_local(&admin);
             let qrcode_svg = SimpleAI::export_user_qrcode_svg(&admin);
             if !qrcode_svg.is_empty() {
                 format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
@@ -865,11 +555,8 @@ impl SimpleAI {
 
     #[staticmethod]
     pub(crate) fn export_user_qrcode_base64(user_did: &str) -> String {
-        let claim = {
-            let claims = GlobalClaims::instance();
-            let mut claims = claims.lock().unwrap();
-            claims.get_claim_from_local(user_did)
-        };
+        let didtoken = DidToken::instance();
+        let claim = didtoken.lock().unwrap().get_claim_from_local(user_did);
         if !claim.is_default() {
             let user_symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
@@ -881,8 +568,8 @@ impl SimpleAI {
                     let did_bytes = user_did.from_base58().unwrap();
                     let user_cert = {
                         let certificates = GlobalCerts::instance();
-                        let certificates = certificates.lock().unwrap();
-                        certificates.get_register_cert(user_did)
+                        let user_cert = certificates.lock().unwrap().get_register_cert(user_did);
+                        user_cert
                     };
                     debug!("{} [UserBase] user_cert:{}", token_utils::now_string(), user_cert);
                     let user_cert_bytes = token_utils::get_slim_user_cert(&user_cert);
@@ -907,110 +594,20 @@ impl SimpleAI {
         if user_did != "Unknown" && user_cert != "Unknown" {
             debug!("import_identity_qrcode, ready to push user cert: did={}", user_did);
             let certificates = GlobalCerts::instance();
-            let mut certificates = certificates.lock().unwrap();
-            certificates.push_user_cert_text(&format!("{}|{}|{}|{}", token_utils::TOKEN_TM_DID, user_did, "Member", user_cert));
+            certificates.lock().unwrap().push_user_cert_text(&format!("{}|{}|{}|{}", TOKEN_TM_DID, user_did, "Member", user_cert));
         }
         (user_did, nickname, telephone)
     }
 
 
-    pub fn sign_and_issue_cert_by_admin(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
-                               -> (String, String) {
-        self.sign_and_issue_cert_by_did(&self.admin.clone(), item, for_did, for_sys_did, memo)
-    }
-
-    pub fn sign_and_issue_cert_by_system(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
-                               -> (String, String) {
-        self.sign_and_issue_cert_by_did(&self.did.clone(), item, for_did, for_sys_did, memo)
-    }
-
-    pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
-                                      -> (String, String) {
-        if !issuer_did.is_empty() && !for_did.is_empty() && !for_sys_did.is_empty() && !item.is_empty() && !memo.is_empty() &&
-            IdClaim::validity(issuer_did) && IdClaim::validity(for_did) && IdClaim::validity(for_sys_did) &&
-            item.len() < 32 && memo.len() < 256 {
-            let unknown = "Unknown".to_string();
-            let cert_secret_base64 = self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&unknown);
-            if cert_secret_base64 != "Unknown" {
-                let cert_secret = token_utils::convert_base64_to_key(cert_secret_base64);
-                if cert_secret != [0u8; 32] {
-                    let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
-                    if item_key != [0u8; 32] {
-                        let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
-                        debug!("encrypt_item_key: cert_secret.len={}, item_key.len={}, encrypt_item_key.len={}",
-                            cert_secret.len(), item_key.len(), URL_SAFE_NO_PAD.decode(encrypt_item_key.clone()).unwrap().len());
-                        let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
-                        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-                        let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
-                        let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-                        println!("{} [UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", token_utils::now_string(), issuer_did, item, for_did, for_sys_did);
-                        if for_sys_did == self.did {
-                            return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
-                        } else {
-                            return (format!("{}|{}|{}", issuer_did, for_did, item), self.encrypt_for_did(format!("{}|{}", cert_text, sig).as_bytes(), for_sys_did, 0))
-                        }
-                    }
-                }
-            }
-        }
-        println!("{} [UserBase] Sign and issue a cert by did: invalid params", token_utils::now_string());
-        ("Unknown".to_string(), "Unknown".to_string())
-    }
-
-
-    pub fn sign(&mut self, text: &str) -> Vec<u8> {
-        self.sign_by_did(text, &self.did.clone(),"not required")
-    }
-
-    pub fn sign_by_did(&mut self, text: &str, did: &str, phrase: &str) -> Vec<u8> {
-        let claim = self.get_claim(did);
-        token_utils::get_signature(text, &claim.id_type, &claim.get_symbol_hash(), phrase)
-    }
-
-    pub fn sign_by_issuer_key(&mut self, text: &str, issuer_key: &str) -> Vec<u8> {
-        let issuer_key = token_utils::convert_base64_to_key(issuer_key);
-        token_utils::get_signature_by_key(text, &issuer_key)
-    }
-
-    pub fn verify(&mut self, text: &str, signature: &str) -> bool {
-        self.verify_by_did(text, signature, &self.did.clone())
-    }
-
-    pub fn verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
-        let claim = self.get_claim(did);
-        token_utils::verify_signature(text, signature_str, &claim.get_verify_key())
-    }
-
-    pub fn cert_verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
-        let claim = self.get_claim(did);
-        token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
-    }
-
-    pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
-        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
-        let for_did_public = self.get_claim(for_did).get_crypt_key();
-        let shared_key = token_utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
-        let ctext = token_utils::encrypt(text, &shared_key, period);
-        URL_SAFE_NO_PAD.encode(ctext)
-    }
-
-    pub fn decrypt_by_did(&mut self, ctext: &str, by_did: &str, period:u64) -> String {
-        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
-        let by_did_public = self.get_claim(by_did).get_crypt_key();
-        let shared_key = token_utils::get_diffie_hellman_key(by_did_public, self_crypt_secret);
-        let text = token_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
-        String::from_utf8_lossy(text.as_slice()).to_string()
-    }
-
-
     pub fn get_entry_point(&self, user_did: &str, entry_point_id: &str) -> String {
-        if user_did==self.admin {
+        if user_did==self.get_admin_did() {
             token_utils::gen_entry_point_of_service(entry_point_id)
         } else { "".to_string() }
     }
+
     pub fn get_guest_sstoken(&mut self, ua_hash: &str) -> String {
-        let guest_did = self.guest.clone();
+        let guest_did = self.get_guest_did();
         self.get_user_sstoken(&guest_did, ua_hash)
     }
 
@@ -1018,14 +615,12 @@ impl SimpleAI {
         if IdClaim::validity(did) {
             let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-            let context = self.get_user_context(did);
+            let context = self.tokenuser.lock().unwrap().get_user_context(did);
             if context.is_default() || context.is_expired(){
                 println!("{} [UserBase] The user context is error or expired: did={}", token_utils::now_string(), did);
                 return String::from("Unknown")
             }
-            let text1 = token_utils::calc_sha256(
-                format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
-                        self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
+            let text1 = self.didtoken.lock().unwrap().get_local_crypt_text(ua_hash);
             let text2 = token_utils::calc_sha256(format!("{}",now_sec/2000000).as_bytes());
             let mut text_bytes: [u8; 64] = [0; 64];
             text_bytes[..32].copy_from_slice(&text1);
@@ -1058,9 +653,7 @@ impl SimpleAI {
         padded_sstoken_bytes.copy_from_slice(&sstoken_bytes);
         let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-        let text1 = token_utils::calc_sha256(
-            format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
-                    self.crypt_secrets[&exchange_key!(self.device)]).as_bytes());
+        let text1 = self.didtoken.lock().unwrap().get_local_crypt_text(ua_hash);
         let text2 = token_utils::calc_sha256(format!("{}",now_sec/2000000).as_bytes());
         let mut text_bytes: [u8; 64] = [0; 64];
         text_bytes[..32].copy_from_slice(&text1);
@@ -1079,7 +672,7 @@ impl SimpleAI {
         let did_bytes_slice = &did_bytes[10..];
         if padded.iter().zip(did_bytes_slice.iter()).all(|(a, b)| a == b) {
             let user_did = did_bytes.to_base58();
-            let context = self.get_user_context(&user_did);
+            let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
                 println!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                 String::from("Unknown")
@@ -1103,7 +696,7 @@ impl SimpleAI {
             let did_bytes_slice = &did_bytes[10..];
             if padded.iter().zip(did_bytes_slice.iter()).all(|(a, b)| a == b) {
                 let user_did = did_bytes.to_base58();
-                let context = self.get_user_context(&user_did);
+                let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
                     println!("{} [UserBase] The context2 of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                     String::from("Unknown")
@@ -1123,18 +716,10 @@ impl SimpleAI {
         path_file.to_string_lossy().to_string()
     }
 
-    pub fn set_user_base_dir(&mut self, user_base_dir: &str) {
-        self.user_base_dir = {
-            let mut claims = self.claims.lock().unwrap();
-            claims.set_user_base_dir(user_base_dir);
-            user_base_dir.to_string()
-        };
-    }
-
     pub fn get_user_path_in_root(&self, root: &str, user_did: &str) -> String {
         let root_dir = PathBuf::from(root);
         let did_path =
-            self.device.from_base58().expect("Failed to decode base58").iter()
+            self.get_device_did().from_base58().expect("Failed to decode base58").iter()
                 .zip(user_did.from_base58().expect("Failed to decode base58").iter())
                 .map(|(&x, &y)| x ^ y).collect::<Vec<_>>().to_base58();
 
@@ -1147,11 +732,14 @@ impl SimpleAI {
         }
     }
 
+    pub fn set_user_base_dir(&self, user_base_dir: &str) {
+        self.tokenuser.lock().unwrap().set_user_base_dir(user_base_dir)
+    }
 
     pub fn get_path_in_user_dir(&self, did: &str, catalog: &str) -> String {
-        let claims = self.claims.lock().unwrap();
-        claims.get_path_in_user_dir(did, catalog)
+        self.tokenuser.lock().unwrap().get_path_in_user_dir(did, catalog)
     }
+
 
     pub fn get_private_paths_list(&self, did: &str, catalog: &str) -> Vec<String> {
         let catalog_paths = self.get_path_in_user_dir(did, catalog);
@@ -1181,7 +769,19 @@ impl SimpleAI {
 
     pub fn get_guest_user_context(&mut self) -> UserContext {
         let guest_did = self.get_guest_did();
-        self.get_user_context(&guest_did)
+        self.tokenuser.lock().unwrap().get_user_context(&guest_did)
+    }
+
+    fn is_registered(&self, did: &str) -> bool {
+        self.didtoken.lock().unwrap().is_registered(did)
+    }
+
+    fn remove_user(&self, did: &str) -> String {
+        self.tokenuser.lock().unwrap().remove_user(did)
+    }
+
+    fn get_claim_from_local(&self, did: &str) -> IdClaim {
+        self.didtoken.lock().unwrap().get_claim_from_local(did)
     }
 
     pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> String {
@@ -1246,7 +846,7 @@ impl SimpleAI {
                     false => {
                         println!("{} [UserBase] The identity is not in local and generate ready_data for new user: {}, {}, {}, {}",
                                  token_utils::now_string(), nickname, telephone, user_hash_id, symbol_hash_base64);
-                        let (user_did, _user_phrase) = self.create_user(&nickname, telephone, None, None);
+                        let (user_did, _user_phrase) = self.tokenuser.lock().unwrap().create_user(&nickname, telephone, None, None);
                         let new_claim = self.get_claim_from_local(&user_did);
                         println!("{} [UserBase] Create new claim for new user: user_did={}, claim_symbol={}",
                             token_utils::now_string(), user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
@@ -1272,7 +872,7 @@ impl SimpleAI {
                                         if user_did != return_claim.gen_did() {
                                             println!("{} [UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})",
                                                      token_utils::now_string(), user_did, return_did);
-                                            self.push_claim(&return_claim);
+                                            self.didtoken.lock().unwrap().push_claim(&return_claim);
                                             return "recall".to_string();
                                         } else {
                                             println!("{} [UserBase] Identity confirmed to recall user from root is same the new before: local_did({}), remote_did({})",
@@ -1311,7 +911,7 @@ impl SimpleAI {
                             self.remove_user(&symbol_hash_base64);
                             return "unknown_exceeded".to_string();
                         } else {
-                            println!("{} [UserBase] User apply is failure({}): sys_did({}), user_did({}), user_symbol({})", token_utils::now_string(), apply_result, self.did, user_did, symbol_hash_base64);
+                            println!("{} [UserBase] User apply is failure({}): sys_did({}), user_did({}), user_symbol({})", token_utils::now_string(), apply_result, self.get_sys_did(), user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown".to_string();
                         }
@@ -1348,11 +948,12 @@ impl SimpleAI {
                     let user_certificate = token_utils::decrypt_text_with_vcode(vcode, &encrypted_certificate_string);
                     let upstream_did = self.get_upstream_did();
                     if user_certificate.len() > 32 && !upstream_did.is_empty() {
-                        let user_certificate_text = self.decrypt_by_did(&user_certificate, &upstream_did, 0);
+                        let user_certificate_text = self.didtoken.lock().unwrap().decrypt_by_did(&user_certificate, &upstream_did, 0);
                         debug!("UserBase] The parsed cert from Root is: cert({})", user_certificate_text);
                         let cert_user_did = {
-                            let mut certificates = self.certificates.lock().unwrap();
-                            certificates.push_user_cert_text(&user_certificate_text)
+                            let certificates = GlobalCerts::instance();
+                            let cert_user_did = certificates.lock().unwrap().push_user_cert_text(&user_certificate_text);
+                            cert_user_did
                         };
                         if cert_user_did != "Unknown" {
                             let ready_claim = self.get_claim_from_local(&ready_user_did);
@@ -1420,7 +1021,7 @@ impl SimpleAI {
             return self.get_guest_user_context();
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
-        let user_did = self.reverse_lookup_did_by_symbol(symbol_hash);
+        let user_did = self.didtoken.lock().unwrap().reverse_lookup_did_by_symbol(symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         if user_did == "Unknown" || !self.is_registered(&user_did) {
             println!("{} [UserBase] The user isn't in local or hasn't been verified by root: nickname={}, telephone={}, symbol={}, user_did={}",
@@ -1438,7 +1039,7 @@ impl SimpleAI {
             return self.get_guest_user_context();
         }
 
-        let context = self.sign_user_context(&user_did, phrase);
+        let context = self.tokenuser.lock().unwrap().sign_user_context(&user_did, phrase);
         if context.is_default() {
             println!("{} [UserBase] The user maybe in blacklist: {}", token_utils::now_string(), user_did);
             return self.get_guest_user_context();
@@ -1490,7 +1091,7 @@ impl SimpleAI {
             let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(&symbol_hash);
             let user_did = if did.is_empty() {
-                self.reverse_lookup_did_by_symbol(symbol_hash)
+                self.didtoken.lock().unwrap().reverse_lookup_did_by_symbol(symbol_hash)
             } else {
                 did.to_string()
             };
@@ -1509,10 +1110,10 @@ impl SimpleAI {
                                 let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                                 println!("{} [UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}",
                                          token_utils::now_string(), user_did, symbol_hash_base64, encrypted_identity.len(), encrypted_identity);
-                                self.import_user(&symbol_hash_base64.clone(), &encrypted_identity, &phrase)
+                                self.tokenuser.lock().unwrap().import_user(&symbol_hash_base64.clone(), &encrypted_identity, &phrase)
                             }
                             false => {
-                                if self.node_mode == "online" {
+                                if self.get_node_mode() == "online" {
                                     let mut request: serde_json::Value = json!({});
                                     let user_copy_hash_id = token_utils::get_user_copy_hash_id_by_source(&nickname, &telephone, &phrase);
                                     request["user_copy_hash_id"] = serde_json::to_value(&user_copy_hash_id).unwrap();
@@ -1531,7 +1132,7 @@ impl SimpleAI {
                                                 println!("{} [UserBase] Download user encrypted_copy: {}, len={}",
                                                          token_utils::now_string(), symbol_hash_base64, encrypted_identity.len());
                                                 debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
-                                                let user_did = self.import_user(&symbol_hash_base64, &encrypted_identity, &phrase);
+                                                let user_did = self.tokenuser.lock().unwrap().import_user(&symbol_hash_base64, &encrypted_identity, &phrase);
                                                 if user_did != "Unknown" {
                                                     let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                                     fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
@@ -1547,7 +1148,8 @@ impl SimpleAI {
                                                         let certificate_string = certificate_string.replace(":", "|");
                                                         let certs_array: Vec<&str> = certificate_string.split(",").collect();
                                                         let _ = {
-                                                            let mut certificates = self.certificates.lock().unwrap();
+                                                            let certificates = GlobalCerts::instance();
+                                                            let mut certificates = certificates.lock().unwrap();
                                                             for cert in &certs_array {
                                                                 debug!("user_copy_from_cloud, cert:{}", cert);
                                                                 let _user_did = certificates.push_user_cert_text(cert);
@@ -1587,7 +1189,7 @@ impl SimpleAI {
                 }
             };
             if user_did != "guest" && user_did != "Unknown" {
-                let context = self.sign_user_context(&user_did, &phrase);
+                let context = self.tokenuser.lock().unwrap().sign_user_context(&user_did, &phrase);
                 if context.is_default() {
                     println!("{} [UserBase] The user hasn't been verified by root or in blacklist: {}", token_utils::now_string(), user_did);
                     self.get_guest_user_context()
@@ -1603,10 +1205,9 @@ impl SimpleAI {
 
     pub fn unbind_and_return_guest(&mut self, user_did: &str, phrase: &str) -> UserContext {
         if IdClaim::validity(user_did) {
-            let claim = self.get_claim(user_did);
+            let claim = self.get_claim_from_local(user_did);
             if !claim.is_default() {
-                let context = self.get_user_context(&user_did);
-                if self.node_mode == "online" {
+                if self.get_node_mode() == "online" {
                     let symbol_hash = claim.get_symbol_hash();
                     let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
                     let user_copy_hash_id = token_utils::get_user_copy_hash_id(&claim.nickname, &claim.telephone_hash, phrase);
@@ -1618,24 +1219,16 @@ impl SimpleAI {
                     let upstream_did = self.get_upstream_did();
                     let result = self.request_token_api("unbind_node", &params);
                     if result != "Unbind_ok" {
-                        let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did, 0);
+                        let encoded_params = self.didtoken.lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did, 0);
                         let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
                         fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
                     }
-                    println!("{} [UserBase] Unbind user({}) from node({}): {}", token_utils::now_string(), user_did, self.did, result);
+                    println!("{} [UserBase] Unbind user({}) from node({}): {}", token_utils::now_string(), user_did, self.get_sys_did(), result);
                 }
 
                 // release user token and context
-                if user_did != self.admin {
-                    let key = format!("{}_{}", user_did, self.get_sys_did());
-                    let authorized = self.authorized.lock().unwrap();
-                    let _ = match authorized.contains_key(&key).unwrap() {
-                        false => {},
-                        true => {
-                            let _ = authorized.remove(&key);
-                        }
-                    };
-                    let _ = token_utils::update_user_token_to_file(&context, "remove");
+                if user_did != self.get_admin_did() {
+                    self.tokenuser.lock().unwrap().remove_context(&user_did);
                 }
             }
         }
@@ -1643,19 +1236,20 @@ impl SimpleAI {
     }
 
     pub fn get_user_copy_string(&mut self, user_did: &str, phrase: &str) -> String {
-        let claim = self.get_claim(user_did);
+        let claim = self.didtoken.lock().unwrap().get_claim(user_did);
         if !claim.is_default() {
             let symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
             let encrypted_identity = fs::read_to_string(identity_file.clone()).unwrap_or("Unknown".to_string());
             debug!("get_user_copy_string, identity_file({}), encrypted_identity: {}", identity_file.display(), encrypted_identity);
-            let context = self.get_user_context(&user_did);
+            let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
             let context_crypt = URL_SAFE_NO_PAD.encode(token_utils::encrypt(context.to_json_string().as_bytes(), phrase.as_bytes(), 0));
             debug!("get_user_copy_string, context_json: {}, context_crypt: {}", context.to_json_string(), context_crypt);
             let certificates = {
-                let certificates = self.certificates.lock().unwrap();
-                certificates.filter_user_certs(&user_did, "*")
+                let certificates = GlobalCerts::instance();
+                let certificates = certificates.lock().unwrap().filter_user_certs(&user_did, "*");
+                certificates
             };
             let certificates_str = certificates
                 .iter()
@@ -1671,83 +1265,18 @@ impl SimpleAI {
         }
     }
 
-    pub fn get_user_context(&mut self, did: &str) -> UserContext {
-        if !IdClaim::validity(did) {
-            return UserContext::default();
-        }
-        let key = format!("{}_{}", did, self.get_sys_did());
-        if !self.blacklist.contains(&did.to_string()) {
-            let context = {
-                let authorized = self.authorized.lock().unwrap();
-                match authorized.get(&key) {
-                    Ok(Some(context)) => {
-                        let context_string = String::from_utf8(context.to_vec()).unwrap();
-                        let user_token: serde_json::Value = serde_json::from_slice(&context_string.as_bytes()).unwrap_or(serde_json::json!({}));
-                        serde_json::from_value(user_token.clone()).unwrap_or_else(|_| UserContext::default())
-                    },
-                    _ => token_utils::get_user_token_from_file(did, &self.get_sys_did())
-                }
-            };
-            if !context.is_default() && context.get_sys_did() == self.did &&
-                self.verify_by_did(&context.get_text(), &context.get_sig(), did) {
-                let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
-                {
-                    let authorized = self.authorized.lock().unwrap();
-                    let _ = authorized.insert(&key, ivec_data);
-                }
-                context
-            } else {
-                if context.is_default() && did == &self.guest {
-                    self.sign_user_context(&self.guest.clone(), &self.guest_phrase.clone())
-                } else {
-                    UserContext::default()
-                }
-            }
-
-        } else { UserContext::default()  }
-    }
-
-    pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
-        if self.blacklist.contains(&did.to_string()) ||
-            (did != self.guest && !self.is_registered(did) && did!=token_utils::TOKEN_TM_DID.to_string()) {
-            debug!("sign user context failed, did = {}", did);
-            return UserContext::default();
-        }
-        let claim = self.get_claim(did);
-        let mut context = token_utils::get_or_create_user_context_token(
-            did, &self.did, &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
-        let _ = context.signature(phrase);
-        if token_utils::update_user_token_to_file(&context, "add") == "Ok"  {
-            if self.admin.is_empty() && did != self.guest {
-                self.set_admin(did);
-                println!("{} [UserBase] Set admin_did/设置系统管理 = {}", token_utils::now_string(), self.admin);
-            }
-            {
-                let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
-                let authorized = self.authorized.lock().unwrap();
-                let _ = authorized.insert(&format!("{}_{}", did, self.get_sys_did()), ivec_data);
-            }
-            context
-        } else {
-            debug!("Failed to save user token");
-            UserContext::default()
-        }
-    }
 
 
-    fn reverse_lookup_did_by_symbol(&self, symbol_hash: [u8; 32]) -> String {
-        let claims = self.claims.lock().unwrap();
-        claims.reverse_lookup_did_by_symbol(&symbol_hash)
-    }
 
-    fn register_upstream(&self) -> String {
+
+
+    fn register_upstream(&mut self) -> String {
+        let sys_did = self.get_sys_did();
+        let dev_did = self.get_device_did();
         let (local_claim, device_claim) = {
-            let mut claims = self.claims.lock().unwrap();
-            (claims.get_claim_from_local(&self.did), claims.get_claim_from_local(&self.device))
+            (self.get_claim_from_local(&sys_did), self.get_claim_from_local(&dev_did))
         };
-        let sys_did = self.did.clone();
-        let dev_did = self.device.clone();
-        let last_timestamp = self.message_queue.get_last_timestamp().unwrap_or_else(|| 0u64);
+        let last_timestamp = self.shared_data.get_message_queue().get_last_timestamp(&sys_did).unwrap_or_else(|| 0u64);
         let mut request = json!({});
         request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
         request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
@@ -1755,14 +1284,14 @@ impl SimpleAI {
 
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
 
-        let upstream_url = self.did_entry_point.get_entry_point(token_utils::TOKEN_TM_DID);
-        let response = token_utils::TOKIO_RUNTIME.block_on(async {
+        let upstream_url = self.tokenuser.lock().unwrap().get_did_entry_point(dids::TOKEN_TM_DID);
+        let response = dids::TOKIO_RUNTIME.block_on(async {
             request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await
         });
         let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
         debug!("register_upstream, response: {}", response);
         if let Some(message_list) = ping_vars.get("message_list") {
-            self.message_queue.push_messages(message_list.to_string());
+            self.shared_data.get_message_queue().push_messages(&sys_did, message_list.to_string());
         }
         if let Some(new_did) = ping_vars.get("upstream_did") {
             new_did.clone()
@@ -1774,11 +1303,11 @@ impl SimpleAI {
         if upstream_did.is_empty() {
             return "Unknown".to_string()
         }
-        let entry_point = self.did_entry_point.get_entry_point( &upstream_did);
-        let encoded_params = self.encrypt_for_did(params.as_bytes(), &upstream_did ,0);
-        token_utils::TOKIO_RUNTIME.block_on(async {
+        let entry_point = self.tokenuser.lock().unwrap().get_did_entry_point( &upstream_did);
+        let encoded_params = self.didtoken.lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did ,0);
+        dids::TOKIO_RUNTIME.block_on(async {
             debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
-            request_token_api_async(&entry_point, &self.did, &self.device, api_name, &encoded_params).await
+            request_token_api_async(&entry_point, &self.get_sys_did(), &self.get_device_did(), api_name, &encoded_params).await
         })
     }
 
@@ -1833,7 +1362,7 @@ impl SimpleAI {
 
 async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
     debug!("[Upstream] request: {}{} with params: {}, sys={}, dev={}, ver={}", upstream_url, api_name, encoded_params, sys_did, dev_did, TOKEN_API_VERSION);
-    match token_utils::REQWEST_CLIENT.post(format!("{}{}", upstream_url, api_name))
+    match dids::REQWEST_CLIENT.post(format!("{}{}", upstream_url, api_name))
         .header("Sys-Did", sys_did.to_string())
         .header("Dev-Did", dev_did.to_string())
         .header("Version", TOKEN_API_VERSION.to_string())
@@ -1927,7 +1456,7 @@ async fn sync_upstream(
     upstream_did: String,
     entry_point: Arc<tokio::sync::Mutex<DidEntryPoint>>,
     online_users: Arc<tokio::sync::Mutex<OnlineUsers>>,
-    message_queue: Arc<tokio::sync::Mutex<MessageQueue>>,
+    message_queue: Arc<MessageQueue>,
 ) {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
@@ -1939,10 +1468,7 @@ async fn sync_upstream(
                 let users_guard = online_users.lock().await;
                 users_guard.get_full_list()
             };
-            let last_timestamp = {
-                let queue_guard = message_queue.lock().await;
-                queue_guard.get_last_timestamp().unwrap_or_else(|| 0u64)
-            };
+            let last_timestamp = message_queue.get_last_timestamp(sys_did).unwrap_or_else(|| 0u64);
             request["online_users"] = serde_json::to_value(online_users_list).unwrap_or(json!(""));
             request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
             let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
@@ -1980,10 +1506,7 @@ async fn sync_upstream(
                             let mut claims = claims.lock().unwrap();
                             (claims.get_claim_from_local(sys_did), claims.get_claim_from_local(dev_did))
                         };
-                        let last_timestamp = {
-                            let mq = message_queue.lock().await;
-                            mq.get_last_timestamp().unwrap_or_else(|| 0u64)
-                        };
+                        let last_timestamp = message_queue.get_last_timestamp(sys_did).unwrap_or_else(|| 0u64);
                         let mut request = json!({});
                         request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
                         request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
@@ -1992,7 +1515,7 @@ async fn sync_upstream(
                         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
                         let upstream_url = {
                             let ep = entry_point.lock().await;
-                            ep.get_entry_point(token_utils::TOKEN_TM_DID)
+                            ep.get_entry_point(dids::TOKEN_TM_DID)
                         };
                         let response = request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await;
                         ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
@@ -2005,10 +1528,7 @@ async fn sync_upstream(
             }
 
             if let Some(message_list) = ping_vars.get("message_list") {
-                {
-                    let mut queue_guard = message_queue.lock().await;
-                    queue_guard.push_messages(message_list.to_string());
-                }
+                message_queue.push_messages(&sys_did, message_list.to_string());
             }
         }
 

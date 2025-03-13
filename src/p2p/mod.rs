@@ -1,11 +1,6 @@
 use std::error::Error;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::thread;
-use std::collections::HashMap;
-use tracing_subscriber::EnvFilter;
-use std::env;
 use chrono::{Local, DateTime};
 use tokio::time;
 use rand::Rng;
@@ -21,27 +16,28 @@ mod config;
 mod req_resp;
 
 use crate::p2p::service::{Client, Server, EventHandler};
-use crate::p2p::error::P2pError;
 use crate::dids::claims::{GlobalClaims, IdClaim};
 use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 use once_cell::sync::OnceCell;
 use once_cell::sync::Lazy;
-use crate::dids::token_utils;
-use crate::utils::systeminfo::SystemInfo;
+
+use crate::dids::TOKIO_RUNTIME;
 use crate::dids::cert_center::GlobalCerts;
+use crate::utils::systeminfo::SystemInfo;
+use crate::shared::{self, SharedData};
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) static P2P_HANDLE: Lazy<Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>> = 
     Lazy::new(|| Arc::new(Mutex::new(None)));
-pub static P2P_INSTANCE: Lazy<Mutex<Option<Arc<P2p>>>> = Lazy::new(|| Mutex::new(None));
+pub(crate) static P2P_INSTANCE: Lazy<Mutex<Option<Arc<P2p>>>> = Lazy::new(|| Mutex::new(None));
 pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
 address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
-pubsub_topics = ['system']
+pubsub_topics = ['system', 'online']
 metrics_path = '/metrics' 
 discovery_interval = 30
 node_status_interval = 30
-broadcast_interval = 70
+broadcast_interval = 30
 request_interval = 80
 req_resp.request_timeout = 60
 "#;
@@ -50,53 +46,36 @@ pub struct P2p {
     sys_did: String,
     config: config::Config,
     client: Client,
-    did_node_map: HashMap<String, String>,
-    node_did_map: HashMap<String, String>,
-    online_users: Arc<Mutex<OnlineUsers>>,
-    online_all: Arc<Mutex<OnlineUsers>>,
-    online_nodes: Arc<Mutex<OnlineUsers>>,
-    message_queue: Arc<Mutex<MessageQueue>>,
-    claims: Arc<Mutex<GlobalClaims>>,
-    certificates: Arc<Mutex<GlobalCerts>>,
+    shared_data: &'static SharedData,
 }
 
 impl P2p {
-    pub async fn start(config: String, sys_claim: &IdClaim, sysinfo: &SystemInfo, 
-        online_users: Arc<Mutex<OnlineUsers>>, online_all: Arc<Mutex<OnlineUsers>>,
-        online_nodes: Arc<Mutex<OnlineUsers>>, message_queue: Arc<Mutex<MessageQueue>>, 
-        claims: Arc<Mutex<GlobalClaims>>, certificates: Arc<Mutex<GlobalCerts>>
-    ) {
+    pub async fn start(config: String, sys_claim: &IdClaim, sysinfo: &SystemInfo) {
         let config = config::Config::from_toml(&config.clone()).expect("无法解析配置字符串");
-        let result = service::new(config.clone(), sys_claim, online_nodes.clone(), sysinfo).await;
+        let result = service::new(config.clone(), sys_claim, sysinfo).await;
         let (client, mut server) = match result {
             Ok((c, s)) => (c, s),
             Err(e) => panic!("无法启动服务: {:?}", e),
         };
         
-        let did_node_map = HashMap::new();
-        let node_did_map = HashMap::new();
-
+        let sys_did = sys_claim.gen_did();
+        let shared_data = shared::get_shared_data();
+        
         let handler = Handler {
-            online_all: online_all.clone(),
-            online_nodes: online_nodes.clone(),
-            message_queue: message_queue.clone(),
-            did_node_map: Arc::new(Mutex::new(did_node_map.clone())),
-            node_did_map: Arc::new(Mutex::new(node_did_map.clone())), 
-            claims: claims.clone(),
-            certificates: certificates.clone(),
+            sys_did: sys_did.clone(),
+            shared_data,
         };
+
         server.set_event_handler(handler);
     
         let config_clone = config.clone();
         let client_clone = client.clone();
-        let online_users_clone = online_users.clone();
-        token_utils::TOKIO_RUNTIME.spawn(async move {
+        TOKIO_RUNTIME.spawn(async move {
             let task_run = server.run();
             let task_node_status = get_node_status(client_clone.clone(), config_clone.get_node_status_interval());
             let task_broadcast_online = broadcast_online_users(
                 client_clone.clone(), 
-                online_users_clone.clone(), 
-                config_clone.get_broadcast_interval()
+                config_clone.get_broadcast_interval(),
             );
     
             tokio::join!(
@@ -107,17 +86,10 @@ impl P2p {
         });
         
         let p2p = Self {
-            sys_did: sys_claim.gen_did(),
+            sys_did: sys_did.clone(),
             config: config.clone(),
             client: client.clone(),
-            did_node_map,
-            node_did_map,
-            online_users,
-            online_all,
-            online_nodes,
-            message_queue,
-            claims,
-            certificates,
+            shared_data,
         };
         let p2p_arc = Arc::new(p2p);
         {
@@ -126,7 +98,7 @@ impl P2p {
         }
     }
 
-    pub async fn get_claim(&self, did: String) -> IdClaim {
+    pub async fn get_claim_from_upstream(&self, did: String) -> IdClaim {
         if did.is_empty() || !IdClaim::validity(&did) {
             return IdClaim::default();
         }
@@ -144,7 +116,7 @@ impl P2p {
             for upstream_node in upstream_nodes {
                 let upstream_peer_id = upstream_node.peer_id().to_base58();
                 
-                if let Some(target_did) = self.node_did_map.get(&upstream_peer_id) {
+                if let Some(target_did) = self.shared_data.get_node_did(&upstream_peer_id) {
                     let result_str = self.request(target_did.clone(), message.clone()).await;
                     if result_str.is_empty() {
                         tracing::debug!("从上游节点 {} 获取的响应为空", upstream_peer_id);
@@ -187,7 +159,7 @@ impl P2p {
         let short_id = self.client.get_peer_id();
 
         let target_peer_id = {
-            if let Some(peer_id) = self.did_node_map.get(&target) {
+            if let Some(peer_id) = self.shared_data.get_did_node(&target) {
                 peer_id.clone()
             } else {
                 tracing::warn!("user_did({}) does not belong to a node", target);
@@ -223,13 +195,8 @@ impl P2p {
 
 #[derive(Debug)]
 struct Handler {
-    online_all: Arc<Mutex<OnlineUsers>>,
-    online_nodes: Arc<Mutex<OnlineUsers>>,
-    message_queue: Arc<Mutex<MessageQueue>>,
-    did_node_map: Arc<Mutex<HashMap<String, String>>>,
-    node_did_map: Arc<Mutex<HashMap<String, String>>>,
-    claims: Arc<Mutex<GlobalClaims>>,
-    certificates: Arc<Mutex<GlobalCerts>>,
+    sys_did: String,
+    shared_data: &'static shared::SharedData,
 }
 
 impl EventHandler for Handler {
@@ -261,10 +228,7 @@ impl EventHandler for Handler {
                     match method {
                         "get_claim" => {
                             let response = if let Some(did) = json_obj.get("did").and_then(|d| d.as_str()) {
-                                let claim = {
-                                    let mut claims = self.claims.lock().unwrap();
-                                    claims.get_claim_from_local(did)
-                                };
+                                let claim = self.shared_data.claims.lock().unwrap().get_claim_from_local(did);
                                 tracing::info!("处理 get_claim 请求，返回用户 {} 的声明", did);
                                 claim.to_json_string()
                             } else {
@@ -314,14 +278,12 @@ impl EventHandler for Handler {
 
                     let sender_id = sender.to_base58();
                     let online_all_num = {
-                        let mut online_all = self.online_all.lock().unwrap();
-                        online_all.log_access_batch(user_list.clone());
-                        online_all.get_number()
+                        self.shared_data.online_all.log_access_batch(user_list.clone());
+                        self.shared_data.online_all.get_number()
                     };
                     let (online_nodes_num, online_nodes_top) = {
-                        let mut online_nodes = self.online_nodes.lock().unwrap();
-                        online_nodes.log_access(sender_id.clone());
-                        (online_nodes.get_number(), online_nodes.get_nodes_top_list())
+                        self.shared_data.online_nodes.log_access(sender_id.clone());
+                        (self.shared_data.online_nodes.get_number(), self.shared_data.online_nodes.get_nodes_top_list())
                     };
                     tracing::info!("已更新在线用户列表: online_nodes={}, online_users={}", online_nodes_num, online_all_num);
                     let entries: Vec<(String, String)> = message_str
@@ -329,23 +291,14 @@ impl EventHandler for Handler {
                         .filter(|entry| !entry.is_empty())
                         .map(|user_id| (user_id.to_string(), sender_id.clone()))
                         .collect();
-                    {
-                        let mut node_map = self.node_did_map.lock().unwrap();
-                        node_map.insert(sender_id.clone(), sys_did.clone());
-                    }
-                    {
-                        let mut did_map = self.did_node_map.lock().unwrap();
-                        did_map.insert(sys_did, sender_id.clone());
-                        for (user_id, node_id) in entries {
-                            did_map.insert(user_id, node_id);
-                        }
-                    }  
+                    self.shared_data.insert_node_did(&sender_id, &sys_did);
+                    self.shared_data.insert_did_node_batch(&user_list, &sender_id);
                 }
             },
             "system" => {
                 // 收到系统消息，更新本地消息队列
                 if !message_str.is_empty() {
-                    let count = self.message_queue.lock().unwrap().push_messages(message_str);
+                    let count = self.shared_data.get_message_queue().push_messages(&self.sys_did, message_str);
                     tracing::debug!("已添加 {} 条新系统消息", count);
                 }
             },
@@ -416,17 +369,15 @@ async fn request(client: Client, interval: u64) {
 }
 
 // 新增函数：定时广播在线用户列表
-async fn broadcast_online_users(client: Client, online_users: Arc<Mutex<OnlineUsers>>, interval: u64) {
+async fn broadcast_online_users(client: Client, interval: u64) {
+    let shared_data = shared::get_shared_data();
     let dur = time::Duration::from_secs(interval);
     loop {
         time::sleep(dur).await;
-        let users_list = {
-            let users = online_users.lock().unwrap();
-            users.get_full_list()
-        };
+        let users_list = shared_data.user_list.lock().unwrap().clone();
         if !users_list.is_empty() {
             let topic = "online".to_string();
-            tracing::info!("📣 >>>> broadcast：{} online users in {}.", users_list.split('|').count(), client.get_peer_id());
+            tracing::info!("📣 >>>> broadcast: {} online users in {}.", users_list.split('|').count(), client.get_peer_id());
             let message = format!("{}:{}", client.get_sys_did(), users_list); 
             let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
         } else {

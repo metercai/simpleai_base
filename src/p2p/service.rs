@@ -35,7 +35,7 @@ use crate::p2p::error::P2pError;
 use crate::dids::token_utils;
 use crate::dids::claims::IdClaim;
 use crate::utils::systeminfo::SystemInfo;
-use crate::user::user_mgr::OnlineUsers;
+use crate::shared;
 
 const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
 const TOKEN_SERVER_PORT: u16 = 2316;
@@ -56,9 +56,9 @@ pub(crate) struct Client {
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, online_nodes: Arc<std::sync::Mutex<OnlineUsers>>, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error>> {
+pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
-    let server = Server::new(config, sys_claim, online_nodes, sysinfo, cmd_receiver).await?;
+    let server = Server::new(config, sys_claim, sysinfo, cmd_receiver).await?;
     let local_peer_id = server.get_peer_id().to_base58();
     let client = Client {
         cmd_sender,
@@ -155,7 +155,6 @@ pub(crate) struct Server<E: EventHandler> {
     metrics: Metrics,
     is_global: bool,
     upnp_mapped: bool,
-    online_nodes: Arc<std::sync::Mutex<OnlineUsers>>,
     connection_failure_counts: Mutex<HashMap<PeerId, Vec<Instant>>>,
     connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
 }
@@ -186,7 +185,6 @@ impl<E: EventHandler> Server<E> {
     pub(crate) async fn new(
         config: Config,
         sys_claim: &IdClaim,
-        online_nodes: Arc<std::sync::Mutex<OnlineUsers>>,
         sysinfo: &SystemInfo,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error>> {
@@ -318,7 +316,6 @@ impl<E: EventHandler> Server<E> {
             metrics,
             is_global,
             upnp_mapped: false,
-            online_nodes,
             connection_failure_counts: Mutex::new(HashMap::new()),
             connection_quality: Mutex::new(HashMap::new()),
         })
@@ -806,6 +803,7 @@ pub(crate) struct NodeStatus {
 
 impl NodeStatus {
     pub(crate) fn short_format(&self) -> String {
+        let shared_data = shared::get_shared_data();
         let short_id = (|| {
             self.local_sys_did[self.local_sys_did.len() - 7..].to_string()
         })();
@@ -817,8 +815,8 @@ impl NodeStatus {
         let head= format!("NodeStatus({}:<{}>), peers({})[", short_id, external_addresses, self.known_peers_count);
         let peers = self.known_peers.iter()
             .map(|(peer_id, multiaddrs)| {
-                let base58_peer_id = peer_id.to_base58();
-                let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+                let peer_did = shared_data.get_did_node(&peer_id.to_base58()).unwrap_or_else(|| peer_id.to_base58().into());
+                let short_peer_did = peer_did.chars().skip(peer_did.len() - 7).collect::<String>();
                 let ip_addrs = multiaddrs.iter()
                     .filter_map(|addr| {
                         let parts = addr.iter().collect::<Vec<_>>();
@@ -831,7 +829,7 @@ impl NodeStatus {
                     .collect::<Vec<_>>()
                     .join(",");
                 let rtt = self.connection_quality.get(peer_id).map(|q| format!("{:.2}ms", q.avg_rtt)).unwrap_or("?".to_string());
-                format!("({}:{})", short_peer_id, rtt)
+                format!("({}:{})", short_peer_did, rtt)
             }).collect::<Vec<_>>().join(";");
         let listeneds: String = self.listened_addresses
             .iter()
@@ -847,11 +845,11 @@ impl NodeStatus {
             .join(",");
         let pubsubs = self.pubsub_peers.iter()
             .map(|(peer_id, topichashs)| {
-                let base58_peer_id = peer_id.to_base58();
-                let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+                let peer_did = shared_data.get_did_node(&peer_id.to_base58()).unwrap_or_else(|| peer_id.to_base58().into());
+                let short_peer_did = peer_did.chars().skip(peer_did.len() - 7).collect::<String>();
                 let topics = (*topichashs).iter().map(|topic| topic.to_string()).collect::<Vec<_>>().join(", ");
 
-                format!("{}:{}", short_peer_id, (*topichashs).len())
+                format!("{}:{}", short_peer_did, (*topichashs).len())
             }).collect::<Vec<_>>().join(";");
         format!("{}{}], listened({}), pubsubs({})({})", head, peers,
                 self.listened_addresses.len(),
