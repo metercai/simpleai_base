@@ -776,6 +776,10 @@ impl SimpleAI {
         self.tokenuser.lock().unwrap().get_user_context(did)
     }
 
+    pub fn get_register_cert(&mut self, user_did: &str) -> String {
+        self.didtoken.lock().unwrap().get_register_cert(user_did)
+    }
+
     fn is_registered(&self, did: &str) -> bool {
         self.didtoken.lock().unwrap().is_registered(did)
     }
