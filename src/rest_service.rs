@@ -6,7 +6,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::error;
 
 use crate::token::SimpleAI;
-use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken};
+use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT};
 use crate::user::TokenUser;
 
 // 共享状态类型
@@ -371,4 +371,12 @@ async fn handle_put_global_message(
         data: "",
         error: None,
     }))
+}
+
+pub async fn request_api(endpoint: &str) -> Result<String, reqwest::Error> {
+    let client = &REQWEST_CLIENT;
+    let url = format!("{}/{}", API_HOST, endpoint);
+    let res = client.get(&url).send().await?;
+    let data: ApiResponse<String> = res.json().await?;
+    Ok(data.data)
 }

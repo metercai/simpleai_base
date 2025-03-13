@@ -216,7 +216,7 @@ impl DidToken {
         if !issuer_did.is_empty() && !for_did.is_empty() && !for_sys_did.is_empty() && !item.is_empty() && !memo.is_empty() &&
             IdClaim::validity(issuer_did) && IdClaim::validity(for_did) && IdClaim::validity(for_sys_did) &&
             item.len() < 32 && memo.len() < 256 {
-
+            
             let unknown = "Unknown".to_string();
             let cert_secret_base64 = self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&unknown);
             if cert_secret_base64 != "Unknown" {
@@ -232,7 +232,6 @@ impl DidToken {
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-                        println!("{} [UserBase] Sign and issue a cert by did: issuer({}), item({}), owner({}), sys({})", token_utils::now_string(), issuer_did, item, for_did, for_sys_did);
                         if for_sys_did == self.did {
                             return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
                         } else {
@@ -371,14 +370,13 @@ impl DidToken {
         let node_mode = self.node_mode.clone();
         if user_did == self.guest || (node_mode != "online" && user_did == admin_did)  {
             let system_did = self.did.clone();
-            info!("{} [UserBase] ready to sign member_cert for user_did={}", token_utils::now_string(), user_did);
             let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
             let register_cert = {
                 let mut certificates = self.certificates.lock().unwrap();
                 let _ = certificates.push_user_cert_text(&issue_cert);
                 certificates.get_register_cert(user_did)
             };
-            info!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}, cert={}", user_did, system_did, node_mode, register_cert);
+            debug!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}, cert={}", user_did, system_did, node_mode, register_cert);
             register_cert
         } else {
             "Unknown".to_string()

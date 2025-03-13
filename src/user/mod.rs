@@ -50,7 +50,8 @@ impl TokenUser {
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = dids::get_system_vars();
         let blacklist = token_utils::load_did_blacklist_from_file();
-        let token_db = DidToken::instance().lock().unwrap().get_token_db();
+        let didtoken = DidToken::instance();
+        let token_db = didtoken.lock().unwrap().get_token_db();
         let (authorized_tree, user_sessions_tree) = {
             let token_db = token_db.lock().unwrap();
             (token_db.open_tree("authorized").unwrap(), token_db.open_tree("user_sessions").unwrap())
@@ -58,7 +59,6 @@ impl TokenUser {
         let authorized = Arc::new(Mutex::new(authorized_tree));
         let user_sessions = Arc::new(Mutex::new(user_sessions_tree));
         let entry_point = DidEntryPoint::new();
-        let didtoken = DidToken::instance();
         let(sys_did, device_did, guest_did) = {
             let mut didtoken = didtoken.lock().unwrap();
             (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did())
