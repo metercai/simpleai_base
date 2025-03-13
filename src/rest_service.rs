@@ -12,11 +12,13 @@ use crate::user::TokenUser;
 // 共享状态类型
 type SharedAI = Arc<Mutex<SimpleAI>>;
 
+pub const API_HOST: &str = "http://127.0.0.1:4515/api";
+    
 // 统一响应格式
-#[derive(Debug, Serialize)]
-struct ApiResponse<T> {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiResponse<T> {
     success: bool,
-    data: T,
+    pub data: T,
     error: Option<String>,
 }
 
@@ -40,6 +42,11 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .and(warp::get())
             .and(with_simpai(simpai.clone()))
             .and_then(handle_get_device_did);
+
+        let get_upstream_did = warp::path!("api" / "upstream_did")
+            .and(warp::get())
+            .and(with_simpai(simpai.clone()))
+            .and_then(handle_get_upstream_did);
 
         let get_local_vars = warp::path!("api" / "local_vars")
             .and(warp::post())
@@ -104,6 +111,7 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
 
         let routes = get_sys_did
             .or(get_device_did)
+            .or(get_upstream_did)
             .or(get_local_vars)
             .or(get_claim)
             .or(get_register_cert)
@@ -142,6 +150,15 @@ async fn handle_get_device_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
     Ok(warp::reply::json(&ApiResponse {
         success: true,
         data: ai.get_device_did(),
+        error: None,
+    }))
+}
+
+async fn handle_get_upstream_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
+    let mut ai = ai.lock().unwrap();
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: ai.get_upstream_did(),
         error: None,
     }))
 }

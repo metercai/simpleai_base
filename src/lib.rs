@@ -7,12 +7,10 @@ use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
 use crate::utils::systeminfo::SystemInfo;
 use crate::utils::params_mapper::ComfyTaskParams;
 use crate::dids::token_utils::calc_sha256;
-use crate::dids::{token_utils, DidToken, TOKEN_TM_DID};
-
+use crate::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_TM_DID};
+use crate::rest_service::{ApiResponse, API_HOST};
 
 mod token;
-
-
 
 mod rest_service;
 
@@ -45,11 +43,30 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let timestamp = parts[2].to_string();
     let signature_str = parts[3].to_string();
     let text = format!("{}|{}|{}|{}|{}", did, "Member", encrypt_item_key, memo_base64, timestamp);
-    let didtoken = DidToken::instance();
-    let (system_did, upstream_did) = {
-        let didtoken = didtoken.lock().unwrap();
-        (didtoken.get_sys_did(), didtoken.get_upstream_did())
-    };
+    
+    let client = &REQWEST_CLIENT;
+    let (system_did, upstream_did) = TOKIO_RUNTIME.block_on(async {
+        // 定义异步请求函数
+        async fn get_did(client: &reqwest::Client, endpoint: &str) -> Result<String, reqwest::Error> {
+            let url = format!("{}/{}", API_HOST, endpoint);
+            let res = client.get(&url).send().await?;
+            let data: ApiResponse<String> = res.json().await?;
+            Ok(data.data)
+        }
+
+        // 并发执行两个请求
+        let sys_fut = get_did(client, "sys_did");
+        let up_fut = get_did(client, "upstream_did");
+
+        // 处理结果
+        match tokio::join!(sys_fut, up_fut) {
+            (Ok(sys), Ok(up)) => (sys, up),
+            _ =>  ("".to_string(), "".to_string()), 
+        }
+    });
+    if system_did.is_empty() || upstream_did.is_empty() {
+        return false;
+    }
     let text_system = format!("{}|{}", system_did, text);
     let claim_system = GlobalClaims::load_claim_from_local(&system_did);
     if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
