@@ -44,21 +44,9 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let signature_str = parts[3].to_string();
     let text = format!("{}|{}|{}|{}|{}", did, "Member", encrypt_item_key, memo_base64, timestamp);
     
-    let client = &REQWEST_CLIENT;
     let (system_did, upstream_did) = TOKIO_RUNTIME.block_on(async {
-        // 定义异步请求函数
-        async fn get_did(client: &reqwest::Client, endpoint: &str) -> Result<String, reqwest::Error> {
-            let url = format!("{}/{}", API_HOST, endpoint);
-            let res = client.get(&url).send().await?;
-            let data: ApiResponse<String> = res.json().await?;
-            Ok(data.data)
-        }
-
-        // 并发执行两个请求
-        let sys_fut = get_did(client, "sys_did");
-        let up_fut = get_did(client, "upstream_did");
-
-        // 处理结果
+        let sys_fut = request_api("sys_did");
+        let up_fut = request_api("upstream_did");
         match tokio::join!(sys_fut, up_fut) {
             (Ok(sys), Ok(up)) => (sys, up),
             _ =>  ("".to_string(), "".to_string()), 
@@ -67,6 +55,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     if system_did.is_empty() || upstream_did.is_empty() {
         return false;
     }
+    
     let text_system = format!("{}|{}", system_did, text);
     let claim_system = GlobalClaims::load_claim_from_local(&system_did);
     if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
@@ -126,4 +115,12 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SystemInfo>()?;
     m.add_class::<ComfyTaskParams>()?;
     Ok(())
+}
+
+async fn request_api(endpoint: &str) -> Result<String, reqwest::Error> {
+    let client = &REQWEST_CLIENT;
+    let url = format!("{}/{}", API_HOST, endpoint);
+    let res = client.get(&url).send().await?;
+    let data: ApiResponse<String> = res.json().await?;
+    Ok(data.data)
 }

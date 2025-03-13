@@ -78,7 +78,7 @@ impl DidToken {
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        info!("init DidToken context started");
+        debug!("init DidToken context started");
         let sysbaseinfo = SYSTEM_BASE_INFO.clone();
         let sysinfo_handle = TOKIO_RUNTIME.spawn(async move {
             SystemInfo::generate().await
@@ -141,7 +141,7 @@ impl DidToken {
         };
 
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
-        info!("sys_did: {}, upstream_did: {}, admin_did: {}", local_did, upstream_did, admin);
+        info!("admin_did: {}, upstream_did: {}", admin, upstream_did);
         
         Self {
             did: local_did,
@@ -369,13 +369,14 @@ impl DidToken {
         let node_mode = self.node_mode.clone();
         if user_did == self.guest || (node_mode != "online" && user_did == admin_did)  {
             let system_did = self.did.clone();
+            info!("{} [UserBase] ready to sign member_cert for user_did={}", token_utils::now_string(), user_did);
             let (_issue_cert_key, issue_cert) = self.sign_and_issue_cert_by_system("Member", &user_did, &system_did, "User");
             let register_cert = {
                 let mut certificates = self.certificates.lock().unwrap();
                 let _ = certificates.push_user_cert_text(&issue_cert);
                 certificates.get_register_cert(user_did)
             };
-            debug!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}", user_did, system_did, node_mode);
+            info!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}, cert={}", user_did, system_did, node_mode, register_cert);
             register_cert
         } else {
             "Unknown".to_string()
