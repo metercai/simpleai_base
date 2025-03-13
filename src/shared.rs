@@ -23,6 +23,7 @@ pub struct Task {
 
 #[derive(Debug)]
 pub struct SharedData {
+    sys_did: Mutex<String>,
     tasks: Mutex<VecDeque<Task>>,
     pub user_list: Mutex<String>,
     did_node_map: RwLock<HashMap<String, String>>,
@@ -37,6 +38,7 @@ pub struct SharedData {
 impl SharedData {
     pub fn new() -> Self {
         Self {
+            sys_did: Mutex::new(String::new()),
             tasks: Mutex::new(VecDeque::new()),
             user_list: Mutex::new(String::new()),
             did_node_map: RwLock::new(HashMap::new()),
@@ -59,7 +61,12 @@ impl SharedData {
         guard.as_ref().expect("MessageQueue not initialized").clone()
     }
 
-    pub fn get_last(&self, did: &str, last_timestamp: u64, updated_list: Option<&str>) -> String {
+    pub fn set_sys_did(&self, did: &str) {
+        let mut guard = self.sys_did.lock().unwrap();
+        *guard = did.to_string();
+    }
+
+    pub fn get_last(&self, did: &str, last_timestamp: u64, updated_list: Option<&str>) -> (usize, usize, usize) {
         if let Some(list) = updated_list {
             let mut user_list = self.user_list.lock().unwrap();
             *user_list = list.to_string();
@@ -74,12 +81,13 @@ impl SharedData {
                 .cloned()
                 .collect::<Vec<_>>()
         };
-        
+        let sys_did = self.sys_did.lock().unwrap().clone();
         let messages_len = self.get_message_queue().get_msg_number_from(did, last_timestamp);
+        let msg_sys_len = self.get_message_queue().get_msg_number_from(&sys_did, last_timestamp);
         let user_all = self.online_all.get_number();
         let node_all = self.online_nodes.get_number();
-        info!("status: node:{}, user:{}, local_msg:{}", node_all, user_all, messages_len);
-        format!("{}|{}|{}", node_all, user_all, messages_len)
+        info!("status: node:{}, user:{}, local_msg:{}", node_all, user_all, messages_len+msg_sys_len);
+        (node_all, user_all, messages_len)
     }
     
     pub fn get_node_did(&self, peer_id: &str) -> Option<String> {

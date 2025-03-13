@@ -375,9 +375,9 @@ async fn broadcast_online_users(client: Client, interval: u64) {
     loop {
         time::sleep(dur).await;
         let users_list = shared_data.user_list.lock().unwrap().clone();
+        let topic = "online".to_string();
+        tracing::info!("📣 >>>> broadcast({topic}): {} online users in {}: {}", users_list.split('|').count(), client.get_peer_id(), users_list);
         if !users_list.is_empty() {
-            let topic = "online".to_string();
-            tracing::info!("📣 >>>> broadcast: {} online users in {}.", users_list.split('|').count(), client.get_peer_id());
             let message = format!("{}:{}", client.get_sys_did(), users_list); 
             let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
         } else {

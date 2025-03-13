@@ -242,7 +242,7 @@ impl<E: EventHandler> Server<E> {
             event = swarm.next() => {
                 match event.unwrap() {
                     SwarmEvent::NewListenAddr { address, .. } => {
-                        tracing::info!(%address, "📣 P2P node listening on address:");
+                        tracing::debug!(%address, "📣 P2P node listening on address:");
                         listened_addresses.push(address);
                     }
                     event => {},
@@ -651,9 +651,12 @@ impl<E: EventHandler> Server<E> {
     }
 
     fn get_short_id(&self) -> String {
-        let base58_peer_id = self.sys_did.clone(); //self.local_peer_id.to_base58();
+        let sys_did = self.sys_did.clone();
+        let short_sys_did = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
+        let base58_peer_id = self.local_peer_id.to_base58();
         let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
-        short_peer_id
+        
+        format!("{}/{}", short_sys_did, short_peer_id)
     }
 
     fn update_listened_addresses(&mut self) {
@@ -804,15 +807,18 @@ pub(crate) struct NodeStatus {
 impl NodeStatus {
     pub(crate) fn short_format(&self) -> String {
         let shared_data = shared::get_shared_data();
-        let short_id = (|| {
+        let short_sys_did = (|| {
             self.local_sys_did[self.local_sys_did.len() - 7..].to_string()
+        })();
+        let short_peer_id = (|| {
+            self.local_peer_id[self.local_peer_id.len() - 7..].to_string()
         })();
         let external_addresses = self.external_addresses
             .iter()
             .map(|addr| addr.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        let head= format!("NodeStatus({}:<{}>), peers({})[", short_id, external_addresses, self.known_peers_count);
+        let head= format!("NodeStatus({short_sys_did}/{short_peer_id}), peers({})[", self.known_peers_count);
         let peers = self.known_peers.iter()
             .map(|(peer_id, multiaddrs)| {
                 let peer_did = shared_data.get_did_node(&peer_id.to_base58()).unwrap_or_else(|| peer_id.to_base58().into());
@@ -849,10 +855,9 @@ impl NodeStatus {
                 let short_peer_did = peer_did.chars().skip(peer_did.len() - 7).collect::<String>();
                 let topics = (*topichashs).iter().map(|topic| topic.to_string()).collect::<Vec<_>>().join(", ");
 
-                format!("{}:{}", short_peer_did, (*topichashs).len())
+                format!("{}", short_peer_did)
             }).collect::<Vec<_>>().join(";");
-        format!("{}{}], listened({}), pubsubs({})({})", head, peers,
-                self.listened_addresses.len(),
+        format!("{}{}], pubsubs({})({})", head, peers,
                 self.pubsub_peers.len(), pubsubs)
     }
 }

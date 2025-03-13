@@ -51,6 +51,7 @@ pub struct SimpleAI {
     global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
     last_timestamp: u64,
+    sid_did_map: Arc<Mutex<HashMap<String, String>>>,
     shared_data: &'static SharedData,
 }
 
@@ -84,6 +85,7 @@ impl SimpleAI {
         let message_queue = MessageQueue::new(global_local_vars.clone());
         let mut shared_data = shared::get_shared_data();
         shared_data.set_message_queue(message_queue);
+        shared_data.set_sys_did(&sys_did);
 
         Self {
             sys_name,
@@ -96,6 +98,7 @@ impl SimpleAI {
             global_local_vars,
             online_users,
             last_timestamp: 0,
+            sid_did_map: Arc::new(Mutex::new(HashMap::new())),
             shared_data,
         }
     }
@@ -287,9 +290,10 @@ impl SimpleAI {
         }
     }
 
-    pub fn get_global_status(&self, did: &str, last_timestamp: u64) -> String {
+    pub fn get_global_status(&self, sid: &str, last_timestamp: u64) -> (usize, usize, usize) {
         let user_list = self.online_users.get_full_list();
-        self.shared_data.get_last(did, last_timestamp, Some(&user_list))
+        let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
+        self.shared_data.get_last(&did, last_timestamp, Some(&user_list))
     }
 
 
@@ -674,9 +678,11 @@ impl SimpleAI {
             let user_did = did_bytes.to_base58();
             let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
+                self.sid_did_map.lock().unwrap().remove(sstoken);
                 println!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                 String::from("Unknown")
             } else {
+                self.sid_did_map.lock().unwrap().insert(sstoken.to_string(), user_did.clone());
                 user_did
             }
         } else {
@@ -698,9 +704,11 @@ impl SimpleAI {
                 let user_did = did_bytes.to_base58();
                 let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
-                    println!("{} [UserBase] The context2 of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
+                    self.sid_did_map.lock().unwrap().remove(sstoken);
+                println!("{} [UserBase] The context2 of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
                     String::from("Unknown")
                 } else {
+                    self.sid_did_map.lock().unwrap().insert(sstoken.to_string(), user_did.clone());
                     user_did
                 }
             } else {
