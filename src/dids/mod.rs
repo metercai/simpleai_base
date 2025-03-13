@@ -210,11 +210,13 @@ impl DidToken {
                                          -> (String, String) {
         self.sign_and_issue_cert_by_did(&self.did.clone(), item, for_did, for_sys_did, memo)
     }
+
     pub fn sign_and_issue_cert_by_did(&mut self, issuer_did: &str, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
                                       -> (String, String) {
         if !issuer_did.is_empty() && !for_did.is_empty() && !for_sys_did.is_empty() && !item.is_empty() && !memo.is_empty() &&
             IdClaim::validity(issuer_did) && IdClaim::validity(for_did) && IdClaim::validity(for_sys_did) &&
             item.len() < 32 && memo.len() < 256 {
+
             let unknown = "Unknown".to_string();
             let cert_secret_base64 = self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&unknown);
             if cert_secret_base64 != "Unknown" {
@@ -223,7 +225,7 @@ impl DidToken {
                     let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
                     if item_key != [0u8; 32] {
                         let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
-                        debug!("encrypt_item_key: cert_secret.len={}, item_key.len={}, encrypt_item_key.len={}",
+                        info!("encrypt_item_key: cert_secret.len={}, item_key.len={}, encrypt_item_key.len={}",
                             cert_secret.len(), item_key.len(), URL_SAFE_NO_PAD.decode(encrypt_item_key.clone()).unwrap().len());
                         let memo_base64 = URL_SAFE_NO_PAD.encode(memo.as_bytes());
                         let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
