@@ -78,6 +78,7 @@ impl DidToken {
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
+        info!("init DidToken context started");
         let sysbaseinfo = SYSTEM_BASE_INFO.clone();
         let sysinfo_handle = TOKIO_RUNTIME.spawn(async move {
             SystemInfo::generate().await
@@ -139,9 +140,9 @@ impl DidToken {
             String::new()
         };
 
-        debug!("upstream_did: {}, admin_did: {}", upstream_did, admin);
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
-
+        info!("sys_did: {}, upstream_did: {}, admin_did: {}", local_did, upstream_did, admin);
+        
         Self {
             did: local_did,
             device: device_did,
