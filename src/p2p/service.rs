@@ -13,7 +13,7 @@ use tokio::{
         time::{self, Interval},
         sync::mpsc::{self, UnboundedSender, UnboundedReceiver} };
 use libp2p::{
-        kad, tcp, identify, noise, yamux, ping, mdns, autonat, relay, dcutr, upnp,
+        kad, tcp, identify, noise, yamux, ping, mdns, autonat, relay, dcutr, upnp, rendezvous,
         core::multiaddr::Protocol,
         identity::{Keypair, ed25519},
         futures::{StreamExt, FutureExt},
@@ -270,6 +270,7 @@ impl<E: EventHandler> Server<E> {
                 swarm.dial(upstream_addr.clone()).unwrap();
                 let id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
                 tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, upstream_addr);
+
             }
         }
 
@@ -399,6 +400,7 @@ impl<E: EventHandler> Server<E> {
                 }
                 return;
             },
+            
 
             _ => return,
         };
@@ -447,7 +449,7 @@ impl<E: EventHandler> Server<E> {
                 message_id: id,
                 message,
             }) => {
-                tracing::debug!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
+                tracing::info!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
                         String::from_utf8_lossy(&message.data));
                 self.handle_inbound_broadcast(message)
             },
@@ -531,6 +533,29 @@ impl<E: EventHandler> Server<E> {
             BehaviourEvent::Dcutr(event) => {
                 tracing::info!(?event)
             }
+
+            BehaviourEvent::Rendezvous(
+                rendezvous::server::Event::PeerRegistered { peer, registration },
+            ) => {
+                tracing::info!(
+                    "Peer {} registered for namespace '{}'",
+                    peer,
+                    registration.namespace
+                );
+            }
+            BehaviourEvent::Rendezvous(
+                rendezvous::server::Event::DiscoverServed {
+                    enquirer,
+                    registrations,
+                },
+            ) => {
+                tracing::info!(
+                    "Served peer {} with {} registrations",
+                    enquirer,
+                    registrations.len()
+                );
+            }
+
 
             _ => {}
         }

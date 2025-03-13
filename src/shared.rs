@@ -86,7 +86,7 @@ impl SharedData {
         let msg_sys_len = self.get_message_queue().get_msg_number_from(&sys_did, last_timestamp);
         let user_all = self.online_all.get_number();
         let node_all = self.online_nodes.get_number();
-        info!("status: node:{}, user:{}, local_msg:{}", node_all, user_all, messages_len+msg_sys_len);
+        info!("status({}): node:{}, user:{}, local_msg:{}", did, node_all, user_all, messages_len+msg_sys_len);
         (node_all, user_all, messages_len)
     }
     

@@ -50,7 +50,7 @@ pub struct SimpleAI {
     ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
     global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
-    last_timestamp: u64,
+    last_timestamp: Arc<RwLock<u64>>,
     sid_did_map: Arc<Mutex<HashMap<String, String>>>,
     shared_data: &'static SharedData,
 }
@@ -97,7 +97,7 @@ impl SimpleAI {
             ready_users,
             global_local_vars,
             online_users,
-            last_timestamp: 0,
+            last_timestamp: Arc::new(RwLock::new(0u64)),
             sid_did_map: Arc::new(Mutex::new(HashMap::new())),
             shared_data,
         }
@@ -291,6 +291,7 @@ impl SimpleAI {
     }
 
     pub fn get_global_status(&self, sid: &str, last_timestamp: u64) -> (usize, usize, usize) {
+        let last_time = self.last_timestamp.read().unwrap();
         let user_list = self.online_users.get_full_list();
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.shared_data.get_last(&did, last_timestamp, Some(&user_list))
