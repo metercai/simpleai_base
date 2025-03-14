@@ -33,6 +33,7 @@ use crate::p2p::protocol::*;
 use crate::p2p::req_resp::*;
 use crate::p2p::config::*;
 use crate::p2p::error::P2pError;
+use crate::p2p::utils::PeerIdExt;
 use crate::dids::token_utils;
 use crate::dids::claims::IdClaim;
 use crate::utils::systeminfo::SystemInfo;
@@ -260,10 +261,10 @@ impl<E: EventHandler> Server<E> {
         });
 
 
-        let base58_peer_id = swarm.local_peer_id().to_base58();
+        let short_peer_id = swarm.local_peer_id().short_id();
         let sys_did = sys_claim.gen_did();
-        let short_peer_id = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
-        tracing::info!("P2P_node({}) start up, peer_id({})", short_peer_id, base58_peer_id);
+        let short_sys_did = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
+        tracing::info!("P2P_node({}/{}) start up, peer_id({})", short_sys_did, short_peer_id, swarm.local_peer_id().to_base58());
 
         swarm.behaviour_mut().kademlia
             .set_mode(Some(kad::Mode::Server));
@@ -409,6 +410,7 @@ impl<E: EventHandler> Server<E> {
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
+                tracing::info!("Established new connection peer({})={}", peer_id.short_id(), endpoint.get_remote_address());
                 let peer_id_clone = peer_id.clone();
                 if self.upstream_nodes.iter().any(|node| node.peer_id() == peer_id) {
                     if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
@@ -417,10 +419,10 @@ impl<E: EventHandler> Server<E> {
                             peer_id_clone,
                             None,
                         ) {
-                            tracing::error!("Failed to register: {error}");
+                            tracing::error!("Failed to register after ConnectionEstablished({}): {error}", peer_id.short_id());
                             return;
                         }
-                        tracing::info!("Connection established with rendezvous point {}", peer_id);
+                        tracing::info!("Connection established with rendezvous point: {}", peer_id.short_id());
                         rendezvous.discover(
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
                             None,
@@ -428,8 +430,6 @@ impl<E: EventHandler> Server<E> {
                             self.rendezvous_point,
                         );
                     }
-                } else {
-                    tracing::info!(peer=%endpoint.get_remote_address(), "Established new connection");
                 }
                 return;
             }
@@ -440,7 +440,7 @@ impl<E: EventHandler> Server<E> {
                 ..
             } => {
                 if self.record_peer_failure(&peer, "Connection") {
-                    tracing::info!("Connection failures has reached the threshold, remove the node: {:?}", peer);
+                    tracing::info!("Connection failures has reached the threshold, remove the node: {:?}", peer.short_id());
                     self.network_service.behaviour_mut().remove_peer(&peer);
                 }
                 return;
@@ -471,21 +471,21 @@ impl<E: EventHandler> Server<E> {
                 ..
             }) => {
                 if self.record_peer_failure(&peer, "Ping") {
-                    tracing::info!("Ping failures has reached the threshold, remove the node: {:?}", peer);
+                    tracing::info!("Ping failures has reached the threshold, remove the node: {:?}", peer.short_id());
                     self.network_service.behaviour_mut().remove_peer(&peer)
                 }
             },
 
             BehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
                 for (peer_id, multiaddr) in list {
-                    tracing::info!("mDNS discovered a new peer: {peer_id} at {multiaddr}");
+                    tracing::info!("mDNS discovered a new peer: {} at {multiaddr}", peer_id.short_id());
                     self.add_addresses(&peer_id, vec![multiaddr]);
                     self.network_service.behaviour_mut().pubsub.add_explicit_peer(&peer_id);
                 }
             }
             BehaviourEvent::Mdns(mdns::Event::Expired(list)) => {
                 for (peer_id, _multiaddr) in list {
-                    tracing::info!("mDNS discover peer has expired: {peer_id}");
+                    tracing::info!("mDNS discover peer has expired: {}", peer_id.short_id());
                     self.network_service.behaviour_mut().pubsub.remove_explicit_peer(&peer_id);
                 }
             }
@@ -494,8 +494,8 @@ impl<E: EventHandler> Server<E> {
                 message_id: id,
                 message,
             }) => {
-                tracing::debug!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
-                        String::from_utf8_lossy(&message.data));
+                tracing::debug!("<<==== Got broadcast message with id({id}) from peer({}): '{}'",
+                    peer_id.short_id(), String::from_utf8_lossy(&message.data));
                 self.handle_inbound_broadcast(message)
             },
             // BehaviourEvent::Identify(identify::Event::Sent { peer_id, .. }) => {
@@ -512,7 +512,7 @@ impl<E: EventHandler> Server<E> {
                     .. }, connection_id 
             }) => {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
-                    tracing::info!("P2P_node({}) add peer({:?}, {:?})", self.get_short_id(), protocols, agent_version);
+                    tracing::info!("P2P_node({}) add peer({}, {:?})", self.get_short_id(), peer_id.short_id(), agent_version);
                     self.add_addresses(&peer_id, listen_addrs);
                 };
                 self.network_service.add_external_address(observed_addr.clone());
@@ -524,10 +524,10 @@ impl<E: EventHandler> Server<E> {
                         self.rendezvous_point,
                         None,
                     ) {
-                        tracing::error!("Failed to register: {error}");
+                        tracing::error!("Failed to register after Identify({}): {error}", peer_id.short_id());
                         return;
                     }
-                    tracing::info!("Connection established with rendezvous point {}", peer_id);
+                    tracing::info!("Connection established with rendezvous point {}", peer_id.short_id());
                 }
             }
 
@@ -556,7 +556,7 @@ impl<E: EventHandler> Server<E> {
                 result: Ok(()),
             }) => {
                 self.network_service.add_external_address(tested_addr.clone());
-                tracing::info!("Tested {tested_addr} with {server}. Sent {bytes_sent} bytes for verification. Everything Ok and verified.");
+                tracing::info!("Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Everything Ok and verified.", server.short_id());
             }
             BehaviourEvent::AutonatClient(autonat::v2::client::Event {
                 server,
@@ -564,7 +564,7 @@ impl<E: EventHandler> Server<E> {
                 bytes_sent,
                 result: Err(e),
             }) => {
-                tracing::info!("Tested {tested_addr} with {server}. Sent {bytes_sent} bytes for verification. Failed with {e:?}.");
+                tracing::info!("Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Failed with {e:?}.", server.short_id());
             }
 
             BehaviourEvent::Upnp(upnp::Event::NewExternalAddr(addr)) => {
@@ -624,7 +624,7 @@ impl<E: EventHandler> Server<E> {
                 tracing::info!(
                     "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
                     namespace,
-                    rendezvous_node,
+                    rendezvous_node.short_id(),
                     ttl
                 );
             }
@@ -637,7 +637,7 @@ impl<E: EventHandler> Server<E> {
             ) => {
                 tracing::error!(
                     "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                    rendezvous_node,
+                    rendezvous_node.short_id(),
                     namespace,
                     error
                 );
@@ -791,10 +791,7 @@ impl<E: EventHandler> Server<E> {
     fn get_short_id(&self) -> String {
         let sys_did = self.sys_did.clone();
         let short_sys_did = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
-        let base58_peer_id = self.local_peer_id.to_base58();
-        let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
-        
-        format!("{}/{}", short_sys_did, short_peer_id)
+        format!("{}/{}", short_sys_did, self.local_peer_id.short_id())
     }
 
     fn update_listened_addresses(&mut self) {

@@ -104,6 +104,17 @@ pub(crate) fn get_short_id(peer_id: PeerId) -> String {
     short_peer_id
 }
 
+pub trait PeerIdExt {
+    /// 返回 PeerId 的短格式（最后7个字符）
+    fn short_id(&self) -> String;
+}
+
+impl PeerIdExt for PeerId {
+    fn short_id(&self) -> String {
+        let base58_peer_id = self.to_base58();
+        base58_peer_id.chars().skip(base58_peer_id.len().saturating_sub(7)).collect()
+    }
+}
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 
     //let key2 = pbkdf2_hmac_array::<Sha256, 20>(password, salt, n);

@@ -18,7 +18,7 @@ use crate::p2p;
 
 
 
-use tracing::debug;
+use tracing::{debug, info};
 use pyo3::prelude::*;
 
 lazy_static::lazy_static! {
@@ -254,11 +254,12 @@ impl GlobalClaims {
         let mut claim = self.get_claim_from_local(did);
         if claim.is_default() {
             if let Some(p2p) = p2p::get_instance() {
+                info!("ready to get claim from upstream with p2p channel");
                 claim = TOKIO_RUNTIME.block_on(async {
                     p2p.get_claim_from_upstream(did.to_string()).await
                 });
                 if !claim.is_default() {
-                    debug!("成功通过 P2P 网络获取用户 {} 的声明", did);
+                    info!("成功通过 P2P 网络获取用户 {} 的声明", did);
                     self.push_claim(&claim);
                 }
             }
