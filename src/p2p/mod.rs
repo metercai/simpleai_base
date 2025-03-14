@@ -282,7 +282,7 @@ impl EventHandler for Handler {
                         self.shared_data.online_all.get_number()
                     };
                     let (online_nodes_num, online_nodes_top) = {
-                        self.shared_data.online_nodes.log_access(sender_id.clone());
+                        self.shared_data.online_nodes.log_access_batch(sender_id.clone());
                         (self.shared_data.online_nodes.get_number(), self.shared_data.online_nodes.get_nodes_top_list())
                     };
                     tracing::info!("已更新在线用户列表: online_nodes={}, online_users={}", online_nodes_num, online_all_num);

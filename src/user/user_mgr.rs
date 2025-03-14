@@ -79,11 +79,13 @@ impl OnlineUsers {
     pub fn log_access_batch(&self, batch_ids: String) {
         let now = Self::current_timestamp();
         if !batch_ids.is_empty() {
+            let mut registered = self.registered_users.write().unwrap();
             let mut queue = self.user_queue.lock().unwrap();
             batch_ids
                 .split('|') // 按 '|' 分隔字符串
                 .map(|id| id.trim()) // 去除空白字符
                 .for_each(|id| {
+                    registered.insert(id.to_string());
                     queue.push_back((id.to_string(), now));
                 });
         }
