@@ -24,19 +24,22 @@ use crate::p2p::req_resp;
 use crate::p2p::config::{ReqRespConfig, PeerIdWithMultiaddr};
 
 lazy_static! {
-    static ref  BOOT_NODES: Vec<PeerIdWithMultiaddr> = vec![
-    PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X").unwrap(),
-    PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc").unwrap()
+    pub(crate) static ref BOOT_NODES: Vec<PeerIdWithMultiaddr> = vec![
+        PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X").unwrap(),
+        PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc").unwrap()
     ];
 }
 
 pub(crate) const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
+pub(crate) const NAMESPACE: &str = "token";
 
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour {
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
     pub(crate) pubsub: gossipsub::Behaviour,
     pub(crate) req_resp: request_response::Behaviour<req_resp::GenericCodec>,
+    pub(crate) rendezvous: Toggle<rendezvous::server::Behaviour>,
+    pub(crate) rendezvous_client: Toggle<rendezvous::client::Behaviour>,
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     mdns: mdns::tokio::Behaviour,
@@ -44,8 +47,6 @@ pub(crate) struct Behaviour {
     relay_client: Toggle<relay::client::Behaviour>,
     autonat: Toggle<autonat::v2::server::Behaviour>,
     autonat_client: Toggle<autonat::v2::client::Behaviour>,
-    rendezvous: Toggle<rendezvous::server::Behaviour>,
-    rendezvous_client: Toggle<rendezvous::client::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     upnp: Toggle<upnp::tokio::Behaviour>,
 }

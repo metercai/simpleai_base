@@ -26,6 +26,7 @@ use std::sync::Arc;
 use futures::{executor::block_on};
 use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
+use rand::Rng;
 
 use crate::p2p::{http_service, utils};
 use crate::p2p::protocol::*;
@@ -152,9 +153,12 @@ pub(crate) struct Server<E: EventHandler> {
     /// The topics will be hashed when subscribing to the gossipsub protocol,
     /// but we need to keep the original topic names for broadcasting.
     pubsub_topics: Vec<String>,
+    upstream_nodes: Vec<PeerIdWithMultiaddr>,
     metrics: Metrics,
     is_global: bool,
     upnp_mapped: bool,
+    rendezvous_point: PeerId,
+    rendezvous_cookie: Option<rendezvous::Cookie>,
     connection_failure_counts: Mutex<HashMap<PeerId, Vec<Instant>>>,
     connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
 }
@@ -264,7 +268,7 @@ impl<E: EventHandler> Server<E> {
         swarm.behaviour_mut().kademlia
             .set_mode(Some(kad::Mode::Server));
 
-        if let Some(ref upstream_nodes) = config.address.upstream_nodes {
+        let upstream_nodes = if let Some(ref upstream_nodes) = config.address.upstream_nodes {
             for upstream_node in upstream_nodes {
                 let upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
                 swarm.dial(upstream_addr.clone()).unwrap();
@@ -272,8 +276,14 @@ impl<E: EventHandler> Server<E> {
                 tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, upstream_addr);
 
             }
-        }
+            upstream_nodes
+        } else {
+            &BOOT_NODES
+        };
 
+        let random_index = rand::thread_rng().gen_range(0..upstream_nodes.len());
+        let rendezvous_point = upstream_nodes[random_index].peer_id();
+        
         match config.address.boot_nodes {
             Some(ref boot_nodes) => {
                 for boot_node in boot_nodes.iter() {
@@ -314,9 +324,12 @@ impl<E: EventHandler> Server<E> {
             discovery_ticker,
             pending_outbound_requests: HashMap::new(),
             pubsub_topics,
+            upstream_nodes: upstream_nodes.to_vec(),
             metrics,
             is_global,
             upnp_mapped: false,
+            rendezvous_point,
+            rendezvous_cookie: None,
             connection_failure_counts: Mutex::new(HashMap::new()),
             connection_quality: Mutex::new(HashMap::new()),
         })
@@ -334,8 +347,19 @@ impl<E: EventHandler> Server<E> {
                 // Next discovery process.
                 _ = self.discovery_ticker.tick() => {
                     self.network_service.behaviour_mut().discover_peers();
+                    if self.rendezvous_cookie.is_some() {
+                        if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
+                            let random_index = rand::thread_rng().gen_range(0..self.upstream_nodes.len());
+                            self.rendezvous_point = self.upstream_nodes[random_index].peer_id();
+                            rendezvous.discover(
+                                Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                                self.rendezvous_cookie.clone(),
+                                None,
+                                self.rendezvous_point,
+                            )
+                        }
+                    }
                 },
-
                 // Next command from the `Client`.
                 msg = self.cmd_receiver.recv() => {
                     if let Some(cmd) = msg {
@@ -385,10 +409,31 @@ impl<E: EventHandler> Server<E> {
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
-                tracing::info!(peer=%endpoint.get_remote_address(), "Established new connection");
+                let peer_id_clone = peer_id.clone();
+                if self.upstream_nodes.iter().any(|node| node.peer_id() == peer_id) {
+                    if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
+                        if let Err(error) = rendezvous.register(
+                            rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap(),
+                            peer_id_clone,
+                            None,
+                        ) {
+                            tracing::error!("Failed to register: {error}");
+                            return;
+                        }
+                        tracing::info!("Connection established with rendezvous point {}", peer_id);
+                        rendezvous.discover(
+                            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                            None,
+                            None,
+                            self.rendezvous_point,
+                        );
+                    }
+                } else {
+                    tracing::info!(peer=%endpoint.get_remote_address(), "Established new connection");
+                }
                 return;
             }
-            
+
             // Can't connect to the `peer`, remove it from the DHT.
             SwarmEvent::OutgoingConnectionError {
                 peer_id: Some(peer),
@@ -449,7 +494,7 @@ impl<E: EventHandler> Server<E> {
                 message_id: id,
                 message,
             }) => {
-                tracing::info!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
+                tracing::debug!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
                         String::from_utf8_lossy(&message.data));
                 self.handle_inbound_broadcast(message)
             },
@@ -463,14 +508,27 @@ impl<E: EventHandler> Server<E> {
                     listen_addrs,
                     protocols,
                     observed_addr,
+                    agent_version,
                     .. }, connection_id 
             }) => {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
-                    tracing::info!("P2P_node({}) add peer({:?}, {:?})", self.get_short_id(), peer_id, listen_addrs);
+                    tracing::info!("P2P_node({}) add peer({:?}, {:?})", self.get_short_id(), protocols, agent_version);
                     self.add_addresses(&peer_id, listen_addrs);
                 };
                 self.network_service.add_external_address(observed_addr.clone());
-                tracing::info!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
+                tracing::debug!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
+
+                if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
+                    if let Err(error) = rendezvous.register(
+                        rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap(),
+                        self.rendezvous_point,
+                        None,
+                    ) {
+                        tracing::error!("Failed to register: {error}");
+                        return;
+                    }
+                    tracing::info!("Connection established with rendezvous point {}", peer_id);
+                }
             }
 
             BehaviourEvent::ReqResp(request_response::Event::Message {
@@ -556,7 +614,62 @@ impl<E: EventHandler> Server<E> {
                 );
             }
 
+            BehaviourEvent::RendezvousClient(
+                rendezvous::client::Event::Registered {
+                    namespace,
+                    ttl,
+                    rendezvous_node,
+                },
+            ) => {
+                tracing::info!(
+                    "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
+                    namespace,
+                    rendezvous_node,
+                    ttl
+                );
+            }
+            BehaviourEvent::RendezvousClient(
+                rendezvous::client::Event::RegisterFailed {
+                    rendezvous_node,
+                    namespace,
+                    error,
+                },
+            ) => {
+                tracing::error!(
+                    "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                    rendezvous_node,
+                    namespace,
+                    error
+                );
+                return;
+            }
 
+            BehaviourEvent::RendezvousClient(
+                rendezvous::client::Event::Discovered {
+                    registrations,
+                    cookie: new_cookie,
+                    ..
+            }) => {
+                self.rendezvous_cookie.replace(new_cookie);
+
+                for registration in registrations {
+                    for address in registration.record.addresses() {
+                        let peer = registration.record.peer_id();
+                        tracing::info!(%peer, %address, "Discovered peer");
+
+                        let p2p_suffix = Protocol::P2p(peer);
+                        let address_with_p2p =
+                            if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
+                                address.clone().with(p2p_suffix)
+                            } else {
+                                address.clone()
+                            };
+
+                        self.network_service.dial(address_with_p2p).unwrap();
+                    }
+                }
+            }
+            
             _ => {}
         }
     }
