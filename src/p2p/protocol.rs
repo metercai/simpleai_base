@@ -53,6 +53,7 @@ pub(crate) struct Behaviour {
 
 impl Behaviour {
     pub(crate) fn new(
+        sys_did: String,
         local_key: identity::Keypair,
         relay_client: Option<relay::client::Behaviour>,
         is_global: bool,
@@ -60,6 +61,10 @@ impl Behaviour {
         req_resp_config: Option<ReqRespConfig>,
     ) -> Self {
         let pub_key = local_key.public();
+        let identify = identify::Behaviour::new(
+            identify::Config::new("token/0.1.0".to_string(), pub_key.clone())
+                .with_agent_version(format!("p2p_node/{}", env!("CARGO_PKG_VERSION"))),
+        );
         let kademlia = {
             // 使用 Default::default() 创建配置，然后设置协议名称
             let mut kademlia_config = kad::Config::new(TOKEN_PROTO_NAME);
@@ -128,11 +133,7 @@ impl Behaviour {
 
         Self {
             ping: ping::Behaviour::new(ping::Config::default().with_interval(Duration::from_secs(15))),
-            identify: identify::Behaviour::new(
-                identify::Config::new("token/0.1.0".to_string(), pub_key.clone()).with_agent_version(
-                    format!("p2p_node/{}", env!("CARGO_PKG_VERSION")),
-                ),
-            ),
+            identify,
             kademlia,
             mdns,
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),

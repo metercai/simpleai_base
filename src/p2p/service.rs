@@ -197,7 +197,8 @@ impl<E: EventHandler> Server<E> {
         let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &sys_claim.get_symbol_hash());
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)))?));
-
+        
+        let sys_did = sys_claim.gen_did();
         let is_upstream_server = if let Some(v) = config.is_upstream_server { v } else { false };
         let pubsub_topics: Vec<_> = config.pubsub_topics.clone();
         let req_resp_config = config.req_resp.clone();
@@ -225,7 +226,7 @@ impl<E: EventHandler> Server<E> {
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key, relay_client | {
-                    Behaviour::new(key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
+                    Behaviour::new(sys_did.clone(), key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build();
@@ -262,7 +263,6 @@ impl<E: EventHandler> Server<E> {
 
 
         let short_peer_id = swarm.local_peer_id().short_id();
-        let sys_did = sys_claim.gen_did();
         let short_sys_did = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
         tracing::info!("P2P_node({}/{}) start up, peer_id({})", short_sys_did, short_peer_id, swarm.local_peer_id().to_base58());
 
@@ -422,7 +422,7 @@ impl<E: EventHandler> Server<E> {
                             tracing::error!("Failed to register after ConnectionEstablished({}): {error}", peer_id.short_id());
                             return;
                         }
-                        tracing::info!("Connection established with rendezvous point: {}", peer_id.short_id());
+                        tracing::info!("Connection established after ConnectionEstablished with rendezvous point: {}", peer_id.short_id());
                         rendezvous.discover(
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
                             None,
@@ -527,7 +527,7 @@ impl<E: EventHandler> Server<E> {
                         tracing::error!("Failed to register after Identify({}): {error}", peer_id.short_id());
                         return;
                     }
-                    tracing::info!("Connection established with rendezvous point {}", peer_id.short_id());
+                    tracing::info!("Connection established after Identify with rendezvous point: {}", peer_id.short_id());
                 }
             }
 

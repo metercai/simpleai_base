@@ -87,6 +87,12 @@ impl SimpleAI {
         shared_data.set_message_queue(message_queue);
         shared_data.set_sys_did(&sys_did);
 
+        let admin_did = didtoken.lock().unwrap().get_admin_did();
+        if !admin_did.is_empty() {
+            online_users.log_register(admin_did.clone());
+            shared_data.online_all.log_register(admin_did.clone());
+        }
+        
         Self {
             sys_name,
             sys_did,
@@ -151,6 +157,7 @@ impl SimpleAI {
     }
 
     pub fn set_admin_did(&mut self, did: &str) {
+        self.log_register(&did);
         self.didtoken.lock().unwrap().set_admin_did(did)
     }
 
