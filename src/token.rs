@@ -312,10 +312,12 @@ impl SimpleAI {
 
     pub fn log_register(&self, did: &str) {
         self.online_users.log_register(did.to_string());
+        self.shared_data.online_all.log_register(did.to_string());
     }
 
     pub fn log_access(&self, did: &str) {
         self.online_users.log_access(did.to_string());
+        self.shared_data.online_all.log_access(did.to_string());
     }
 
     pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
