@@ -200,7 +200,14 @@ impl GlobalClaims {
     pub fn push_claim(&mut self, claim: &IdClaim) {
         self.claims.insert(claim.gen_did(), claim.clone());
         let did_file_path = token_utils::get_path_in_sys_key_dir(&format!("{}_{}.did", claim.id_type.to_lowercase(), claim.gen_did()));
-        fs::write(did_file_path, claim.to_json_string()).unwrap()
+        fs::write(did_file_path, claim.to_json_string()).unwrap();
+        if let Some(p2p) = p2p::get_instance() {
+            info!("ready to put claim to DHT network");
+            let claim_clone = claim.clone();
+            TOKIO_RUNTIME.block_on(async {
+                p2p.put_claim_to_DHT(claim_clone).await
+            });
+        }
     }
 
     pub fn pop_claim(&mut self, did: &str) -> IdClaim {
@@ -251,13 +258,20 @@ impl GlobalClaims {
     }
 
     pub fn get_claim_from_global(&mut self, did: &str) -> IdClaim {
-        let mut claim = self.get_claim_from_local(did);
+        let mut claim = self.get_claim_from_local(did.clone());
         if claim.is_default() {
             if let Some(p2p) = p2p::get_instance() {
-                info!("ready to get claim from upstream with p2p channel");
+                debug!("ready to get claim from DHT network");
+                let did_clone = did.clone();
                 claim = TOKIO_RUNTIME.block_on(async {
-                    p2p.get_claim_from_upstream(did.to_string()).await
+                    p2p.get_claim_from_DHT(did_clone).await
                 });
+                if claim.is_default() {
+                    debug!("ready to get claim from upstream with p2p channel");
+                    claim = TOKIO_RUNTIME.block_on(async {
+                        p2p.get_claim_from_upstream(did_clone.to_string()).await
+                    });
+                }
                 if !claim.is_default() {
                     info!("成功通过 P2P 网络获取用户 {} 的声明", did);
                     self.push_claim(&claim);

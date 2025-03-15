@@ -156,9 +156,11 @@ impl SimpleAI {
         self.didtoken.lock().unwrap().get_admin_did()
     }
 
-    pub fn set_admin_did(&mut self, did: &str) {
-        self.log_register(&did);
-        self.didtoken.lock().unwrap().set_admin_did(did)
+    pub(crate) fn set_admin_did(&mut self, did: &str) {
+        if !did.is_empty() {
+            self.log_register(&did);
+            self.didtoken.lock().unwrap().set_admin_did(did);
+        }
     }
 
     pub fn is_admin(&self, did: &str) -> bool {
@@ -220,7 +222,7 @@ impl SimpleAI {
 
 
 
-    pub fn p2p_start(&mut self) -> String {
+    pub(crate) fn p2p_start(&mut self) -> String {
         {
             let mut p2p_handle = P2P_HANDLE.lock().unwrap();
             if p2p_handle.is_some() {
@@ -243,7 +245,7 @@ impl SimpleAI {
     }
     
     /// 停止 P2P 服务
-    pub fn p2p_stop(&mut self) -> String {
+    pub(crate) fn p2p_stop(&mut self) -> String {
         // 如果没有运行的服务，返回提示信息
         let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         if p2p_handle.is_none() {
@@ -265,7 +267,7 @@ impl SimpleAI {
     }
     
     /// 重启 P2P 服务
-    pub fn p2p_restart(&mut self) -> String {
+    pub(crate) fn p2p_restart(&mut self) -> String {
         // 先停止服务
         let stop_result = self.p2p_stop();
         

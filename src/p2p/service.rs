@@ -21,6 +21,7 @@ use libp2p::{
         swarm::SwarmEvent,
         gossipsub::{self, TopicHash},
         request_response::{self, OutboundFailure, OutboundRequestId, ResponseChannel},
+        kad::{QueryId},
         Swarm, Multiaddr, PeerId,};
 use std::sync::Arc;
 use futures::{executor::block_on};
@@ -53,7 +54,7 @@ pub(crate) trait EventHandler: Debug + Send + 'static {
 #[derive(Clone, Debug)]
 pub(crate) struct Client {
     cmd_sender: UnboundedSender<Command>,
-    peer_id: String,
+    peer_id: PeerId,
     sys_did: String,
 }
 
@@ -61,10 +62,10 @@ pub(crate) struct Client {
 pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
     let server = Server::new(config, sys_claim, sysinfo, cmd_receiver).await?;
-    let local_peer_id = server.get_peer_id().to_base58();
+    let local_peer_id = server.get_peer_id();
     let client = Client {
         cmd_sender,
-        peer_id: local_peer_id[local_peer_id.len() - 7..].to_string(),
+        peer_id: local_peer_id,
         sys_did: sys_claim.gen_did(),
     };
 
@@ -73,13 +74,21 @@ pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sy
 
 impl Client {
     /// Get the short peer id of the local node.
-    pub(crate) fn get_peer_id(&self) -> String {
+    pub(crate) fn get_peer_id(&self) -> PeerId {
         self.peer_id.clone()
+    }
+
+    pub(crate) fn get_short_id(&self) -> String {
+        self.peer_id.short_id()
     }
 
     /// Get the did of the local node.
     pub(crate) fn get_sys_did(&self) -> String {
         self.sys_did.clone()
+    }
+
+    pub(crate) fn get_short_did(&self) -> String {
+        self.sys_did.chars().skip(self.sys_did.len() - 7).collect::<String>()
     }
 
     /// Send a blocking request to the `target` peer.
@@ -119,6 +128,20 @@ impl Client {
         let _ = self.cmd_sender.send(Command::GetStatus(responder));
         receiver.await.unwrap_or_default()
     }
+
+    pub(crate) async fn get_key_value(&self, key: &str) -> Result<Vec<u8>, P2pError> {
+        let (responder, receiver) = oneshot::channel();
+        let _ = self.cmd_sender.send(Command::GetKeyValue(key.to_string(), responder));
+        let response = receiver.await.map_err(|_| P2pError::RequestRejected)?;
+        Ok(response)
+    }
+
+    pub(crate) async fn set_key_value(&self, key: String, value: Vec<u8>) -> String {
+        let (responder, receiver) = oneshot::channel();
+        let _ = self.cmd_sender.send(Command::SetKeyValue(key, value, responder));
+        receiver.await.unwrap_or_default()
+    }
+
 }
 
 /// The commands sent by the `Client` to the `Server`.
@@ -133,6 +156,8 @@ pub(crate) enum Command {
         message: Vec<u8>,
     },
     GetStatus(oneshot::Sender<NodeStatus>),
+    GetKeyValue(String, oneshot::Sender<Vec<u8>>),
+    SetKeyValue(String, Vec<u8>, oneshot::Sender<String>),
 }
 
 pub(crate) struct Server<E: EventHandler> {
@@ -151,14 +176,14 @@ pub(crate) struct Server<E: EventHandler> {
     discovery_ticker: Interval,
     /// The pending outbound requests, awaiting for a response from the remote.
     pending_outbound_requests: HashMap<OutboundRequestId, oneshot::Sender<ResponseType>>,
+    pending_kad_query: HashMap<QueryId, oneshot::Sender<Vec<u8>>>,
     /// The topics will be hashed when subscribing to the gossipsub protocol,
     /// but we need to keep the original topic names for broadcasting.
     pubsub_topics: Vec<String>,
-    upstream_nodes: Vec<PeerIdWithMultiaddr>,
+    upstream_nodes: UpstreamNodes,
     metrics: Metrics,
     is_global: bool,
     upnp_mapped: bool,
-    rendezvous_point: PeerId,
     rendezvous_cookie: Option<rendezvous::Cookie>,
     connection_failure_counts: Mutex<HashMap<PeerId, Vec<Instant>>>,
     connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
@@ -199,14 +224,14 @@ impl<E: EventHandler> Server<E> {
             try_from_bytes(Zeroizing::new(token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)))?));
         
         let sys_did = sys_claim.gen_did();
-        let is_upstream_server = if let Some(v) = config.is_upstream_server { v } else { false };
+        let is_upstream_node = if let Some(v) = config.is_upstream_node { v } else { false };
         let pubsub_topics: Vec<_> = config.pubsub_topics.clone();
         let req_resp_config = config.req_resp.clone();
 
         let netifs_ip = utils::get_ipaddr_from_netif()?;
         let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
         let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
-        let is_global = if locale_ip == public_ip || is_upstream_server { true } else { false };
+        let is_global = if locale_ip == public_ip || is_upstream_node { true } else { false };
         tracing::info!("P2P_node({:?}/{:?}) ready to start up : public_ip({:?}) is_global({})",
             locale_ip, 
             netifs_ip, 
@@ -269,31 +294,27 @@ impl<E: EventHandler> Server<E> {
         swarm.behaviour_mut().kademlia
             .set_mode(Some(kad::Mode::Server));
 
-        let upstream_nodes = if let Some(ref upstream_nodes) = config.address.upstream_nodes {
-            for upstream_node in upstream_nodes {
-                let upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
-                swarm.dial(upstream_addr.clone()).unwrap();
-                let id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
-                tracing::info!("P2P_node({}) listening on relay_node({})", short_peer_id, upstream_addr);
-
-            }
-            upstream_nodes
-        } else {
-            &BOOT_NODES
-        };
-
-        let random_index = rand::thread_rng().gen_range(0..upstream_nodes.len());
-        let rendezvous_point = upstream_nodes[random_index].peer_id();
+        let mut upstream_nodes = UpstreamNodes::new(&config);
         
-        match config.address.boot_nodes {
-            Some(ref boot_nodes) => {
-                for boot_node in boot_nodes.iter() {
-                    swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
-                };
+        let mut upstream_node = upstream_nodes.get_first();
+        let mut upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
+        let timeout_duration = Duration::from_secs(30); // 设置超时时间为30秒
+        let start_time = Instant::now();
+        while swarm.dial(upstream_addr.clone()).is_err() {
+            if start_time.elapsed() > timeout_duration {
+                println!("{} Timeout reached while trying to connect to upstream nodes. Entering no-upstream mode.", token_utils::now_string());
+                break;
             }
-            None => {}
-        };
+            upstream_node = upstream_nodes.get_select();
+            upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
+        }
+        let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
+        println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
+            token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
 
+        for node in upstream_nodes.iter() {
+            swarm.behaviour_mut().add_address(&node.peer_id(), node.address());
+        }
         swarm.behaviour_mut().discover_peers();
 
         let metrics = Metrics::new(&mut metric_registry);
@@ -324,12 +345,12 @@ impl<E: EventHandler> Server<E> {
             event_handler: OnceCell::new(),
             discovery_ticker,
             pending_outbound_requests: HashMap::new(),
+            pending_kad_query: HashMap::new(),
             pubsub_topics,
-            upstream_nodes: upstream_nodes.to_vec(),
+            upstream_nodes,
             metrics,
             is_global,
             upnp_mapped: false,
-            rendezvous_point,
             rendezvous_cookie: None,
             connection_failure_counts: Mutex::new(HashMap::new()),
             connection_quality: Mutex::new(HashMap::new()),
@@ -347,20 +368,19 @@ impl<E: EventHandler> Server<E> {
             select! {
                 // Next discovery process.
                 _ = self.discovery_ticker.tick() => {
-                    self.network_service.behaviour_mut().discover_peers();
-                    if self.rendezvous_cookie.is_some() {
-                        if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
-                            let random_index = rand::thread_rng().gen_range(0..self.upstream_nodes.len());
-                            self.rendezvous_point = self.upstream_nodes[random_index].peer_id();
-                            rendezvous.discover(
-                                Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                                self.rendezvous_cookie.clone(),
-                                None,
-                                self.rendezvous_point,
-                            )
+                        self.network_service.behaviour_mut().discover_peers();
+                        if self.rendezvous_cookie.is_some() {
+                            if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
+                                let rendezvous_point = self.upstream_nodes.get_select().peer_id();
+                                rendezvous.discover(
+                                    Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+                                    self.rendezvous_cookie.clone(),
+                                    None,
+                                    rendezvous_point,
+                                )
+                            }
                         }
-                    }
-                },
+                    },
                 // Next command from the `Client`.
                 msg = self.cmd_receiver.recv() => {
                     if let Some(cmd) = msg {
@@ -387,6 +407,8 @@ impl<E: EventHandler> Server<E> {
             } => self.handle_outbound_request(target, request, responder),
             Command::Broadcast { topic, message } => self.handle_outbound_broadcast(topic, message),
             Command::GetStatus(responder) => responder.send(self.get_status()).unwrap(),
+            Command::GetKeyValue(key, responder) => self.handle_kad_get_key(key, responder).unwrap(),
+            Command::SetKeyValue(key, value, responder) => responder.send(self.handle_kad_set_value(key, value)).unwrap(),
         }
     }
     // Process the next event coming from `Swarm`.
@@ -427,7 +449,7 @@ impl<E: EventHandler> Server<E> {
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
                             None,
                             None,
-                            self.rendezvous_point,
+                            peer_id_clone,
                         );
                     }
                 }
@@ -521,7 +543,7 @@ impl<E: EventHandler> Server<E> {
                 if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
                     if let Err(error) = rendezvous.register(
                         rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap(),
-                        self.rendezvous_point,
+                        self.upstream_nodes.get_last().peer_id(),
                         None,
                     ) {
                         tracing::error!("Failed to register after Identify({}): {error}", peer_id.short_id());
@@ -655,7 +677,7 @@ impl<E: EventHandler> Server<E> {
                 for registration in registrations {
                     for address in registration.record.addresses() {
                         let peer = registration.record.peer_id();
-                        tracing::info!(%peer, %address, "Discovered peer");
+                        tracing::info!("Discovered peer: {}/{}", peer.short_id(), address);
 
                         let p2p_suffix = Protocol::P2p(peer);
                         let address_with_p2p =
@@ -669,7 +691,47 @@ impl<E: EventHandler> Server<E> {
                     }
                 }
             }
-            
+            BehaviourEvent::Kademlia(
+                kad::Event::OutboundQueryProgressed {
+                    id, result, .. 
+            }) => {
+                match result {
+                    kad::QueryResult::GetRecord(Ok(
+                        kad::GetRecordOk::FoundRecord(kad::PeerRecord {
+                            record: kad::Record { key, value, .. },
+                            ..
+                        })
+                    )) => {
+                        match std::str::from_utf8(key.as_ref()) {
+                            Ok(key_str) => {
+                                tracing::info!("☕ Got record: {} -> {:?}", key_str, value);
+                                self.handle_kad_result(id, value.clone());
+                            },
+                            Err(_) => {
+                                tracing::warn!("☕ 获取到记录但无法解析为UTF-8字符串");
+                                self.handle_kad_result(id, value.clone());
+                            }
+                        }
+                    }
+                    kad::QueryResult::GetRecord(Err(err)) => {
+                        tracing::error!("❌ Kad get record failed: {:?}", err);
+                        self.handle_kad_failure(id);
+                    } 
+                    kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
+                        let key_str = std::str::from_utf8(key.as_ref()).unwrap();
+                        tracing::info!(
+                            "Successfully put record {:?}",
+                            std::str::from_utf8(key.as_ref()).unwrap()
+                        );
+                        self.handle_kad_result(id, key.to_vec());
+                    }
+                    kad::QueryResult::PutRecord(Err(err)) => {
+                        tracing::error!("❌ Kad set record failed: {:?}", err);
+                        self.handle_kad_failure(id);
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
@@ -778,6 +840,49 @@ impl<E: EventHandler> Server<E> {
             total_inbound_bytes: total_in,
             total_outbound_bytes: total_out,
         }
+    }
+
+    fn handle_kad_get_key(
+        &mut self,
+        key: String,
+        responder: oneshot::Sender<Vec<u8>>,
+    ) -> Result<(), Box<dyn Error>> {
+        let query_id = self
+            .network_service
+            .behaviour_mut()
+            .get_key_value(key.clone());
+        self.pending_kad_query.insert(query_id, responder);
+        Ok(())
+    }
+
+    fn handle_kad_failure(&mut self, query_id: QueryId) {
+        if let Some(responder) = self.pending_kad_query.remove(&query_id) {
+            let _ = responder.send(Vec::new());
+        } else {
+            tracing::warn!("❗ Received failure for unknown request: {}", query_id);
+            debug_assert!(false);
+        }
+    }
+
+    fn handle_kad_result(&mut self, query_id: QueryId, response: Vec<u8> ) {
+        if let Some(responder) = self.pending_kad_query.remove(&query_id) {
+            let _ = responder.send(response);
+        } else {
+            tracing::warn!("❗ Received response for unknown request: {}", query_id);
+            debug_assert!(false);
+        }
+    }
+
+    fn handle_kad_set_value(&mut self, key: String, value: Vec<u8>) -> String {
+        let query_id = self
+            .network_service
+            .behaviour_mut()
+            .set_key_value(key.clone(), String::from_utf8_lossy(&value).to_string());
+        
+        tracing::info!("☕ 存储键值对: {} -> {:?}, query_id: {:?}", key, value.len(), query_id);
+        
+        // 返回操作结果
+        format!("已提交存储请求: {}", key)
     }
 
     fn get_peer_id(&self) -> PeerId {

@@ -1,7 +1,8 @@
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use chrono::{Local, DateTime};
+use base58::ToBase58;
+use chrono::{format, DateTime, Local};
 use tokio::time;
 use rand::Rng;
 use libp2p::PeerId;
@@ -15,16 +16,17 @@ mod service;
 mod config;
 mod req_resp;
 
-use crate::p2p::service::{Client, Server, EventHandler};
-use crate::dids::claims::{GlobalClaims, IdClaim};
-use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 use once_cell::sync::OnceCell;
 use once_cell::sync::Lazy;
 
 use crate::dids::TOKIO_RUNTIME;
+use crate::dids::token_utils;
 use crate::dids::cert_center::GlobalCerts;
+use crate::dids::claims::{GlobalClaims, IdClaim};
 use crate::utils::systeminfo::SystemInfo;
 use crate::shared::{self, SharedData};
+use crate::p2p::service::{Client, Server, EventHandler};
+use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
@@ -110,7 +112,7 @@ impl P2p {
         let message = serde_json::to_string(&request).unwrap_or_else(|e| {
             "{}".to_string()
         });
-        let short_peer_id = self.client.get_peer_id();
+        let short_peer_id = self.client.get_short_id();
         
         if let Some(ref upstream_nodes) = self.config.address.upstream_nodes {
             for upstream_node in upstream_nodes {
@@ -124,8 +126,8 @@ impl P2p {
                     }
                     match serde_json::from_str::<IdClaim>(&result_str) {
                         Ok(claim) => {
-                            tracing::info!("P2P_node({}) 成功从上游节点({}) 获取用户({})的声明", 
-                                          short_peer_id, upstream_peer_id, did);
+                            println!("{} [P2pNode] P2P_node({}) 成功从上游节点({}) 获取用户({})的声明", 
+                                          token_utils::now_string(), short_peer_id, upstream_peer_id, did);
                             return claim;
                         },
                         Err(e) => {
@@ -144,9 +146,48 @@ impl P2p {
         IdClaim::default()
     }
 
+    pub async fn get_claim_from_DHT(&self, did: &str) -> IdClaim {
+        if did.is_empty() ||!IdClaim::validity(did) {
+            return IdClaim::default();
+        }
+
+        let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
+        self.client.get_key_value(&key).await.map(|value| {
+            match String::from_utf8(value) {
+                Ok(json_str) => {
+                    match serde_json::from_str::<IdClaim>(&json_str) {
+                        Ok(claim) => {
+                            println!("{} [P2pNode] get did({}) claim from DHT", token_utils::now_string(), did);
+                            claim
+                        },
+                        Err(e) => {
+                            tracing::error!("解析 DHT 返回的声明失败: {:?}", e);
+                            IdClaim::default()
+                        }
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("DHT 返回的数据不是有效的 UTF-8 字符串: {:?}", e);
+                    IdClaim::default()
+                }
+            }
+        }).unwrap_or_else(|e| {
+            tracing::error!("从 DHT 获取声明失败: {:?}", e);
+            IdClaim::default()
+        })
+    }
+
+    pub async fn put_claim_to_DHT(&self, claim: IdClaim) {
+        let did = claim.gen_did();
+        let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
+        
+        self.client.set_key_value(key, claim.to_json_string().as_bytes().to_vec()).await;
+        println!("{} [P2pNode] pet did({}) claim to DHT", token_utils::now_string(), did);
+    }
+
     async fn get_node_status(&self) {
         let node_status = self.client.get_node_status().await;
-        let short_id = self.client.get_peer_id();
+        let short_id = self.client.get_short_id();
         tracing::info!("📣 {}", node_status.short_format());
     }
 
@@ -156,7 +197,7 @@ impl P2p {
     }
 
     async fn request(&self, target: String, message: String) -> String {
-        let short_id = self.client.get_peer_id();
+        let short_id = self.client.get_short_id();
 
         let target_peer_id = {
             if let Some(peer_id) = self.shared_data.get_did_node(&target) {
@@ -223,13 +264,12 @@ impl EventHandler for Handler {
         let msg_obj = parts[1];
         match serde_json::from_str::<serde_json::Value>(msg_obj) {
             Ok(json_obj) => {
-                // 获取 method 属性
                 if let Some(method) = json_obj.get("method").and_then(|m| m.as_str()) {
                     match method {
                         "get_claim" => {
                             let response = if let Some(did) = json_obj.get("did").and_then(|d| d.as_str()) {
                                 let claim = self.shared_data.claims.lock().unwrap().get_claim_from_local(did);
-                                tracing::info!("处理 get_claim 请求，返回用户 {} 的声明", did);
+                                println!("{} [P2pNode] get did({}) claim from upstream.", token_utils::now_string(), did);
                                 claim.to_json_string()
                             } else {
                                 tracing::warn!("get_claim 方法缺少 did 参数");
@@ -285,7 +325,7 @@ impl EventHandler for Handler {
                         self.shared_data.online_nodes.log_access_batch(sender_id.clone());
                         (self.shared_data.online_nodes.get_number(), self.shared_data.online_nodes.get_nodes_top_list())
                     };
-                    tracing::info!("已更新在线用户列表: online_nodes={}, online_users={}", online_nodes_num, online_all_num);
+                    println!("{} [P2pNode] update online list: nodes={}, users={}", token_utils::now_string(), online_nodes_num, online_all_num);
                     let entries: Vec<(String, String)> = message_str
                         .split('|')
                         .filter(|entry| !entry.is_empty())
@@ -299,7 +339,7 @@ impl EventHandler for Handler {
                 // 收到系统消息，更新本地消息队列
                 if !message_str.is_empty() {
                     let count = self.shared_data.get_message_queue().push_messages(&self.sys_did, message_str);
-                    tracing::debug!("已添加 {} 条新系统消息", count);
+                    println!("{} [P2pNode] added {} new system meaasge.", token_utils::now_string(), count);
                 }
             },
             _ => {
@@ -314,8 +354,8 @@ async fn get_node_status(client: Client, interval: u64) {
     loop {
         time::sleep(dur).await;
         let node_status = client.get_node_status().await;
-        let short_id = client.get_peer_id();
-        tracing::info!("📣 {}", node_status.short_format());
+        let short_id = client.get_short_id();
+        println!("{} 📣 {}", token_utils::now_string(), node_status.short_format());
     }
 }
 
@@ -324,7 +364,7 @@ async fn broadcast(client: Client, interval: u64) {
     loop {
         time::sleep(dur).await;
         let topic = "system".to_string();
-        let short_id = client.get_peer_id();
+        let short_id = client.get_short_id();
         let now_time = Local::now();
         let message = format!("From {} at {}!", short_id, now_time);
         tracing::debug!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
@@ -337,7 +377,7 @@ async fn request(client: Client, interval: u64) {
     loop {
         time::sleep(dur).await;
         let known_peers = client.get_known_peers().await;
-        let short_id = client.get_peer_id();
+        let short_id = client.get_short_id();
         
         // 检查 known_peers 是否为空
         if known_peers.len() > 0 {
@@ -377,7 +417,7 @@ async fn broadcast_online_users(client: Client, interval: u64) {
         let users_list = shared_data.user_list.lock().unwrap().clone();
         if !users_list.is_empty() {
             let topic = "online".to_string();
-            tracing::info!("📣 >>>> broadcast({topic}): {} online users in {}: {}", users_list.split('|').count(), client.get_peer_id(), users_list);
+            tracing::info!("📣 >>>> broadcast({topic}): {} online users in {}: {}", users_list.split('|').count(), client.get_short_id(), users_list);
             let message = format!("{}:{}", client.get_sys_did(), users_list); 
             let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
         } else {

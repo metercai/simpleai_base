@@ -1,6 +1,6 @@
 use libp2p::{autonat, dcutr, mdns, upnp};
 use libp2p::identify;
-use libp2p::kad;
+use libp2p::kad::{self, QueryId};
 use libp2p::ping;
 use libp2p::relay;
 use libp2p::multiaddr::Protocol;
@@ -252,6 +252,25 @@ impl Behaviour {
     pub(crate) fn remove_peer(&mut self, peer_id: &PeerId) {
         tracing::debug!("☕ Removing peer {} from the DHT.", peer_id);
         self.kademlia.remove_peer(peer_id);
+    }
+
+    pub(crate) fn get_key_value(&mut self, key: String) -> QueryId {
+        let key = kad::RecordKey::new(&key);
+        self.kademlia.get_record(key)
+    }
+
+    pub(crate) fn set_key_value(&mut self, key: String, value: String) -> QueryId {
+        let key = kad::RecordKey::new(&key);
+        let value = value.as_bytes().to_vec();
+        let record = kad::Record {
+            key,
+            value,
+            publisher: None,
+            expires: None,
+        };
+        self.kademlia
+            .put_record(record, kad::Quorum::One)
+           .expect("Failed to put record")
     }
 
 }

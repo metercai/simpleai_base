@@ -4,11 +4,15 @@ use std::{fmt, str::FromStr};
 use crate::p2p::error::P2pError;
 use libp2p::{multiaddr, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
+use rand::Rng;
+
+use crate::p2p::protocol::*;
+
 
 #[derive(Clone, Default, Deserialize)]
 pub(crate) struct Config {
     pub(crate) address: Address,
-    pub(crate) is_upstream_server: Option<bool>,
+    pub(crate) is_upstream_node: Option<bool>,
     pub(crate) pubsub_topics: Vec<String>,
     pub(crate) metrics_path: String,
     pub(crate) discovery_interval: Option<u64>,
@@ -56,7 +60,7 @@ impl Config {
         };
         Self{
             address: config.address,
-            is_upstream_server: config.is_upstream_server,
+            is_upstream_node: config.is_upstream_node,
             pubsub_topics: config.pubsub_topics,
             metrics_path: config.metrics_path,
             discovery_interval: config.discovery_interval,
@@ -83,7 +87,7 @@ impl Config {
     }
 
     pub(crate) fn get_is_upstream_server(&self) -> bool {
-        if let Some(v) = self.is_upstream_server { v } else { false }
+        if let Some(v) = self.is_upstream_node { v } else { false }
     }
 
     pub(crate) fn get_discovery_interval(&self) -> u64 {
@@ -168,4 +172,52 @@ fn parse_str_addr(addr_str: &str) -> Result<(PeerId, Multiaddr), P2pError> {
     };
 
     Ok((peer_id, addr))
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamNodes {
+    pub nodes: Vec<PeerIdWithMultiaddr>,
+    pub last: PeerIdWithMultiaddr,
+}
+impl UpstreamNodes {
+    pub fn new(config: &Config) -> Self {
+        let mut nodes: Vec<PeerIdWithMultiaddr> = Vec::new();
+        if let Some(ref upstream_nodes) = config.address.upstream_nodes {
+            for upstream_node in upstream_nodes {
+                nodes.push(upstream_node.clone());
+            }
+        }
+        for boot_node in BOOT_NODES.iter() {
+            nodes.push(boot_node.clone());
+        }
+             
+        let random_index = rand::thread_rng().gen_range(0..nodes.len());
+        let last = nodes[random_index].clone();
+            
+        Self {
+            nodes,
+            last,
+        }
+    }
+
+    pub fn get_select(&mut self) -> PeerIdWithMultiaddr {
+        let random_index = rand::thread_rng().gen_range(0..self.nodes.len());
+        let last = self.nodes[random_index].clone();
+        self.last = last.clone();
+        last
+    }
+
+    pub fn get_last(&self) -> PeerIdWithMultiaddr {
+        self.last.clone()
+    }
+
+    pub fn get_first(&self) -> PeerIdWithMultiaddr {
+        self.nodes[0].clone()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &PeerIdWithMultiaddr> {
+        self.nodes.iter()
+    }
+
 }
