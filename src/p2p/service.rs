@@ -296,9 +296,9 @@ impl<E: EventHandler> Server<E> {
 
         let mut upstream_nodes = UpstreamNodes::new(&config);
         
-        /*let mut upstream_node = upstream_nodes.get_first();
+        let mut upstream_node = upstream_nodes.get_first();
         let mut upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
-        let timeout_duration = Duration::from_secs(30); 
+        let timeout_duration = Duration::from_secs(6); 
         let start_time = Instant::now();
         while swarm.dial(upstream_addr.clone()).is_err() {
             if start_time.elapsed() > timeout_duration {
@@ -311,12 +311,12 @@ impl<E: EventHandler> Server<E> {
         let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
         println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
             token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
-        */
+        
         for node in upstream_nodes.iter() {
-            let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
+            /*let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
             swarm.dial(node_addr.clone()).unwrap();
             let listener_id = swarm.listen_on(node_addr.clone().with(Protocol::P2pCircuit))?;
-            tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
+            tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);*/
             swarm.behaviour_mut().add_address(&node.peer_id(), node.address());
         }
         swarm.behaviour_mut().discover_peers();
@@ -463,10 +463,12 @@ impl<E: EventHandler> Server<E> {
             // Can't connect to the `peer`, remove it from the DHT.
             SwarmEvent::OutgoingConnectionError {
                 peer_id: Some(peer),
+                error,
+                connection_id,
                 ..
             } => {
                 if self.record_peer_failure(&peer, "Connection") {
-                    tracing::info!("Connection failures has reached the threshold, remove the node: {:?}", peer.short_id());
+                    tracing::info!("Connection failures({:?}) has reached the threshold, remove the node: {}", error, peer.short_id());
                     self.network_service.behaviour_mut().remove_peer(&peer);
                 }
                 return;
@@ -681,7 +683,7 @@ impl<E: EventHandler> Server<E> {
                 for registration in registrations {
                     for address in registration.record.addresses() {
                         let peer = registration.record.peer_id();
-                        tracing::info!("Discovered peer: {}/{}", peer.short_id(), address);
+                        tracing::info!("Discovered peer with rendezvous: {}/{}", peer.short_id(), address);
 
                         let p2p_suffix = Protocol::P2p(peer);
                         let address_with_p2p =
