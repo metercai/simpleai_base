@@ -308,13 +308,13 @@ impl EventHandler for Handler {
         match topic {
             "online" => {
                 if !message_str.is_empty() {
-                    let parts: Vec<&str> = message_str.splitn(2, ':').collect();
-                    if parts.len() != 2 {
+                    let parts: Vec<&str> = message_str.splitn(3, ':').collect();
+                    if parts.len() != 3 {
                         tracing::warn!("在线用户消息格式不正确: {}", message_str);
                         return;
                     }
                     let sys_did = parts[0].to_string();
-                    let user_list = parts[1].to_string();
+                    let user_list = parts[2].to_string();
 
                     let sender_id = sender.to_base58();
                     let online_all_num = {
@@ -417,8 +417,10 @@ async fn broadcast_online_users(client: Client, interval: u64) {
         let users_list = shared_data.user_list.lock().unwrap().clone();
         if !users_list.is_empty() {
             let topic = "online".to_string();
-            tracing::info!("📣 >>>> broadcast({topic}): {} online users in {}: {}", users_list.split('|').count(), client.get_short_id(), users_list);
-            let message = format!("{}:{}", client.get_sys_did(), users_list); 
+            let now_time: DateTime<Local> = Local::now();
+            let unix_timestamp = now_time.timestamp();
+            tracing::info!("📣 >>>> broadcast({topic}): {} online users in {} at {}, list={}", users_list.split('|').count(), client.get_short_id(), now_time, users_list);
+            let message = format!("{}:{}:{}", client.get_sys_did(), unix_timestamp, users_list); 
             let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
         } else {
             tracing::info!("no users on node ...");

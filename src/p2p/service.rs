@@ -544,7 +544,7 @@ impl<E: EventHandler> Server<E> {
                     self.add_addresses(&peer_id, listen_addrs);
                 };
                 self.network_service.add_external_address(observed_addr.clone());
-                tracing::info!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
+                tracing::debug!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
 
                 if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
                     if let Err(error) = rendezvous.register(
