@@ -273,7 +273,7 @@ impl<E: EventHandler> Server<E> {
             event = swarm.next() => {
                 match event.unwrap() {
                     SwarmEvent::NewListenAddr { address, .. } => {
-                        tracing::debug!(%address, "📣 P2P node listening on address:");
+                        tracing::info!(%address, "📣 P2P node listening on address:");
                         listened_addresses.push(address);
                     }
                     event => {},
@@ -296,9 +296,9 @@ impl<E: EventHandler> Server<E> {
 
         let mut upstream_nodes = UpstreamNodes::new(&config);
         
-        let mut upstream_node = upstream_nodes.get_first();
+        /*let mut upstream_node = upstream_nodes.get_first();
         let mut upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
-        let timeout_duration = Duration::from_secs(30); // 设置超时时间为30秒
+        let timeout_duration = Duration::from_secs(30); 
         let start_time = Instant::now();
         while swarm.dial(upstream_addr.clone()).is_err() {
             if start_time.elapsed() > timeout_duration {
@@ -311,8 +311,12 @@ impl<E: EventHandler> Server<E> {
         let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
         println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
             token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
-
+        */
         for node in upstream_nodes.iter() {
+            let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
+            swarm.dial(node_addr.clone()).unwrap();
+            let listener_id = swarm.listen_on(node_addr.clone().with(Protocol::P2pCircuit))?;
+            tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
             swarm.behaviour_mut().add_address(&node.peer_id(), node.address());
         }
         swarm.behaviour_mut().discover_peers();
@@ -538,7 +542,7 @@ impl<E: EventHandler> Server<E> {
                     self.add_addresses(&peer_id, listen_addrs);
                 };
                 self.network_service.add_external_address(observed_addr.clone());
-                tracing::debug!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
+                tracing::info!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
 
                 if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
                     if let Err(error) = rendezvous.register(

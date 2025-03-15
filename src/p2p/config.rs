@@ -185,11 +185,15 @@ impl UpstreamNodes {
         let mut nodes: Vec<PeerIdWithMultiaddr> = Vec::new();
         if let Some(ref upstream_nodes) = config.address.upstream_nodes {
             for upstream_node in upstream_nodes {
-                nodes.push(upstream_node.clone());
+                if !nodes.iter().any(|node| node.peer_id() == upstream_node.peer_id()) {
+                    nodes.push(upstream_node.clone());
+                }
             }
         }
         for boot_node in BOOT_NODES.iter() {
-            nodes.push(boot_node.clone());
+            if !nodes.iter().any(|node| node.peer_id() == boot_node.peer_id()) {
+                nodes.push(boot_node.clone());
+            }
         }
              
         let random_index = rand::thread_rng().gen_range(0..nodes.len());
