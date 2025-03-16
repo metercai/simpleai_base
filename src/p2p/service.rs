@@ -1103,7 +1103,7 @@ impl NodeStatus {
 
                 format!("{}", short_peer_did)
             }).collect::<Vec<_>>().join(";");
-        format!("{}{}], pubsubs({})({})", head, peers,
-                self.pubsub_peers.len(), pubsubs)
+        format!("{}{}], pubsubs({})", head, peers,
+                self.pubsub_peers.len())
     }
 }
