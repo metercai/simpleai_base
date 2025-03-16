@@ -236,7 +236,15 @@ impl SimpleAI {
             (didtoken.get_claim_from_local(&self.get_sys_did()), didtoken.get_sysinfo())
         };
         let handle = dids::TOKIO_RUNTIME.spawn(async move {
-            P2p::start(p2p_config, &local_claim, &sysinfo).await
+            match P2p::start(p2p_config, &local_claim, &sysinfo).await {
+                Ok(p2p) => {
+                    let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
+                    *p2p_instance_guard = Some(p2p);
+                },
+                Err(e) => {
+                    error!("P2P 服务启动失败: {:?}", e);
+                }
+            }
         });
         let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         *p2p_handle = Some(handle);
@@ -255,10 +263,10 @@ impl SimpleAI {
         // 取出并中止 P2P 服务
         if let Some(handle) = p2p_handle.take() {
             handle.abort();
-            {
-                let mut p2p_instance_guard = P2P_INSTANCE.lock().unwrap();
+            dids::TOKIO_RUNTIME.block_on(async {
+                let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                 *p2p_instance_guard = None;
-            }
+            });
             debug!("P2P 服务已停止");
             "P2P 服务已停止".to_string()
         } else {

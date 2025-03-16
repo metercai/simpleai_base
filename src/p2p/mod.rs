@@ -4,6 +4,7 @@ use std::time::Duration;
 use base58::ToBase58;
 use chrono::{format, DateTime, Local};
 use tokio::time;
+use tokio::sync::Mutex as TokioMutex;
 use rand::Rng;
 use libp2p::PeerId;
 use serde_json::{self, json};
@@ -32,7 +33,7 @@ const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) static P2P_HANDLE: Lazy<Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>> = 
     Lazy::new(|| Arc::new(Mutex::new(None)));
-pub(crate) static P2P_INSTANCE: Lazy<Mutex<Option<Arc<P2p>>>> = Lazy::new(|| Mutex::new(None));
+pub(crate) static P2P_INSTANCE: Lazy<TokioMutex<Option<Arc<P2p>>>> = Lazy::new(|| TokioMutex::new(None));
 pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
 address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
 pubsub_topics = ['system', 'online']
@@ -52,7 +53,8 @@ pub struct P2p {
 }
 
 impl P2p {
-    pub async fn start(config: String, sys_claim: &IdClaim, sysinfo: &SystemInfo) {
+    pub async fn start(config: String, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> 
+    Result<Arc<P2p>, Box<dyn Error + Send + Sync>> {
         let config = config::Config::from_toml(&config.clone()).expect("无法解析配置字符串");
         let result = service::new(config.clone(), sys_claim, sysinfo).await;
         let (client, mut server) = match result {
@@ -93,11 +95,7 @@ impl P2p {
             client: client.clone(),
             shared_data,
         };
-        let p2p_arc = Arc::new(p2p);
-        {
-            let mut p2p_instance_guard = P2P_INSTANCE.lock().unwrap();
-            *p2p_instance_guard = Some(p2p_arc);
-        }
+        Ok(Arc::new(p2p))
     }
 
     pub async fn get_claim_from_upstream(&self, did: String) -> IdClaim {
@@ -428,7 +426,7 @@ async fn broadcast_online_users(client: Client, interval: u64) {
     }
 }
 
-pub fn get_instance() -> Option<Arc<P2p>> {
-    let p2p_instance_guard = P2P_INSTANCE.lock().unwrap();
+pub  async fn get_instance() -> Option<Arc<P2p>> {
+    let p2p_instance_guard = P2P_INSTANCE.lock().await;
     p2p_instance_guard.clone()
 }

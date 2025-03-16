@@ -6,7 +6,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::error;
 
 use crate::token::SimpleAI;
-use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT};
+use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
 use crate::user::TokenUser;
 
 // 共享状态类型
@@ -33,6 +33,7 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
     };
 
     let _server = TOKIO_RUNTIME.spawn(async move {
+
         let get_sys_did = warp::path!("api" / "sys_did")
             .and(warp::get())
             .and(with_simpai(simpai.clone()))
@@ -373,10 +374,28 @@ async fn handle_put_global_message(
     }))
 }
 
-pub async fn request_api(endpoint: &str) -> Result<String, reqwest::Error> {
-    let client = &REQWEST_CLIENT;
+pub async fn request_api<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, reqwest::Error> {
     let url = format!("{}/{}", API_HOST, endpoint);
-    let res = client.get(&url).send().await?;
+    
+    let res = if let Some(json_params) = params {
+        REQWEST_CLIENT.post(&url).json(&json_params).send().await?
+    } else {
+        REQWEST_CLIENT.get(&url).send().await?
+    };
+    
     let data: ApiResponse<String> = res.json().await?;
+    Ok(data.data)
+}
+
+pub fn request_api_sync<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
+    let url = format!("{}/{}", API_HOST, endpoint);
+    
+    let res = if let Some(json_params) = params {
+        REQWEST_CLIENT_SYNC.post(&url).json(&json_params).send()?
+    } else {
+        REQWEST_CLIENT_SYNC.get(&url).send()?
+    };
+    
+    let data: ApiResponse<String> = res.json()?;
     Ok(data.data)
 }

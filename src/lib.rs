@@ -45,8 +45,8 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let text = format!("{}|{}|{}|{}|{}", did, "Member", encrypt_item_key, memo_base64, timestamp);
     
     let (system_did, upstream_did) = TOKIO_RUNTIME.block_on(async {
-        let sys_fut = rest_service::request_api("sys_did");
-        let up_fut = rest_service::request_api("upstream_did");
+        let sys_fut = rest_service::request_api("sys_did", None::<&serde_json::Value>);
+        let up_fut = rest_service::request_api("upstream_did", None::<&serde_json::Value>);
         match tokio::join!(sys_fut, up_fut) {
             (Ok(sys), Ok(up)) => (sys, up),
             _ =>  ("".to_string(), "".to_string()), 

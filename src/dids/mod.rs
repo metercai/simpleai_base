@@ -34,6 +34,15 @@ pub(crate)  static REQWEST_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         .expect("Failed to build reqwest client")
 });
 
+pub(crate)  static REQWEST_CLIENT_SYNC: Lazy<reqwest::blocking::Client> = Lazy::new(|| {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(3)) // 连接超时时间
+        .timeout(Duration::from_secs(5)) // 总超时时间
+        .build()
+        .expect("Failed to build reqwest blocking client")
+});
+
+
 lazy_static::lazy_static! {
     static ref DID_TOKEN: Arc<Mutex<DidToken>> = Arc::new(Mutex::new(DidToken::new()));
 }

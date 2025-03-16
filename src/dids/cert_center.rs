@@ -57,13 +57,13 @@ impl GlobalCerts {
             debug!("get global register cert, {}", member_cert);
             return member_cert;
         }
-        let upstream_did = TOKIO_RUNTIME.block_on(async {
-            let up_fut = rest_service::request_api("upstream_did").await;
-            match up_fut {
-                Ok(upstream_did) => upstream_did,
-                Err(err) => "".to_string(),
+        let upstream_did = match rest_service::request_api_sync("upstream_did", None::<&serde_json::Value>) {
+            Ok(upstream_did) => upstream_did,
+            Err(err) => {
+                debug!("get upstream did failures: {:?}", err);
+                "".to_string()
             }
-        });
+        };
         if !upstream_did.is_empty() {
             let member_cert = self.get_member_cert(&upstream_did, for_did);
             if member_cert != "Unknown" {
