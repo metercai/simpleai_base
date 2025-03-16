@@ -38,11 +38,11 @@ pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
 address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
 pubsub_topics = ['system', 'online']
 metrics_path = '/metrics' 
-discovery_interval = 30
-node_status_interval = 30
+discovery_interval = 60
+node_status_interval = 60
 broadcast_interval = 20
 request_interval = 80
-req_resp.request_timeout = 60
+req_resp.request_timeout = 30
 "#;
 
 pub struct P2p {
@@ -186,7 +186,7 @@ impl P2p {
     async fn get_node_status(&self) {
         let node_status = self.client.get_node_status().await;
         let short_id = self.client.get_short_id();
-        tracing::info!("📣 {}", node_status.short_format());
+        tracing::info!("[P2pNode] 📣 {}", node_status.short_format());
     }
 
     async fn broadcast(&self, topic: String, message: String) {
@@ -352,8 +352,7 @@ async fn get_node_status(client: Client, interval: u64) {
     loop {
         time::sleep(dur).await;
         let node_status = client.get_node_status().await;
-        let short_id = client.get_short_id();
-        println!("{} 📣 {}", token_utils::now_string(), node_status.short_format());
+        println!("{} [P2pNode] 📣 {}", token_utils::now_string(), node_status.short_format());
     }
 }
 

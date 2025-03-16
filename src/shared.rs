@@ -117,13 +117,6 @@ impl SharedData {
                 });
     }
 
-    pub async fn get_claim_from_local_async(&self, did: &str) -> IdClaim {
-        let claims = self.claims.clone();
-        let did = did.to_string();
-        tokio::task::spawn_blocking(move || {
-            claims.lock().unwrap().get_claim_from_local(&did)
-        }).await.unwrap_or_else(|_| IdClaim::default())
-    }
 
 }
 
