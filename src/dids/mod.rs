@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 use tracing_subscriber::EnvFilter;
 use tracing::{error, warn, info, debug, trace};
 
-use crate::dids::claims::{GlobalClaims, IdClaim};
+use crate::dids::claims::{GlobalClaims, LocalClaims, IdClaim};
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::token_utils::SYSTEM_BASE_INFO;
 use crate::utils::systeminfo::SystemInfo;
@@ -109,7 +109,7 @@ impl DidToken {
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
             let mut claims = claims.lock().unwrap();
-            claims.get_sys_dev_guest_did()
+            claims.local_claims.get_sys_dev_guest_did()
         };
 
         let mut crypt_secrets = HashMap::new();
@@ -350,7 +350,7 @@ impl DidToken {
     }
 
     pub fn pop_claim(&self, did: &str) -> IdClaim {
-        self.claims.lock().unwrap().pop_claim(did)
+        self.claims.lock().unwrap().local_claims.pop_claim(did)
     }
 
     pub fn get_claim(&self, for_did: &str) -> IdClaim {
@@ -358,16 +358,12 @@ impl DidToken {
         if self.admin == TOKEN_TM_DID {
             claims.get_claim_from_local(for_did)
         } else {
-            claims.get_claim_from_global(for_did)
+            claims.get_claim(for_did)
         }
     }
 
-    pub fn get_claim_from_local(&self, for_did: &str) -> IdClaim {
-        self.claims.lock().unwrap().get_claim_from_local(for_did)
-    }
-
     pub fn reverse_lookup_did_by_symbol(&self, symbol_hash: [u8; 32]) -> String {
-        self.claims.lock().unwrap().reverse_lookup_did_by_symbol(&symbol_hash)
+        self.claims.lock().unwrap().local_claims.reverse_lookup_did_by_symbol(&symbol_hash)
     }
 
     pub fn get_register_cert(&mut self, user_did: &str) -> String {
@@ -410,7 +406,7 @@ impl DidToken {
         let signature_str = parts[3].to_string();
         if self.node_mode == "online" {
             let text = format!("{}|{}|{}|{}|{}|{}", TOKEN_TM_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-            let claim = GlobalClaims::load_claim_from_local(TOKEN_TM_DID);
+            let claim = LocalClaims::load_claim_from_local(TOKEN_TM_DID);
             debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
             if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
                 return true;
@@ -418,14 +414,14 @@ impl DidToken {
         }
         if !self.upstream_did.is_empty() && self.node_mode == "online" {
             let text = format!("{}|{}|{}|{}|{}|{}", self.upstream_did, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-            let claim = GlobalClaims::load_claim_from_local(&self.upstream_did);
+            let claim = LocalClaims::load_claim_from_local(&self.upstream_did);
             debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
             if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
                 return true;
             }
         }
         let text = format!("{}|{}|{}|{}|{}|{}", self.get_sys_did(), user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-        let claim = GlobalClaims::load_claim_from_local(&self.get_sys_did());
+        let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
         debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
         if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
             return true;

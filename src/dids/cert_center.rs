@@ -29,7 +29,7 @@ impl GlobalCerts {
         let claims = GlobalClaims::instance();
         let sys_did = {
             let claims = claims.lock().unwrap();
-            claims.get_system_did()
+            claims.local_claims.get_system_did()
         };
         let mut user_certs = HashMap::new();
         let mut issued_certs = HashMap::new();
@@ -107,8 +107,8 @@ impl GlobalCerts {
             self.user_certs.insert(cert_key.to_string(), cert.to_string());
             token_utils::save_user_certificates_to_file(&self.sys_did, &self.user_certs);
             let mut claims = self.claims.lock().unwrap();
-            claims.get_claim_from_global(cert_key_array[0]);
-            claims.get_claim_from_global(cert_key_array[1]);
+            claims.get_claim_from_local(cert_key_array[0]);
+            claims.get_claim_from_local(cert_key_array[1]);
             cert_key_array[1].to_string()
         } else { "Unknown".to_string()  }
     }
@@ -119,8 +119,8 @@ impl GlobalCerts {
             self.issued_certs.insert(issue_key.to_string(), issue_cert.to_string());
             token_utils::save_issued_certs_to_file(&self.sys_did, &self.issued_certs);
             let mut claims = self.claims.lock().unwrap();
-            claims.get_claim_from_global(issue_key_array[0]);
-            claims.get_claim_from_global(issue_key_array[1]);
+            claims.get_claim_from_local(issue_key_array[0]);
+            claims.get_claim_from_local(issue_key_array[1]);
             issue_key_array[1].to_string()
         } else { "Unknown".to_string()  }
     }

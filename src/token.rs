@@ -233,7 +233,7 @@ impl SimpleAI {
         let p2p_config = self.get_p2p_config();
         let (local_claim, sysinfo) = {
             let didtoken = self.didtoken.lock().unwrap();
-            (didtoken.get_claim_from_local(&self.get_sys_did()), didtoken.get_sysinfo())
+            (didtoken.get_claim(&self.get_sys_did()), didtoken.get_sysinfo())
         };
         let handle = dids::TOKIO_RUNTIME.spawn(async move {
             match P2p::start(p2p_config, &local_claim, &sysinfo).await {
@@ -478,10 +478,9 @@ impl SimpleAI {
 
     pub fn reset_admin(&mut self, admin_did: &str) -> String {
         if IdClaim::validity(admin_did) {
-            let (admin_claim, is_registered) ={
-                let mut didtoken = self.didtoken.lock().unwrap();
-                (didtoken.get_claim(admin_did), didtoken.is_registered(admin_did))
-            };
+            let admin_claim = self.get_claim(admin_did);
+            let is_registered = self.is_registered(admin_did);
+
             if !admin_claim.is_default() && is_registered {
                 let old_admin = self.get_admin_did();
                 self.set_admin_did(admin_did);
@@ -553,7 +552,7 @@ impl SimpleAI {
     pub fn export_isolated_admin_qrcode_svg(&mut self) -> String{
         if self.get_node_mode() == "isolated" && !self.get_admin_did().is_empty() {
             let admin = self.get_admin_did();
-            let admin_claim = self.get_claim_from_local(&admin);
+            let admin_claim = self.get_claim(&admin);
             let qrcode_svg = SimpleAI::export_user_qrcode_svg(&admin);
             if !qrcode_svg.is_empty() {
                 format!("{}|{}|{}", admin_claim.nickname, admin, qrcode_svg)
@@ -580,7 +579,7 @@ impl SimpleAI {
     #[staticmethod]
     pub(crate) fn export_user_qrcode_base64(user_did: &str) -> String {
         let didtoken = DidToken::instance();
-        let claim = didtoken.lock().unwrap().get_claim_from_local(user_did);
+        let claim = didtoken.lock().unwrap().get_claim(user_did);
         if !claim.is_default() {
             let user_symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
@@ -816,9 +815,6 @@ impl SimpleAI {
         self.tokenuser.lock().unwrap().remove_user(did)
     }
 
-    fn get_claim_from_local(&self, did: &str) -> IdClaim {
-        self.didtoken.lock().unwrap().get_claim_from_local(did)
-    }
 
     pub fn check_local_user_token(&mut self, nickname: &str, telephone: &str) -> String {
         if self.get_node_mode() != "online" {
@@ -883,7 +879,7 @@ impl SimpleAI {
                         println!("{} [UserBase] The identity is not in local and generate ready_data for new user: {}, {}, {}, {}",
                                  token_utils::now_string(), nickname, telephone, user_hash_id, symbol_hash_base64);
                         let (user_did, _user_phrase) = self.tokenuser.lock().unwrap().create_user(&nickname, telephone, None, None);
-                        let new_claim = self.get_claim_from_local(&user_did);
+                        let new_claim = self.get_claim(&user_did);
                         println!("{} [UserBase] Create new claim for new user: user_did={}, claim_symbol={}",
                             token_utils::now_string(), user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
 
@@ -908,7 +904,7 @@ impl SimpleAI {
                                         if user_did != return_claim.gen_did() {
                                             println!("{} [UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})",
                                                      token_utils::now_string(), user_did, return_did);
-                                            self.didtoken.lock().unwrap().push_claim(&return_claim);
+                                            self.push_claim(&return_claim);
                                             return "recall".to_string();
                                         } else {
                                             println!("{} [UserBase] Identity confirmed to recall user from root is same the new before: local_did({}), remote_did({})",
@@ -992,7 +988,7 @@ impl SimpleAI {
                             cert_user_did
                         };
                         if cert_user_did != "Unknown" {
-                            let ready_claim = self.get_claim_from_local(&ready_user_did);
+                            let ready_claim = self.get_claim(&ready_user_did);
                             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(ready_claim.get_symbol_hash());
                             if cert_user_did != ready_user_did {
                                 println!("{} [UserBase] The parsed cert from Root is not match: cert_did({}), ready_did({})",
@@ -1241,7 +1237,7 @@ impl SimpleAI {
 
     pub fn unbind_and_return_guest(&mut self, user_did: &str, phrase: &str) -> UserContext {
         if IdClaim::validity(user_did) {
-            let claim = self.get_claim_from_local(user_did);
+            let claim = self.get_claim(user_did);
             if !claim.is_default() {
                 if self.get_node_mode() == "online" {
                     let symbol_hash = claim.get_symbol_hash();
@@ -1272,7 +1268,7 @@ impl SimpleAI {
     }
 
     pub fn get_user_copy_string(&mut self, user_did: &str, phrase: &str) -> String {
-        let claim = self.didtoken.lock().unwrap().get_claim(user_did);
+        let claim = self.get_claim(user_did);
         if !claim.is_default() {
             let symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
@@ -1301,16 +1297,11 @@ impl SimpleAI {
         }
     }
 
-
-
-
-
-
     fn register_upstream(&mut self) -> String {
         let sys_did = self.get_sys_did();
         let dev_did = self.get_device_did();
         let (local_claim, device_claim) = {
-            (self.get_claim_from_local(&sys_did), self.get_claim_from_local(&dev_did))
+            (self.get_claim(&sys_did), self.get_claim(&dev_did))
         };
         let last_timestamp = self.shared_data.get_message_queue().get_last_timestamp(&sys_did).unwrap_or_else(|| 0u64);
         let mut request = json!({});
@@ -1393,7 +1384,40 @@ impl SimpleAI {
     pub fn get_pyhash_key(&self, v1: String, v2: String, v3: String) -> String {
         return EnvData::get_pyhash_key(&v1, &v2, &v3);
     }
+    
+    pub fn get_claim(&self, for_did: &str) -> IdClaim {
+        self.didtoken.lock().unwrap().get_claim(for_did)
+    }
 
+    pub fn push_claim(&self, claim: &IdClaim) {
+        self.didtoken.lock().unwrap().push_claim(claim);
+    }
+
+    pub fn pop_claim(&self, did: &str) -> IdClaim {
+        self.didtoken.lock().unwrap().pop_claim(did)
+    }
+
+    pub fn import_user(&mut self, symbol_hash_base64: &str, encrypted_identity: &str, phrase: &str) -> String {
+        self.tokenuser.lock().unwrap().import_user(symbol_hash_base64, encrypted_identity, phrase)
+    }
+
+    pub fn decrypt_by_did(&mut self, ctext: &str, by_did: &str, period:u64) -> String {
+        self.didtoken.lock().unwrap().decrypt_by_did(ctext, by_did, period)
+    }
+
+    pub fn sign_and_issue_cert_by_admin(&mut self, item: &str, for_did: &str, for_sys_did: &str, memo: &str)
+                                        -> (String, String) {
+        self.didtoken.lock().unwrap().sign_and_issue_cert_by_admin(item, for_did, for_sys_did, memo)
+    }
+
+    pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
+        self.tokenuser.lock().unwrap().sign_user_context(did, phrase)
+    }
+
+    pub(crate) fn create_user(&mut self, nickname: &str, telephone: &str, id_card: Option<String>, phrase: Option<String>)
+                              -> (String, String) {
+        self.tokenuser.lock().unwrap().create_user(nickname, telephone, id_card, phrase)
+    }
 }
 
 async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
@@ -1570,4 +1594,5 @@ async fn sync_upstream(
 
         interval.tick().await;
     }
+
 }

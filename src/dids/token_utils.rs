@@ -32,7 +32,7 @@ use tracing_subscriber::fmt::format;
 
 use crate::utils::systeminfo::SystemBaseInfo;
 use crate::utils::error::TokenError;
-use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
+use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::dids::claims;
 use crate::issue_key;
 use crate::exchange_key;
@@ -145,7 +145,7 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
                     let text = format!("{}|{}|{}|{}", key, secret_base64, memo_base64, timestamp);
                     let claim = {
                         let mut claims_guard = claims.lock().unwrap();
-                        claims_guard.get_claim_from_global(did)
+                        claims_guard.get_claim_from_local(did)
                     };
                     if verify_signature(&text, sig_base64, &claim.get_cert_verify_key()) {
                         certificates.insert(key.clone(), secrets_str.to_string());
@@ -235,7 +235,7 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
                     let text = format!("{}|{}|{}|{}", key, secret_base64, memo_base64, timestamp);
                     let claim = {
                         let mut claims_guard = claims.lock().unwrap();
-                        claims_guard.get_claim_from_global(did)
+                        claims_guard.get_claim_from_local(did)
                     };
                     if verify_signature(&text, sig_base64, &claim.get_cert_verify_key()) {
                         issued_certs.insert(key.clone(), secrets_str.to_string());
@@ -1088,7 +1088,7 @@ pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec
             let id_card_base64 = URL_SAFE_NO_PAD.encode(calc_sha256(format!("{}:id_card:{}", nickname, "-").as_bytes()));
             let symbol_hash = calc_sha256(format!("{}|{}|{}", nickname, telephone_base64, id_card_base64).as_bytes());
             save_key_to_pem(&symbol_hash, &user_key, &phrase);
-            let mut user_claim = GlobalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
+            let mut user_claim = LocalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
             user_claim.update_timestamp(timestamp, phrase);
             user_claim
         } else {

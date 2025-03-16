@@ -31,7 +31,7 @@ use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-pub(crate) static P2P_HANDLE: Lazy<Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>> = 
+pub(crate) static P2P_HANDLE: Lazy<Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(None)));
 pub(crate) static P2P_INSTANCE: Lazy<TokioMutex<Option<Arc<P2p>>>> = Lazy::new(|| TokioMutex::new(None));
 pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
@@ -53,42 +53,42 @@ pub struct P2p {
 }
 
 impl P2p {
-    pub async fn start(config: String, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> 
-    Result<Arc<P2p>, Box<dyn Error + Send + Sync>> {
+    pub async fn start(config: String, sys_claim: &IdClaim, sysinfo: &SystemInfo)
+        -> Result<Arc<P2p>, Box<dyn Error + Send + Sync>> {
         let config = config::Config::from_toml(&config.clone()).expect("无法解析配置字符串");
         let result = service::new(config.clone(), sys_claim, sysinfo).await;
         let (client, mut server) = match result {
             Ok((c, s)) => (c, s),
             Err(e) => panic!("无法启动服务: {:?}", e),
         };
-        
+
         let sys_did = sys_claim.gen_did();
         let shared_data = shared::get_shared_data();
-        
+
         let handler = Handler {
             sys_did: sys_did.clone(),
             shared_data,
         };
 
         server.set_event_handler(handler);
-    
+
         let config_clone = config.clone();
         let client_clone = client.clone();
         TOKIO_RUNTIME.spawn(async move {
             let task_run = server.run();
             let task_node_status = get_node_status(client_clone.clone(), config_clone.get_node_status_interval());
             let task_broadcast_online = broadcast_online_users(
-                client_clone.clone(), 
+                client_clone.clone(),
                 config_clone.get_broadcast_interval(),
             );
-    
+
             tokio::join!(
                 task_run, 
                 task_node_status, 
                 task_broadcast_online
             );
         });
-        
+
         let p2p = Self {
             sys_did: sys_did.clone(),
             config: config.clone(),
@@ -102,7 +102,7 @@ impl P2p {
         if did.is_empty() || !IdClaim::validity(&did) {
             return IdClaim::default();
         }
-        
+
         let request = json!({
             "method": "get_claim",
             "did": did
@@ -111,11 +111,11 @@ impl P2p {
             "{}".to_string()
         });
         let short_peer_id = self.client.get_short_id();
-        
+
         if let Some(ref upstream_nodes) = self.config.address.upstream_nodes {
             for upstream_node in upstream_nodes {
                 let upstream_peer_id = upstream_node.peer_id().to_base58();
-                
+
                 if let Some(target_did) = self.shared_data.get_node_did(&upstream_peer_id) {
                     let result_str = self.request(target_did.clone(), message.clone()).await;
                     if result_str.is_empty() {
@@ -124,8 +124,8 @@ impl P2p {
                     }
                     match serde_json::from_str::<IdClaim>(&result_str) {
                         Ok(claim) => {
-                            println!("{} [P2pNode] P2P_node({}) 成功从上游节点({}) 获取用户({})的声明", 
-                                          token_utils::now_string(), short_peer_id, upstream_peer_id, did);
+                            println!("{} [P2pNode] P2P_node({}) 成功从上游节点({}) 获取用户({})的声明",
+                                     token_utils::now_string(), short_peer_id, upstream_peer_id, did);
                             return claim;
                         },
                         Err(e) => {
@@ -139,7 +139,7 @@ impl P2p {
         } else {
             tracing::debug!("没有配置上游节点");
         }
-        
+
         tracing::debug!("无法从任何上游节点获取用户 {} 的声明", did);
         IdClaim::default()
     }
@@ -178,7 +178,7 @@ impl P2p {
     pub async fn put_claim_to_DHT(&self, claim: IdClaim) {
         let did = claim.gen_did();
         let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
-        
+
         self.client.set_key_value(key, claim.to_json_string().as_bytes().to_vec()).await;
         println!("{} [P2pNode] pet did({}) claim to DHT", token_utils::now_string(), did);
     }
@@ -210,7 +210,7 @@ impl P2p {
         if !known_peers.contains(&target_peer_id) {
             tracing::warn!("The target node({}) is not in the known node list", target);
         }
-            
+
         let now_time: DateTime<Local> = Local::now();
         let target_short_id = target_peer_id.chars().skip(target_peer_id.len() - 7).collect::<String>();
         tracing::info!("📣 >>>> Outbound request: {} send {} to {} with {} at {}", short_id, message, target, target_short_id, now_time);
@@ -245,14 +245,14 @@ impl EventHandler for Handler {
             "📣 <<<< Inbound REQUEST: {}",
             request_str
         );
-        
+
         // 按照 user_did|msg 格式解析
         let parts: Vec<&str> = request_str.splitn(2, '|').collect();
         if parts.len() != 2 {
             tracing::warn!("请求格式不正确，应为 'user_did|msg'");
             return Ok("格式错误".as_bytes().to_vec());
         }
-        
+
         let user_did = parts[0];
         if user_did.is_empty() || !IdClaim::validity(user_did) {
             tracing::warn!("请求的user_did不正确");
@@ -295,13 +295,13 @@ impl EventHandler for Handler {
 
     fn handle_broadcast(&self, topic: &str, message: Vec<u8>, sender: PeerId) {
         let message_str = String::from_utf8_lossy(&message).to_string();
-        
+
         tracing::info!(
             "📣 <<<< Inbound BROADCAST: {:?} {:?}",
             topic,
             message_str
         );
-        
+
         // 处理不同类型的广播消息
         match topic {
             "online" => {
@@ -376,7 +376,7 @@ async fn request(client: Client, interval: u64) {
         time::sleep(dur).await;
         let known_peers = client.get_known_peers().await;
         let short_id = client.get_short_id();
-        
+
         // 检查 known_peers 是否为空
         if known_peers.len() > 0 {
             // 只有在有已知节点时才生成随机索引
@@ -418,7 +418,7 @@ async fn broadcast_online_users(client: Client, interval: u64) {
             let now_time: DateTime<Local> = Local::now();
             let unix_timestamp = now_time.timestamp();
             tracing::info!("📣 >>>> broadcast({topic}): {} online users in {} at {}, list={}", users_list.split('|').count(), client.get_short_id(), now_time, users_list);
-            let message = format!("{}:{}:{}", client.get_sys_did(), unix_timestamp, users_list); 
+            let message = format!("{}:{}:{}", client.get_sys_did(), unix_timestamp, users_list);
             let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
         } else {
             tracing::info!("no users on node ...");
@@ -426,7 +426,7 @@ async fn broadcast_online_users(client: Client, interval: u64) {
     }
 }
 
-pub  async fn get_instance() -> Option<Arc<P2p>> {
+pub async fn get_instance() -> Option<Arc<P2p>> {
     let p2p_instance_guard = P2P_INSTANCE.lock().await;
     p2p_instance_guard.clone()
 }

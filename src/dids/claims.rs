@@ -14,7 +14,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use tracing_subscriber::field::debug;
 use crate::dids::{self, TOKIO_RUNTIME, token_utils};
-use crate::p2p;
+use crate::rest_service;
 
 
 
@@ -27,17 +27,79 @@ lazy_static::lazy_static! {
 
 #[derive(Clone, Debug)]
 pub struct GlobalClaims {
+    pub local_claims: LocalClaims,
+}
+
+impl GlobalClaims {
+    pub fn instance() -> Arc<Mutex<GlobalClaims>> {
+        GLOBAL_CLAIMS.clone()
+    }
+
+    pub fn new() -> Self {
+        let local_claims = LocalClaims::new();
+        Self {
+            local_claims,
+        }
+    }
+
+    pub fn get_claim(&mut self, for_did: &str) -> IdClaim {
+        let mut claim = self.local_claims.get_claim_from_local(for_did.clone());
+        if claim.is_default() {
+            let params = json!({
+                "did": for_did,
+            });
+            claim = match rest_service::request_api_sync("get_claim", Some(params)) {
+                Ok(claim_json) => {
+                    match serde_json::from_str::<IdClaim>(&claim_json) {
+                        Ok(parsed_claim) => {
+                            parsed_claim
+                        },
+                        Err(err) => {
+                            debug!("解析claim JSON失败: {:?}", err);
+                            IdClaim::default()
+                        }
+                    }
+                },
+                Err(err) => {
+                    debug!("从全局获取claim失败: {:?}", err);
+                    IdClaim::default()
+                }
+            };
+        }
+        claim
+    }
+
+    pub fn push_claim(&mut self, claim: &IdClaim) {
+        let params = json!({
+                "claim": claim,
+            });
+        let _did = match rest_service::request_api_sync("put_claim", Some(params)) {
+            Ok(did) => did,
+            Err(err) => {
+                debug!("get claim from global failures: {:?}", err);
+                String::from("")
+            }
+        };
+    }
+    pub(crate) fn get_claim_from_local(&mut self, for_did: &str) -> IdClaim {
+        self.local_claims.get_claim_from_local(for_did.clone())
+    }
+
+    pub(crate) fn push_claim_to_local(&mut self, claim: &IdClaim) {
+        self.local_claims.push_claim(claim)
+    }
+
+}
+
+#[derive(Clone, Debug)]
+pub struct LocalClaims {
     claims: HashMap<String, IdClaim>,       // 留存本地的身份自证
     sys_did: String,                      // 系统did
     device_did: String,                    // 设备id
     guest: String,                        // 游客账号
 }
 
-impl GlobalClaims {
-
-    pub fn instance() -> Arc<Mutex<GlobalClaims>> {
-        GLOBAL_CLAIMS.clone()
-    }
+impl LocalClaims {
 
     fn new() -> Self {
         let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
@@ -136,7 +198,7 @@ impl GlobalClaims {
         }
 
         if device_did == "Unknown" {
-            let device_claim = GlobalClaims::generate_did_claim
+            let device_claim = LocalClaims::generate_did_claim
                 ("Device", &device_name, None, Some(disk_uuid.clone()), &device_phrase);
             device_did = device_claim.gen_did();
             claims.insert(device_did.clone(), device_claim.clone());
@@ -144,7 +206,7 @@ impl GlobalClaims {
             fs::write(did_file_path, device_claim.to_json_string()).unwrap()
         }
         if sys_did == "Unknown"  {
-            let local_claim = GlobalClaims::generate_did_claim
+            let local_claim = LocalClaims::generate_did_claim
                 ("System", &system_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &sys_phrase);
             sys_did = local_claim.gen_did();
             claims.insert(sys_did.clone(), local_claim.clone());
@@ -152,7 +214,7 @@ impl GlobalClaims {
             fs::write(did_file_path, local_claim.to_json_string()).unwrap()
         }
         if  guest == "Unknown"  {
-            let guest_claim = GlobalClaims::generate_did_claim
+            let guest_claim = LocalClaims::generate_did_claim
                 ("User", &guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())), &guest_phrase);
             guest = guest_claim.gen_did();
             claims.insert(guest.clone(), guest_claim.clone());
@@ -162,7 +224,7 @@ impl GlobalClaims {
 
         println!("{} [SimpleAI] Loaded claims from local: len={}, sys_did={}, dev_did={}", token_utils::now_string(), claims.len(), sys_did, device_did);
 
-        GlobalClaims {
+        LocalClaims {
             claims,
             sys_did,
             device_did,
@@ -197,17 +259,27 @@ impl GlobalClaims {
         self.claims.len()
     }
 
+    pub fn get_claim_from_local(&mut self, did: &str) -> IdClaim {
+        if did=="Unknown" {
+            return IdClaim::default();
+        }
+        if !self.claims.contains_key(did) {
+            let claim = LocalClaims::load_claim_from_local(did);
+            if !claim.is_default() {
+                self.claims.insert(did.to_string(), claim.clone());
+                claim
+            } else {
+                claim
+            }
+        } else {
+            self.claims.get(did).unwrap().clone()
+        }
+    }
+
     pub fn push_claim(&mut self, claim: &IdClaim) {
         self.claims.insert(claim.gen_did(), claim.clone());
         let did_file_path = token_utils::get_path_in_sys_key_dir(&format!("{}_{}.did", claim.id_type.to_lowercase(), claim.gen_did()));
         fs::write(did_file_path, claim.to_json_string()).unwrap();
-        TOKIO_RUNTIME.block_on(async {
-            if let Some(p2p) = p2p::get_instance().await {
-                info!("ready to put claim to DHT network");
-                let claim_clone = claim.clone();
-                p2p.put_claim_to_DHT(claim_clone).await;
-            }
-        });
     }
 
     pub fn pop_claim(&mut self, did: &str) -> IdClaim {
@@ -237,49 +309,6 @@ impl GlobalClaims {
         let file_hash_hash = token_utils::calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
         let claim = IdClaim::new(id_type, &phrase, &nickname, telephone_hash, id_card_hash, face_image_hash, file_hash_hash);
         debug!("generate_did_claim result: {}", claim.to_json_string());
-        claim
-    }
-
-    pub fn get_claim_from_local(&mut self, did: &str) -> IdClaim {
-        if did=="Unknown" {
-            return IdClaim::default();
-        }
-        if !self.claims.contains_key(did) {
-            let claim = GlobalClaims::load_claim_from_local(did);
-            if !claim.is_default() {
-                self.claims.insert(did.to_string(), claim.clone());
-                claim
-            } else {
-                claim
-            }
-        } else {
-            self.claims.get(did).unwrap().clone()
-        }
-    }
-
-    pub fn get_claim_from_global(&mut self, did: &str) -> IdClaim {
-        let mut claim = self.get_claim_from_local(did.clone());
-        if claim.is_default() {
-            claim = TOKIO_RUNTIME.block_on(async {
-                if let Some(p2p) = p2p::get_instance().await {
-                    debug!("ready to get claim from DHT network");
-                    let did_clone = did.clone();
-                    let mut claim = p2p.get_claim_from_DHT(did_clone).await;
-                    if claim.is_default() {
-                        debug!("ready to get claim from upstream with p2p channel");
-                        claim = p2p.get_claim_from_upstream(did_clone.to_string()).await;
-                    }
-                    claim
-                } else {
-                    IdClaim::default()
-                }
-            });
-            
-            if !claim.is_default() {
-                info!("成功通过 P2P 网络获取用户 {} 的声明", did);
-                self.push_claim(&claim);
-            }
-        }
         claim
     }
 

@@ -14,7 +14,7 @@ use tracing::{error, warn, info, debug, trace};
 
 use crate::dids::{self, DidToken, TOKEN_TM_DID, TOKEN_TM_URL};
 use crate::dids::token_utils;
-use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
+use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::issue_key;
 use crate::exchange_key;
 
@@ -99,7 +99,7 @@ impl TokenUser {
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(user_telephone.clone()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
-        let user_claim = GlobalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase);
+        let user_claim = LocalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase);
         let user_did = self.didtoken.lock().unwrap().add_crypt_secret_for_user(&user_claim, &phrase);
         let identity = self.export_user(&nickname, &user_telephone, &phrase);
         let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
@@ -115,7 +115,7 @@ impl TokenUser {
         let (user_did, claim) = {
             let mut didtoken = self.didtoken.lock().unwrap();
             let user_did = didtoken.reverse_lookup_did_by_symbol(user_symbol_hash);
-            let claim = didtoken.get_claim_from_local(&user_did);
+            let claim = didtoken.get_claim(&user_did);
             (user_did, claim)
         };
         debug!("{} [UserBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
@@ -160,7 +160,7 @@ impl TokenUser {
         let (user_did, claim) = {
             let mut didtoken = self.didtoken.lock().unwrap();
             let user_did = didtoken.reverse_lookup_did_by_symbol(symbol_hash);
-            let claim = didtoken.get_claim_from_local(&user_did);
+            let claim = didtoken.get_claim(&user_did);
             (user_did, claim)
         };
         println!("{} [UserBase] Export user: {}, nickname={}, telephone={}", token_utils::now_string(), user_did, nickname, telephone);

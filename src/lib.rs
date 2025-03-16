@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
-use crate::dids::claims::{GlobalClaims, IdClaim, UserContext};
+use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::utils::systeminfo::SystemInfo;
 use crate::utils::params_mapper::ComfyTaskParams;
 use crate::dids::token_utils::calc_sha256;
@@ -57,18 +57,18 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     }
     
     let text_system = format!("{}|{}", system_did, text);
-    let claim_system = GlobalClaims::load_claim_from_local(&system_did);
+    let claim_system = LocalClaims::load_claim_from_local(&system_did);
     if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
         return true;
     }
     let text_upstream = format!("{}|{}", upstream_did, text);
-    let claim_upstream = GlobalClaims::load_claim_from_local(&upstream_did);
+    let claim_upstream = LocalClaims::load_claim_from_local(&upstream_did);
     if token_utils::verify_signature(&text_upstream, &signature_str, &claim_upstream.get_cert_verify_key()) {
         return true;
     }
     let root_did = TOKEN_TM_DID;
     let text_root = format!("{}|{}", root_did, text);
-    let claim_root = GlobalClaims::load_claim_from_local(root_did);
+    let claim_root = LocalClaims::load_claim_from_local(root_did);
     token_utils::verify_signature(&text_root, &signature_str, &claim_root.get_cert_verify_key())
 }
 
