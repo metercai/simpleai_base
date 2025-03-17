@@ -327,7 +327,7 @@ impl<E: EventHandler> Server<E> {
         swarm.behaviour_mut().discover_peers();
 
         let metrics = Metrics::new(&mut metric_registry);
-        let build_info = Info::new(vec![("version".to_string(), env!("CARGO_PKG_VERSION"))]);
+        /*let build_info = Info::new(vec![("version".to_string(), env!("CARGO_PKG_VERSION"))]);
         metric_registry.register(
             "build",
             "A metric with a constant '1' value labeled by version",
@@ -338,7 +338,7 @@ impl<E: EventHandler> Server<E> {
             if let Err(e) = http_service::metrics_server(metric_registry, locale_ip, metrics_path).await {
                 tracing::error!("Metrics server failed: {e}");
             }
-        });
+        });*/
 
         // Create a ticker to periodically discover new peers.
         let interval_secs = config.get_discovery_interval();
@@ -501,7 +501,7 @@ impl<E: EventHandler> Server<E> {
 
     fn handle_behaviour_event(&mut self, ev: BehaviourEvent) {
         tracing::debug!("{:?}", ev);
-        self.record_event_metrics(&ev);
+        //self.record_event_metrics(&ev);
         match ev {
             BehaviourEvent::Ping(ping::Event {
                 peer,
