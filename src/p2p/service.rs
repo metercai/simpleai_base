@@ -253,7 +253,9 @@ impl<E: EventHandler> Server<E> {
                 .with_behaviour(|key, relay_client | {
                     Behaviour::new(sys_did.clone(), key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
-                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(120))
+                .with_max_negotiating_inbound_streams(128)
+                )
                 .build();
 
         let locale_port = if is_global { TOKEN_SERVER_PORT } else { 0 };
@@ -296,7 +298,7 @@ impl<E: EventHandler> Server<E> {
 
         let mut upstream_nodes = UpstreamNodes::new(&config);
         
-        /*let mut upstream_node = upstream_nodes.get_first();
+        let mut upstream_node = upstream_nodes.get_first();
         let mut upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
         let timeout_duration = Duration::from_secs(6); 
         let start_time = Instant::now();
@@ -308,15 +310,18 @@ impl<E: EventHandler> Server<E> {
             upstream_node = upstream_nodes.get_select();
             upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
         }
-        let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
-        tracing::info!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
-            token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
-        */
+        if !is_global {
+            let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
+            tracing::info!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
+                token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
+        }
         for node in upstream_nodes.iter() {
-            let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
+            /*let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
             swarm.dial(node_addr.clone()).unwrap();
-            let listener_id = swarm.listen_on(node_addr.clone().with(Protocol::P2pCircuit))?;
-            tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
+            if !is_global {
+                let listener_id = swarm.listen_on(node_addr.clone().with(Protocol::P2pCircuit))?;
+                tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
+            }*/
             swarm.behaviour_mut().add_address(&node.peer_id(), node.address());
         }
         swarm.behaviour_mut().discover_peers();
@@ -445,10 +450,10 @@ impl<E: EventHandler> Server<E> {
                             peer_id_clone,
                             None,
                         ) {
-                            tracing::error!("Failed to register after ConnectionEstablished({}): {error}", peer_id.short_id());
+                            tracing::info!("Failed to register after ConnectionEstablished({}): {error}", peer_id.short_id());
                             return;
                         }
-                        tracing::info!("Connection established after ConnectionEstablished with rendezvous point: {}", peer_id.short_id());
+                        tracing::debug!("Connection established after ConnectionEstablished with rendezvous point: {}", peer_id.short_id());
                         rendezvous.discover(
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
                             None,
@@ -566,10 +571,10 @@ impl<E: EventHandler> Server<E> {
                         self.upstream_nodes.get_last().peer_id(),
                         None,
                     ) {
-                        tracing::error!("Failed to register after Identify({}): {error}", peer_id.short_id());
+                        tracing::info!("Failed to register after Identify({}): {error}", peer_id.short_id());
                         return;
                     }
-                    tracing::info!("Connection established after Identify with rendezvous point: {}", peer_id.short_id());
+                    tracing::debug!("Connection established after Identify with rendezvous point: {}", peer_id.short_id());
                 }
 
                 if self.upstream_nodes.contains(&peer_id) && !self.is_global {
@@ -582,12 +587,12 @@ impl<E: EventHandler> Server<E> {
                                     tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
                                 },
                                 Err(e) => {
-                                    tracing::error!("Failed to listen on upstream node({}): {}", node_addr, e);
+                                    tracing::info!("Failed to listen on upstream node({}): {}", node_addr, e);
                                 }
                             }
                         },
                         Err(e) => {
-                            tracing::error!("Failed to parse multiaddr for node {}: {}", node.peer_id().short_id(), e);
+                            tracing::info!("Failed to parse multiaddr for node {}: {}", node.peer_id().short_id(), e);
                         }
                     }
                 }
@@ -670,7 +675,7 @@ impl<E: EventHandler> Server<E> {
             BehaviourEvent::Rendezvous(
                 rendezvous::server::Event::PeerRegistered { peer, registration },
             ) => {
-                tracing::info!(
+                tracing::debug!(
                     "Peer {} registered for namespace '{}'",
                     peer,
                     registration.namespace
@@ -682,7 +687,7 @@ impl<E: EventHandler> Server<E> {
                     registrations,
                 },
             ) => {
-                tracing::info!(
+                tracing::debug!(
                     "Served peer {} with {} registrations",
                     enquirer,
                     registrations.len()
@@ -696,7 +701,7 @@ impl<E: EventHandler> Server<E> {
                     rendezvous_node,
                 },
             ) => {
-                tracing::info!(
+                tracing::debug!(
                     "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
                     namespace,
                     rendezvous_node.short_id(),
@@ -710,7 +715,7 @@ impl<E: EventHandler> Server<E> {
                     error,
                 },
             ) => {
-                tracing::error!(
+                tracing::info!(
                     "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
                     rendezvous_node.short_id(),
                     namespace,
@@ -730,7 +735,7 @@ impl<E: EventHandler> Server<E> {
                 for registration in registrations {
                     for address in registration.record.addresses() {
                         let peer = registration.record.peer_id();
-                        tracing::info!("Discovered peer with rendezvous: {}/{}", peer.short_id(), address);
+                        tracing::debug!("Discovered peer with rendezvous: {}, address={}", peer.short_id(), address);
 
                         let p2p_suffix = Protocol::P2p(peer);
                         let address_with_p2p =
@@ -742,10 +747,10 @@ impl<E: EventHandler> Server<E> {
                         
                         match self.network_service.dial(address_with_p2p.clone()) {
                             Ok(_) => {
-                                tracing::info!("Successfully dialed peer {} at {}", peer.short_id(), address_with_p2p);
+                                tracing::debug!("Successfully dialed peer {} at {}", peer.short_id(), address_with_p2p);
                             },
                             Err(e) => {
-                                tracing::warn!("Failed to dial peer {} at {}: {}", peer.short_id(), address_with_p2p, e);
+                                tracing::info!("Failed to dial peer {} at {}: {}", peer.short_id(), address_with_p2p, e);
                             }
                         }
                     }

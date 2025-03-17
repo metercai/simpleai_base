@@ -44,8 +44,8 @@ impl SharedData {
             did_node_map: RwLock::new(HashMap::new()),
             node_did_map: RwLock::new(HashMap::new()),
             message_queue: None.into(),
-            online_all: OnlineUsers::new(300, 5),
-            online_nodes: OnlineUsers::new(300, 5),
+            online_all: OnlineUsers::new(600, 5),
+            online_nodes: OnlineUsers::new(600, 5),
             claims: GlobalClaims::instance(), 
             certificates: GlobalCerts::instance(),
         }
