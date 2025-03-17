@@ -124,7 +124,7 @@ impl P2p {
                     }
                     match serde_json::from_str::<IdClaim>(&result_str) {
                         Ok(claim) => {
-                            println!("{} [P2pNode] P2P_node({}) 成功从上游节点({}) 获取用户({})的声明",
+                            tracing::info!("{} [P2pNode] P2P_node({}) 成功从上游节点({}) 获取用户({})的声明",
                                      token_utils::now_string(), short_peer_id, upstream_peer_id, did);
                             return claim;
                         },
@@ -155,7 +155,7 @@ impl P2p {
                 Ok(json_str) => {
                     match serde_json::from_str::<IdClaim>(&json_str) {
                         Ok(claim) => {
-                            println!("{} [P2pNode] get did({}) claim from DHT", token_utils::now_string(), did);
+                            tracing::info!("{} [P2pNode] get did({}) claim from DHT", token_utils::now_string(), did);
                             claim
                         },
                         Err(e) => {
@@ -180,7 +180,7 @@ impl P2p {
         let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
 
         self.client.set_key_value(key, claim.to_json_string().as_bytes().to_vec()).await;
-        println!("{} [P2pNode] pet did({}) claim to DHT", token_utils::now_string(), did);
+        tracing::info!("{} [P2pNode] pet did({}) claim to DHT", token_utils::now_string(), did);
     }
 
     async fn get_node_status(&self) {
@@ -267,7 +267,7 @@ impl EventHandler for Handler {
                         "get_claim" => {
                             let response = if let Some(did) = json_obj.get("did").and_then(|d| d.as_str()) {
                                 let claim = self.shared_data.claims.lock().unwrap().get_claim_from_local(did);
-                                println!("{} [P2pNode] get did({}) claim from upstream.", token_utils::now_string(), did);
+                                tracing::info!("{} [P2pNode] get did({}) claim from upstream.", token_utils::now_string(), did);
                                 claim.to_json_string()
                             } else {
                                 tracing::warn!("get_claim 方法缺少 did 参数");
@@ -323,7 +323,7 @@ impl EventHandler for Handler {
                         self.shared_data.online_nodes.log_access_batch(sender_id.clone());
                         (self.shared_data.online_nodes.get_number(), self.shared_data.online_nodes.get_nodes_top_list())
                     };
-                    println!("{} [P2pNode] update online list: nodes={}, users={}", token_utils::now_string(), online_nodes_num, online_all_num);
+                    tracing::info!("{} [P2pNode] update online list: nodes={}, users={}", token_utils::now_string(), online_nodes_num, online_all_num);
                     let entries: Vec<(String, String)> = message_str
                         .split('|')
                         .filter(|entry| !entry.is_empty())
@@ -337,7 +337,7 @@ impl EventHandler for Handler {
                 // 收到系统消息，更新本地消息队列
                 if !message_str.is_empty() {
                     let count = self.shared_data.get_message_queue().push_messages(&self.sys_did, message_str);
-                    println!("{} [P2pNode] added {} new system meaasge.", token_utils::now_string(), count);
+                    tracing::info!("{} [P2pNode] added {} new system meaasge.", token_utils::now_string(), count);
                 }
             },
             _ => {
@@ -352,7 +352,7 @@ async fn get_node_status(client: Client, interval: u64) {
     loop {
         time::sleep(dur).await;
         let node_status = client.get_node_status().await;
-        println!("{} [P2pNode] 📣 {}", token_utils::now_string(), node_status.short_format());
+        tracing::info!("{} [P2pNode] 📣 {}", token_utils::now_string(), node_status.short_format());
     }
 }
 
