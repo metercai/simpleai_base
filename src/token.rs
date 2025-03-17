@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::path::{Path, PathBuf};
+use chrono::format;
 use serde_json::{self, json};
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -171,6 +172,10 @@ impl SimpleAI {
         self.get_admin_did().is_empty()
     }
 
+    pub fn get_p2p_upstream_did(&mut self) -> String {
+        self.sys_name = format!("{}_p2p", self.sys_name);
+        self.get_upstream_did()
+    }
 
     pub fn get_upstream_did(&mut self) -> String {
         if self.get_admin_did() == dids::TOKEN_TM_DID {
@@ -180,6 +185,9 @@ impl SimpleAI {
         }
         let upstream_did = self.didtoken.lock().unwrap().get_upstream_did();
         if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
+            if self.get_local_admin_vars("p2p_node") == "False" && !self.get_sys_name().ends_with("_p2p") {
+                self.p2p_stop();
+            }
             return upstream_did.clone();
         }
         let timeout = Duration::from_secs(6);
@@ -215,7 +223,7 @@ impl SimpleAI {
                     tokio::join!(task1, task2);
                 })
             });
-            if self.get_local_admin_vars("p2p_node") == "True" {
+            if self.get_local_admin_vars("p2p_node") == "True" || self.get_sys_name().ends_with("_p2p"){
                 self.p2p_start();
             }
         }
