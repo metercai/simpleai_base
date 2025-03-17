@@ -87,7 +87,7 @@ impl P2p {
             tokio::join!(
                 task_run, 
                 task_node_status, 
-                task_broadcast_online
+                //task_broadcast_online
             );
         });
 

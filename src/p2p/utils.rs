@@ -65,7 +65,7 @@ pub(crate) fn get_ipaddr_from_netif() -> Result<Vec<Ipv4Addr>, Box<dyn std::erro
             if (!ipv4.is_private() && !ipv4.is_loopback() && !ipv4.is_multicast())
                 || (ipv4.is_private()) {
                 ipaddrs.push(ipv4);
-                tracing::info!("Network IFace({}) ip={}", interface.name, ipv4);
+                tracing::debug!("Network IFace({}) ip={}", interface.name, ipv4);
             }
         }
     }

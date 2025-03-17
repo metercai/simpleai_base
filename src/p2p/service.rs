@@ -259,12 +259,17 @@ impl<E: EventHandler> Server<E> {
                 .build();
 
         let locale_port = if is_global { TOKEN_SERVER_PORT } else { 0 };
-        swarm
-            .listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", locale_port).parse().unwrap())
-            .unwrap();
-        swarm
-            .listen_on(format!("/ip4/0.0.0.0/tcp/{}", locale_port).parse().unwrap())
-            .unwrap();
+        for ip in &netifs_ip {
+            match swarm.listen_on(format!("/ip4/{}/udp/{}/quic-v1", ip, locale_port).parse().unwrap()) {
+                Ok(_) => (),
+                Err(e) => {
+                    match swarm.listen_on(format!("/ip4/{}/tcp/{}", ip, locale_port).parse().unwrap()) {
+                        Ok(_) => (),
+                        Err(e) => (),
+                    }
+                }
+            }
+        }
 
         let mut listened_addresses = Vec::new();
 
