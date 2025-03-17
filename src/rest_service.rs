@@ -3,17 +3,19 @@ use std::sync::{Arc, Mutex};
 use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use tracing::error;
+use tracing::{debug, info, error};
 
 use crate::token::SimpleAI;
 use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
+use crate::dids::claims::{IdClaim, GlobalClaims};
 use crate::user::TokenUser;
+use crate::p2p;
 
 // 共享状态类型
 type SharedAI = Arc<Mutex<SimpleAI>>;
 
 pub const API_HOST: &str = "http://127.0.0.1:4515/api";
-    
+
 // 统一响应格式
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -55,11 +57,15 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .and(with_simpai(simpai.clone()))
             .and_then(handle_get_local_vars);
 
-        let get_claim = warp::path!("api" / "claim")
+        let get_claim = warp::path!("api" / "get_claim")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_get_claim);
+
+        let put_claim = warp::path!("api" / "put_claim")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_put_claim);
 
         let get_register_cert = warp::path!("api" / "register_cert")
             .and(warp::post())
@@ -115,6 +121,7 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .or(get_upstream_did)
             .or(get_local_vars)
             .or(get_claim)
+            .or(put_claim)
             .or(get_register_cert)
             .or(is_registered)
             .or(sign_by_did)
@@ -138,25 +145,28 @@ fn with_simpai(ai: SharedAI) -> impl Filter<Extract = (SharedAI,), Error = std::
 
 // 1. 获取系统DID
 async fn handle_get_sys_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
-    let ai = ai.lock().unwrap();
+    let claims = GlobalClaims::instance();
+    let claims = claims.lock().unwrap();
     Ok(warp::reply::json(&ApiResponse {
         success: true,
-        data: ai.get_sys_did(),
+        data: claims.local_claims.get_system_did(),
         error: None,
     }))
 }
 
 async fn handle_get_device_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
-    let ai = ai.lock().unwrap();
+    let claims = GlobalClaims::instance();
+    let claims = claims.lock().unwrap();
     Ok(warp::reply::json(&ApiResponse {
         success: true,
-        data: ai.get_device_did(),
+        data: claims.local_claims.get_device_did(),
         error: None,
     }))
 }
 
 async fn handle_get_upstream_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
-    let mut ai = ai.lock().unwrap();
+    let didtoken = DidToken::instance();
+    let mut ai = didtoken.lock().unwrap();
     Ok(warp::reply::json(&ApiResponse {
         success: true,
         data: ai.get_upstream_did(),
@@ -194,11 +204,28 @@ struct GetClaimRequest {
 
 async fn handle_get_claim(
     req: GetClaimRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
-    let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
-    let claim = ai.get_claim(&req.did);
+    let claims = GlobalClaims::instance();
+    let mut claim = {
+        let mut claims = claims.lock().unwrap();
+        claims.get_claim_from_local(&req.did)
+    };
+    if claim.is_default() {
+        if let Some(p2p) = p2p::get_instance().await {
+            debug!("ready to get claim from DHT network");
+            let did_clone = req.did.clone();
+            claim = p2p.get_claim_from_DHT(&did_clone).await;
+            if claim.is_default() {
+                debug!("ready to get claim from upstream with p2p channel");
+                claim = p2p.get_claim_from_upstream(did_clone.to_string()).await;
+            }
+            if !claim.is_default() {
+                info!("get did({}) claim with p2p channel.", did_clone);
+                let mut claims = claims.lock().unwrap();
+                claims.push_claim_to_local(&claim);
+            }
+        }
+    }
     Ok(warp::reply::json(&ApiResponse {
         success: !claim.is_default(),
         data: claim.to_json_string(),
@@ -206,6 +233,31 @@ async fn handle_get_claim(
     }))
 }
 
+#[derive(Debug, Deserialize)]
+struct PutClaimRequest {
+    claim: IdClaim,
+}
+
+async fn handle_put_claim(
+    req: PutClaimRequest,
+) -> Result<impl Reply, Rejection> {
+    let claims = GlobalClaims::instance();
+    {
+        let mut claims = claims.lock().unwrap();
+        claims.push_claim_to_local(&req.claim)
+    };
+    if let Some(p2p) = p2p::get_instance().await {
+        debug!("ready to get claim from DHT network");
+        let claim_clone = req.claim.clone();
+        p2p.put_claim_to_DHT(claim_clone).await;
+    }
+
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: req.claim.gen_did(),
+        error: None,
+    }))
+}
 // 4. 获取注册证书
 #[derive(Debug, Deserialize)]
 struct GetRegisterCertRequest {
@@ -376,26 +428,26 @@ async fn handle_put_global_message(
 
 pub async fn request_api<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, reqwest::Error> {
     let url = format!("{}/{}", API_HOST, endpoint);
-    
+
     let res = if let Some(json_params) = params {
         REQWEST_CLIENT.post(&url).json(&json_params).send().await?
     } else {
         REQWEST_CLIENT.get(&url).send().await?
     };
-    
+
     let data: ApiResponse<String> = res.json().await?;
     Ok(data.data)
 }
 
 pub fn request_api_sync<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
     let url = format!("{}/{}", API_HOST, endpoint);
-    
+
     let res = if let Some(json_params) = params {
         REQWEST_CLIENT_SYNC.post(&url).json(&json_params).send()?
     } else {
         REQWEST_CLIENT_SYNC.get(&url).send()?
     };
-    
+
     let data: ApiResponse<String> = res.json()?;
     Ok(data.data)
 }

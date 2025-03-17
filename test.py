@@ -3,7 +3,7 @@ import json
 from simpleai_base import simpleai_base
 print("Checking ...")
 token = simpleai_base.init_local('SimpleSDXL')
-upstream_did = token.get_upstream_did()
+upstream_did = token.get_p2p_upstream_did()
 print(f'upstream_did={upstream_did}')
 sysinfo = json.loads(token.get_sysinfo().to_json())
 sysinfo.update(dict(did=token.get_sys_did()))
