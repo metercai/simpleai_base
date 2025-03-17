@@ -18,7 +18,7 @@ use libp2p::{
         identity::{Keypair, ed25519},
         futures::{StreamExt, FutureExt},
         metrics::{Metrics, Recorder},
-        swarm::SwarmEvent,
+        swarm::{dial_opts::DialOpts, SwarmEvent},
         gossipsub::{self, TopicHash},
         request_response::{self, OutboundFailure, OutboundRequestId, ResponseChannel},
         kad::{QueryId},
@@ -296,7 +296,7 @@ impl<E: EventHandler> Server<E> {
 
         let mut upstream_nodes = UpstreamNodes::new(&config);
         
-        let mut upstream_node = upstream_nodes.get_first();
+        /*let mut upstream_node = upstream_nodes.get_first();
         let mut upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
         let timeout_duration = Duration::from_secs(6); 
         let start_time = Instant::now();
@@ -309,14 +309,14 @@ impl<E: EventHandler> Server<E> {
             upstream_addr = Multiaddr::from_str(format!("{}/p2p/{}", upstream_node.address(), upstream_node.peer_id()).as_str())?;
         }
         let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
-        println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
+        tracing::info!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
             token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
-        
+        */
         for node in upstream_nodes.iter() {
-            /*let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
+            let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
             swarm.dial(node_addr.clone()).unwrap();
             let listener_id = swarm.listen_on(node_addr.clone().with(Protocol::P2pCircuit))?;
-            tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);*/
+            tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
             swarm.behaviour_mut().add_address(&node.peer_id(), node.address());
         }
         swarm.behaviour_mut().discover_peers();
@@ -462,14 +462,28 @@ impl<E: EventHandler> Server<E> {
 
             // Can't connect to the `peer`, remove it from the DHT.
             SwarmEvent::OutgoingConnectionError {
-                peer_id: Some(peer),
+                peer_id: Some(remote_peer),
                 error,
                 connection_id,
                 ..
             } => {
-                if self.record_peer_failure(&peer, "Connection") {
-                    tracing::info!("Connection failures({:?}) has reached the threshold, remove the node: {}", error, peer.short_id());
-                    self.network_service.behaviour_mut().remove_peer(&peer);
+                if self.record_peer_failure(&remote_peer, "Connection") {
+                    tracing::info!("Connection failures({:?}) has reached the threshold, remove the node: {}", error, remote_peer.short_id());
+                    self.network_service.behaviour_mut().remove_peer(&remote_peer);
+
+                    if !self.is_global && self.network_service.local_peer_id().to_base58() != remote_peer.to_base58(){
+                        let relay_node = self.upstream_nodes.get_select();
+
+                        tracing::info!("Try to connect to {} with the upstream node: {}", remote_peer.short_id(), relay_node.peer_id().short_id());
+                        let opts = DialOpts::from(
+                            relay_node.address()
+                                .with(Protocol::P2pCircuit)
+                                .with(Protocol::P2p(remote_peer)),
+                        );
+                        let id = opts.connection_id();
+                        self.network_service.dial(opts);
+                    }
+                    
                 }
                 return;
             },
@@ -557,6 +571,27 @@ impl<E: EventHandler> Server<E> {
                     }
                     tracing::info!("Connection established after Identify with rendezvous point: {}", peer_id.short_id());
                 }
+
+                if self.upstream_nodes.contains(&peer_id) && !self.is_global {
+                    let short_peer_id = self.network_service.local_peer_id().short_id();
+                    let node = self.upstream_nodes.get_with_peer_id(&peer_id).unwrap();
+                    match Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str()) {
+                        Ok(node_addr) => {
+                            match self.network_service.listen_on(node_addr.clone().with(Protocol::P2pCircuit)) {
+                                Ok(listener_id) => {
+                                    tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
+                                },
+                                Err(e) => {
+                                    tracing::error!("Failed to listen on upstream node({}): {}", node_addr, e);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            tracing::error!("Failed to parse multiaddr for node {}: {}", node.peer_id().short_id(), e);
+                        }
+                    }
+                }
+                
             }
 
             BehaviourEvent::ReqResp(request_response::Event::Message {
@@ -608,16 +643,28 @@ impl<E: EventHandler> Server<E> {
             }
 
             BehaviourEvent::RelayClient(
-                relay::client::Event::ReservationReqAccepted { .. },
+                relay::client::Event::ReservationReqAccepted { 
+                    relay_peer_id,
+                    limit,
+                    .. },
             ) => {
-                //assert!(opts.mode == Mode::Listen);
-                tracing::info!("Relay accepted our reservation request");
+                tracing::info!("Relay({}) accepted our reservation request, limit={:?}.", relay_peer_id.short_id(), limit);
             }
-            BehaviourEvent::RelayClient(event) => {
-                tracing::info!(?event)
+
+            BehaviourEvent::RelayClient(
+                relay::client::Event::OutboundCircuitEstablished { 
+                    relay_peer_id,
+                    limit,
+                    .. },
+            ) => {
+                tracing::info!("Relay({}) accepted our CircuitEstablished limit={:?}.", relay_peer_id.short_id(), limit);
             }
-            BehaviourEvent::Dcutr(event) => {
-                tracing::info!(?event)
+
+            BehaviourEvent::Dcutr(dcutr::Event {
+                remote_peer_id,
+                result: Ok(connection_id),
+            }) => {
+                tracing::info!("DCUTR({}) accepted our reservation request.", remote_peer_id.short_id());
             }
 
             BehaviourEvent::Rendezvous(
@@ -692,11 +739,19 @@ impl<E: EventHandler> Server<E> {
                             } else {
                                 address.clone()
                             };
-
-                        self.network_service.dial(address_with_p2p).unwrap();
+                        
+                        match self.network_service.dial(address_with_p2p.clone()) {
+                            Ok(_) => {
+                                tracing::info!("Successfully dialed peer {} at {}", peer.short_id(), address_with_p2p);
+                            },
+                            Err(e) => {
+                                tracing::warn!("Failed to dial peer {} at {}: {}", peer.short_id(), address_with_p2p, e);
+                            }
+                        }
                     }
                 }
             }
+
             BehaviourEvent::Kademlia(
                 kad::Event::OutboundQueryProgressed {
                     id, result, .. 

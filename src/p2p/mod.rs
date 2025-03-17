@@ -296,7 +296,7 @@ impl EventHandler for Handler {
     fn handle_broadcast(&self, topic: &str, message: Vec<u8>, sender: PeerId) {
         let message_str = String::from_utf8_lossy(&message).to_string();
 
-        tracing::info!(
+        tracing::debug!(
             "📣 <<<< Inbound BROADCAST: {:?} {:?}",
             topic,
             message_str

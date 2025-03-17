@@ -224,4 +224,15 @@ impl UpstreamNodes {
         self.nodes.iter()
     }
 
+    pub fn contains(&self, peer_id: &PeerId) -> bool {
+        self.nodes.iter().any(|node| node.peer_id() == *peer_id)
+    }
+
+    pub fn get_with_peer_id(&self, peer_id: &PeerId) -> Option<PeerIdWithMultiaddr> {
+        self.nodes.iter().find(|node| node.peer_id() == *peer_id).cloned()
+    }
+    
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
 }
