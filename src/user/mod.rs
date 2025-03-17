@@ -332,6 +332,7 @@ impl AdminDefault {
         data.insert("advanced_logs".to_string(), "False".to_string());
         data.insert("wavespeed_strength".to_string(), "0.12".to_string());
         data.insert("topbar_button_quantity".to_string(), "10".to_string());
+        data.insert("p2p_node".to_string(), "False".to_string());
         Self {
             data,
         }

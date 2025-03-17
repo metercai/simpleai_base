@@ -215,7 +215,9 @@ impl SimpleAI {
                     tokio::join!(task1, task2);
                 })
             });
-            self.p2p_start();
+            if self.get_local_admin_vars("p2p_node") == "True" {
+                self.p2p_start();
+            }
         }
         upstream_did
     }
@@ -1558,7 +1560,7 @@ async fn sync_upstream(
                     if nodes > 1 && users > 1 {
                         let mut users_guard = online_users.lock().await;
                         users_guard.set_nodes_users(nodes, users, top_list.clone());
-                        debug!("{} [Upstream] set_nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
+                        info!("{} [Upstream] set_nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
                     } else if nodes == 0 && users == 0 {
                         debug!("{} [Upstream] get null nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
                         let claims = GlobalClaims::instance();

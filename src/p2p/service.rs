@@ -232,11 +232,9 @@ impl<E: EventHandler> Server<E> {
         let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
         let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
         let is_global = if locale_ip == public_ip || is_upstream_node { true } else { false };
-        tracing::info!("P2P_node({:?}/{:?}) ready to start up : public_ip({:?}) is_global({})",
+        tracing::info!("P2P_node({:?}/{:?}) ready to start up.",
             locale_ip, 
-            netifs_ip, 
-            public_ip, 
-            is_global
+            public_ip,
         );
         let mut swarm =
             libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
