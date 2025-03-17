@@ -42,7 +42,7 @@ pubsub_topics = ['system', 'online']
 metrics_path = '/metrics' 
 discovery_interval = 60
 node_status_interval = 60
-broadcast_interval = 20
+broadcast_interval = 30
 request_interval = 80
 req_resp.request_timeout = 30
 "#;
