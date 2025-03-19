@@ -1,5 +1,7 @@
 use base58::ToBase58;
 use std::sync::{Arc, Mutex};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
@@ -55,7 +57,8 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     if !system_did.is_empty() {
         let text_system = format!("{}|{}", system_did, text);
         let claim_system = LocalClaims::load_claim_from_local(&system_did);
-        println!("{} cert verify by sys_did:{}, claim_cert_verify_key={:?}", did, system_did, claim_system.get_cert_verify_key());
+        println!("{} cert verify by sys_did:{}, sys_claim_cert_verify_key={}", did, system_did, URL_SAFE_NO_PAD.encode(claim_system.get_cert_verify_key()));
+        println!("text_system:{}, signature_str={}", text_system, signature_str);
         if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
             return true;
         }

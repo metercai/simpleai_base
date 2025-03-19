@@ -241,8 +241,8 @@ impl DidToken {
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-                        println!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
-                            token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo);
+                        println!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}\ncert_text:{}\nsig:{}",
+                            token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo, cert_text, sig);
                         if for_sys_did == self.did {
                             return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
                         } else {
@@ -370,7 +370,7 @@ impl DidToken {
 
     pub fn get_register_cert(&mut self, user_did: &str) -> String {
         let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
-        println!("{} the sys_claim_cert_verify_key: {:?}", token_utils::now_string(), claim.get_cert_verify_key());
+        println!("{} the sys_claim_cert_verify_key: {}", token_utils::now_string(), URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()));
         let register_cert = self.certificates.lock().unwrap().get_register_cert(user_did);
         if register_cert != "Unknown".to_string() {
             return register_cert;
@@ -426,7 +426,8 @@ impl DidToken {
         }
         let text = format!("{}|{}|{}|{}|{}|{}", self.get_sys_did(), user_did, "Member", encrypt_item_key, memo_base64, timestamp);
         let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
-        debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
+        println!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
+        println!("text_system:{}, signature_str={}", text, signature_str);
         if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
             return true;
         }
