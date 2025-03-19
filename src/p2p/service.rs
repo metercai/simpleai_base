@@ -247,7 +247,7 @@ impl<E: EventHandler> Server<E> {
                 .with_quic()
                 .with_dns()?
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
-                .with_bandwidth_metrics(&mut metric_registry)
+                //.with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key, relay_client | {
                     Behaviour::new(sys_did.clone(), key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
@@ -258,8 +258,10 @@ impl<E: EventHandler> Server<E> {
 
         let locale_port = if is_global { TOKEN_SERVER_PORT } else { 0 };
         for ip in &netifs_ip {
-            swarm.listen_on(format!("/ip4/{}/udp/{}/quic-v1", ip, locale_port).parse().unwrap());
-            swarm.listen_on(format!("/ip4/{}/tcp/{}", ip, locale_port).parse().unwrap());
+            if ip == &locale_ip {
+                swarm.listen_on(format!("/ip4/{}/udp/{}/quic-v1", ip, locale_port).parse().unwrap());
+                swarm.listen_on(format!("/ip4/{}/tcp/{}", ip, locale_port).parse().unwrap());
+            }
         }
 
         let mut listened_addresses = Vec::new();

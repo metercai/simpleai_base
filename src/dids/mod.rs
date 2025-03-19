@@ -164,7 +164,6 @@ impl DidToken {
             certificates: GlobalCerts::instance(),
             token_db,
             crypt_secrets,
-
         }
     }
 
@@ -194,6 +193,7 @@ impl DidToken {
 
     pub fn set_upstream_did(&mut self, upstream_did: &str) {
         self.upstream_did = upstream_did.to_string();
+        self.certificates.lock().unwrap().set_upstream_did(upstream_did);
     }
 
     pub fn get_sysinfo(&self) -> SystemInfo {
@@ -241,6 +241,8 @@ impl DidToken {
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
+                        println!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
+                            token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo);
                         if for_sys_did == self.did {
                             return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
                         } else {
@@ -381,7 +383,7 @@ impl DidToken {
                 let _ = certificates.push_user_cert_text(&issue_cert);
                 certificates.get_register_cert(user_did)
             };
-            debug!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}, cert={}", user_did, system_did, node_mode, register_cert);
+            println!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}, cert={}", user_did, system_did, node_mode, register_cert);
             register_cert
         } else {
             "Unknown".to_string()

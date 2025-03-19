@@ -20,6 +20,7 @@ pub struct GlobalCerts {
     issued_certs: HashMap<String, String>,
     claims: Arc<Mutex<GlobalClaims>>,
     sys_did: String,
+    upstream_did: String,
 }
 
 impl GlobalCerts {
@@ -43,6 +44,7 @@ impl GlobalCerts {
             issued_certs,
             claims,
             sys_did: sys_did,
+            upstream_did: "".to_string(),
         }
     }
 
@@ -50,32 +52,34 @@ impl GlobalCerts {
         GLOBAL_CERTS.clone()
     }
 
+    pub fn get_upstream_did(&self) -> String {
+        self.upstream_did.clone()
+    }
+
+    pub fn set_upstream_did(&mut self, upstream_did: &str) {
+        self.upstream_did = upstream_did.to_string();
+    }
 
     pub fn get_register_cert(&self, for_did: &str) -> String {
         let member_cert = self.get_member_cert(TOKEN_TM_DID, for_did);
         if member_cert != "Unknown" {
-            debug!("get global register cert, {}", member_cert);
+            println!("{} [CertCenter] get global register cert for did={}", token_utils::now_string(), for_did);
             return member_cert;
         }
-        let upstream_did = match rest_service::request_api_sync("upstream_did", None::<&serde_json::Value>) {
-            Ok(upstream_did) => upstream_did,
-            Err(err) => {
-                debug!("get upstream did failures: {:?}", err);
-                "".to_string()
-            }
-        };
-        if !upstream_did.is_empty() {
-            let member_cert = self.get_member_cert(&upstream_did, for_did);
+        
+        if !self.upstream_did.is_empty() {
+            let member_cert = self.get_member_cert(&self.upstream_did, for_did);
             if member_cert != "Unknown" {
-                debug!("get upstream register cert, {}", member_cert);
+                println!("{} [CertCenter] get upstream register cert for did={}", token_utils::now_string(), for_did);
                 return member_cert;
             }
         }
         let member_cert = self.get_member_cert(&self.sys_did, for_did);
         if member_cert != "Unknown" {
-            debug!("get local register cert, {}", member_cert);
+            println!("{} [CertCenter] get local register cert for did={}", token_utils::now_string(), for_did);
             member_cert
         } else {
+            println!("{} [CertCenter] no register cert for did={}", token_utils::now_string(), for_did);
             "Unknown".to_string()
         }
     }
