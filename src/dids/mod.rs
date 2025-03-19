@@ -369,9 +369,6 @@ impl DidToken {
     }
 
     pub fn get_register_cert(&mut self, user_did: &str) -> String {
-        if self.is_registered(user_did) {
-            println!("{} The user is registered: user_did={}", token_utils::now_string(), user_did);
-        }
         let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
         println!("{} the sys_claim_cert_verify_key: {:?}", token_utils::now_string(), claim.get_cert_verify_key());
         let register_cert = self.certificates.lock().unwrap().get_register_cert(user_did);
@@ -389,9 +386,6 @@ impl DidToken {
                 certificates.get_register_cert(user_did)
             };
             println!("sign and issue member cert by system: user_did={}, sys_did={}, node_type={}, cert={}", user_did, system_did, node_mode, register_cert);
-            if self.is_registered(user_did) {
-                println!("{} The user is registered: user_did={}", token_utils::now_string(), user_did);
-            }
             register_cert
         } else {
             "Unknown".to_string()
