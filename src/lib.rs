@@ -52,15 +52,14 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
             _ =>  ("".to_string(), "".to_string()), 
         }
     });
-    if system_did.is_empty() {
-        return false;
+    if !system_did.is_empty() {
+        let text_system = format!("{}|{}", system_did, text);
+        let claim_system = LocalClaims::load_claim_from_local(&system_did);
+        if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
+            return true;
+        }
     }
     
-    let text_system = format!("{}|{}", system_did, text);
-    let claim_system = LocalClaims::load_claim_from_local(&system_did);
-    if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
-        return true;
-    }
     if !upstream_did.is_empty() {
         let text_upstream = format!("{}|{}", upstream_did, text);
         let claim_upstream = LocalClaims::load_claim_from_local(&upstream_did);
