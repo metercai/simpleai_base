@@ -55,7 +55,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     if !system_did.is_empty() {
         let text_system = format!("{}|{}", system_did, text);
         let claim_system = LocalClaims::load_claim_from_local(&system_did);
-        println!("{} cert verify by sys_did:{}, is_default={}", did, system_did, claim_system.is_default());
+        println!("{} cert verify by sys_did:{}, claim_cert_verify_key={:?}", did, system_did, claim_system.get_cert_verify_key());
         if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
             return true;
         }
