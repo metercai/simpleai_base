@@ -55,6 +55,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     if !system_did.is_empty() {
         let text_system = format!("{}|{}", system_did, text);
         let claim_system = LocalClaims::load_claim_from_local(&system_did);
+        println!("{} cert verify by sys_did:{}, is_default={}", did, system_did, claim_system.is_default());
         if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
             return true;
         }
@@ -63,6 +64,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     if !upstream_did.is_empty() {
         let text_upstream = format!("{}|{}", upstream_did, text);
         let claim_upstream = LocalClaims::load_claim_from_local(&upstream_did);
+        println!("{} cert verify by upstream did {}, is_default={}", did, upstream_did, claim_upstream.is_default());
         if token_utils::verify_signature(&text_upstream, &signature_str, &claim_upstream.get_cert_verify_key()) {
             return true;
         }
@@ -70,6 +72,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let root_did = TOKEN_TM_DID;
     let text_root = format!("{}|{}", root_did, text);
     let claim_root = LocalClaims::load_claim_from_local(root_did);
+    println!("{} cert verify by root did {}, is_default={}", did, root_did, claim_root.is_default());
     token_utils::verify_signature(&text_root, &signature_str, &claim_root.get_cert_verify_key())
 }
 
