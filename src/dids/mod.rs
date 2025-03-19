@@ -425,7 +425,7 @@ impl DidToken {
         let text = format!("{}|{}|{}|{}|{}|{}", self.get_sys_did(), user_did, "Member", encrypt_item_key, memo_base64, timestamp);
         let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
         debug!("did({}), cert_str({}), sign_did({})", user_did, cert_str, claim.gen_did());
-        println!("text_system:{}, signature_str={}", text, signature_str);
+        println!("text_system:{}, signature_str:{}, cert_verify_key:{}", text, signature_str, URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()));
         if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
             return true;
         }
