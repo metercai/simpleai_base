@@ -369,8 +369,6 @@ impl DidToken {
     }
 
     pub fn get_register_cert(&mut self, user_did: &str) -> String {
-        let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
-        println!("{} the sys_claim_cert_verify_key: {}", token_utils::now_string(), URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()));
         let register_cert = self.certificates.lock().unwrap().get_register_cert(user_did);
         if register_cert != "Unknown".to_string() {
             return register_cert;
@@ -426,7 +424,7 @@ impl DidToken {
         }
         let text = format!("{}|{}|{}|{}|{}|{}", self.get_sys_did(), user_did, "Member", encrypt_item_key, memo_base64, timestamp);
         let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
-        println!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
+        debug!("did({}), cert_str({}), sign_did({})", user_did, cert_str, claim.gen_did());
         println!("text_system:{}, signature_str={}", text, signature_str);
         if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
             return true;
