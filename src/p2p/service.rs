@@ -181,6 +181,7 @@ pub(crate) struct Server<E: EventHandler> {
     /// but we need to keep the original topic names for broadcasting.
     pubsub_topics: Vec<String>,
     upstream_nodes: UpstreamNodes,
+    lan_addresses: Vec<PeerIdWithMultiaddr>,
     metrics: Metrics,
     is_global: bool,
     upnp_mapped: bool,
@@ -265,24 +266,26 @@ impl<E: EventHandler> Server<E> {
         }
 
         let mut listened_addresses = Vec::new();
+        let mut lan_addresses = Vec::new();
 
         block_on(async {
             let mut delay = futures_timer::Delay::new(std::time::Duration::from_secs(1)).fuse();
             loop {
                 futures::select! {
-            event = swarm.next() => {
-                match event.unwrap() {
-                    SwarmEvent::NewListenAddr { address, .. } => {
-                        tracing::info!(%address, "📣 P2P node listening on address:");
-                        listened_addresses.push(address);
+                    event = swarm.next() => {
+                        match event.unwrap() {
+                            SwarmEvent::NewListenAddr { address, .. } => {
+                                tracing::info!("📣 P2P node listening on address:{}", address.clone());
+                                listened_addresses.push(address.clone());
+                                lan_addresses.push(format!("{}/p2p/{}", address.clone(), swarm.local_peer_id().to_base58()).parse().unwrap());
+                            }
+                            event => {},
+                        }
                     }
-                    event => {},
+                    _ = delay => {
+                    break;
+                    }
                 }
-            }
-            _ = delay => {
-                break;
-            }
-        }
             }
         });
 
@@ -355,6 +358,7 @@ impl<E: EventHandler> Server<E> {
             pending_kad_query: HashMap::new(),
             pubsub_topics,
             upstream_nodes,
+            lan_addresses,
             metrics,
             is_global,
             upnp_mapped: false,

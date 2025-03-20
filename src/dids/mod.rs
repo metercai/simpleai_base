@@ -241,8 +241,9 @@ impl DidToken {
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-                        println!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}\ncert_text:{}\nsig:{}",
-                            token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo, cert_text, sig);
+                        println!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
+                            token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo);
+                        println!("cert_secret_key:{}, cert_text:{}, sig:{}", URL_SAFE_NO_PAD.encode(cert_secret), cert_text, sig);
                         if for_sys_did == self.did {
                             return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
                         } else {

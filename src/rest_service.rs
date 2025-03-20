@@ -70,43 +70,36 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
         let get_register_cert = warp::path!("api" / "register_cert")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_get_register_cert);
 
         let is_registered = warp::path!("api" / "is_registered")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_is_registered);
 
         let sign_by_did = warp::path!("api" / "sign_by_did")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_sign_by_did);
 
         let verify_by_did = warp::path!("api" / "verify_by_did")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_verify_by_did);
 
         let encrypt_for_did = warp::path!("api" / "encrypt_for_did")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_encrypt_for_did);
 
         let decrypt_by_did = warp::path!("api" / "decrypt_by_did")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_decrypt_by_did);
 
         let get_path_in_user_dir = warp::path!("api" / "path_in_user_dir")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_get_path_in_user_dir);
 
         let put_global_message = warp::path!("api" / "put_global_message")
@@ -266,11 +259,10 @@ struct GetRegisterCertRequest {
 
 async fn handle_get_register_cert(
     req: GetRegisterCertRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
-    let cert = ai.get_register_cert(&req.user_did);
+    let mut didtoken = didtoken.lock().unwrap();
+    let cert = didtoken.get_register_cert(&req.user_did);
     Ok(warp::reply::json(&ApiResponse {
         success: cert != "Unknown",
         data: cert.clone(),
@@ -286,11 +278,10 @@ struct IsRegisteredRequest {
 
 async fn handle_is_registered(
     req: IsRegisteredRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
-    let is_registered = ai.is_registered(&req.user_did);
+    let mut didtoken = didtoken.lock().unwrap();
+    let is_registered = didtoken.is_registered(&req.user_did);
     Ok(warp::reply::json(&ApiResponse {
         success: true,
         data: is_registered,
@@ -308,11 +299,10 @@ struct SignByDidRequest {
 
 async fn handle_sign_by_did(
     req: SignByDidRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
-    let signature = ai.sign_by_did(&req.text, &req.did, &req.phrase);
+    let mut didtoken = didtoken.lock().unwrap();
+    let signature = didtoken.sign_by_did(&req.text, &req.did, &req.phrase);
     Ok(warp::reply::json(&ApiResponse {
         success: !signature.is_empty(),
         data: URL_SAFE_NO_PAD.encode(&signature),
@@ -330,11 +320,10 @@ struct VerifyByDidRequest {
 
 async fn handle_verify_by_did(
     req: VerifyByDidRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
-    let is_valid = ai.verify_by_did(&req.text, &req.signature, &req.did);
+    let mut didtoken = didtoken.lock().unwrap();
+    let is_valid = didtoken.verify_by_did(&req.text, &req.signature, &req.did);
     Ok(warp::reply::json(&ApiResponse {
         success: is_valid,
         data: is_valid,
@@ -352,11 +341,10 @@ struct EncryptForDidRequest {
 
 async fn handle_encrypt_for_did(
     req: EncryptForDidRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
-    let ctext = ai.encrypt_for_did(req.text.as_bytes(), &req.for_did, req.period);
+    let mut didtoken = didtoken.lock().unwrap();
+    let ctext = didtoken.encrypt_for_did(req.text.as_bytes(), &req.for_did, req.period);
     Ok(warp::reply::json(&ApiResponse {
         success: !ctext.is_empty(),
         data: ctext.clone(),
@@ -374,11 +362,10 @@ struct DecryptByDidRequest {
 
 async fn handle_decrypt_by_did(
     req: DecryptByDidRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
-    let text = ai.decrypt_by_did(&req.ctext, &req.by_did, req.period);
+    let mut didtoken = didtoken.lock().unwrap();
+    let text = didtoken.decrypt_by_did(&req.ctext, &req.by_did, req.period);
     Ok(warp::reply::json(&ApiResponse {
         success: !text.is_empty(),
         data: text.clone(),
@@ -395,11 +382,10 @@ struct GetUserPathRequest {
 
 async fn handle_get_path_in_user_dir(
     req: GetUserPathRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
     let tokenuser = TokenUser::instance();
-    let ai = tokenuser.lock().unwrap();
-    let path = ai.get_path_in_user_dir(&req.did, &req.catalog);
+    let tokenuser = tokenuser.lock().unwrap();
+    let path = tokenuser.get_path_in_user_dir(&req.did, &req.catalog);
     Ok(warp::reply::json(&ApiResponse {
         success: !path.is_empty(),
         data: path,
