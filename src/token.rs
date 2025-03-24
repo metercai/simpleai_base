@@ -191,7 +191,9 @@ impl SimpleAI {
     pub fn get_upstream_did(&mut self) -> String {
         if self.get_admin_did() == dids::TOKEN_ENTRYPOINT_DID {
             self.didtoken.lock().unwrap().set_upstream_did(dids::TOKEN_ENTRYPOINT_DID);
-            self.p2p_start();
+            if self.get_sys_name().ends_with("_p2p"){
+                self.p2p_start();
+            }
             return dids::TOKEN_ENTRYPOINT_DID.to_string();
         }
         let upstream_did = self.didtoken.lock().unwrap().get_upstream_did();
