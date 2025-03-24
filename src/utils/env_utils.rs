@@ -270,14 +270,21 @@ pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
 
 
 pub(crate) fn get_ram_and_gpu_info() -> String {
-
-    let results = Python::with_gil(|py| -> PyResult<String> {
-        let systeminfo= PyModule::import_bound(py, "simpleai_base.systeminfo").expect("No simpleai_base.systeminfo.");
-        let result: String = systeminfo.getattr("get_ram_and_gpu_info")?
-            .call0()?.extract()?;
-        Ok(result)
-    });
-    results.unwrap()
+    #[cfg(feature = "extension-module")]
+    {
+        let results = Python::with_gil(|py| -> PyResult<String> {
+            let systeminfo= PyModule::import_bound(py, "simpleai_base.systeminfo").expect("No simpleai_base.systeminfo.");
+            let result: String = systeminfo.getattr("get_ram_and_gpu_info")?
+                .call0()?.extract()?;
+            Ok(result)
+        });
+        results.unwrap()
+    }
+    
+    #[cfg(not(feature = "extension-module"))]
+    {
+        "1,1,1".to_string()
+    }
 }
 
 

@@ -3792,8 +3792,48 @@ dependencies = [
 name = "simpleai_base"
 version = "0.3.21"
 dependencies = [
+ "aes-gcm",
+ "argon2",
+ "async-trait",
+ "atty",
+ "base58",
+ "base64 0.21.7",
+ "chrono",
+ "directories-next",
+ "ed25519-dalek",
+ "futures",
+ "futures-timer",
+ "hkdf",
+ "hyper 0.14.32",
+ "if-addrs 0.13.3",
+ "instant",
+ "lazy_static",
+ "libp2p",
+ "once_cell",
+ "openssl",
+ "pkcs8",
+ "prometheus-client",
  "pyo3",
- "tokenlib",
+ "qrcode",
+ "rand 0.8.5",
+ "regex",
+ "reqwest",
+ "ripemd",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sled",
+ "sysinfo",
+ "thiserror 1.0.63",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "unsigned-varint 0.7.2",
+ "url",
+ "warp",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -4104,53 +4144,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "tokenlib"
-version = "0.3.1"
-dependencies = [
- "aes-gcm",
- "argon2",
- "async-trait",
- "atty",
- "base58",
- "base64 0.21.7",
- "chrono",
- "directories-next",
- "ed25519-dalek",
- "futures",
- "futures-timer",
- "hkdf",
- "hyper 0.14.32",
- "if-addrs 0.13.3",
- "instant",
- "lazy_static",
- "libp2p",
- "once_cell",
- "openssl",
- "pkcs8",
- "prometheus-client",
- "qrcode",
- "rand 0.8.5",
- "regex",
- "reqwest",
- "ripemd",
- "serde",
- "serde_json",
- "sha2",
- "sled",
- "sysinfo",
- "thiserror 1.0.63",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "unsigned-varint 0.7.2",
- "url",
- "warp",
- "x25519-dalek",
- "zeroize",
-]
 
 [[package]]
 name = "tokio"

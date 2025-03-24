@@ -1,18 +1,25 @@
-use base58::ToBase58;
 use std::sync::{Arc, Mutex};
+use base58::ToBase58;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
-use pyo3::prelude::*;
 use crate::token::SimpleAI;
-use tokenlib::dids::claims::{LocalClaims, IdClaim, UserContext};
-use tokenlib::utils::systeminfo::SystemInfo;
-use tokenlib::utils::params_mapper::ComfyTaskParams;
-use tokenlib::dids::token_utils::calc_sha256;
-use tokenlib::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
-use tokenlib::rest_service::{ApiResponse, API_HOST};
+use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
+use crate::utils::systeminfo::SystemInfo;
+use crate::utils::params_mapper::ComfyTaskParams;
+use crate::dids::token_utils::calc_sha256;
+use crate::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
+use crate::rest_service::{ApiResponse, API_HOST};
+
+
+use pyo3::prelude::*;
 
 mod token;
+mod rest_service;
+mod dids;
+mod utils;
+mod user;
+mod p2p;
 
 
 
