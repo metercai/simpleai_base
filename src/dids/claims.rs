@@ -35,14 +35,6 @@ impl GlobalClaims {
 
     pub fn new() -> Self {
         let local_claims = LocalClaims::new();
-
-        // Validate and push claims to DHT
-        for (did, claim) in &local_claims.claims {
-            if claim.self_verify() {
-                GlobalClaims::push_claim_to_DHT(claim);
-            }
-        }
-
         Self { local_claims }
     }
 
@@ -57,6 +49,10 @@ impl GlobalClaims {
     pub fn push_claim(&mut self, claim: &IdClaim) {
         self.local_claims.push_claim(claim);
         GlobalClaims::push_claim_to_DHT(claim);
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &IdClaim)> {
+        self.local_claims.iter()
     }
 
     pub fn get_claim_from_DHT(for_did: &str) -> IdClaim {
@@ -77,6 +73,14 @@ impl GlobalClaims {
             }
         };
         claim
+    }
+
+    pub fn push_local_claims_to_DHT(&mut self) {
+        for (did, claim) in &self.local_claims.claims {
+            if claim.self_verify() {
+                GlobalClaims::push_claim_to_DHT(claim);
+            }
+        }
     }
 
     pub(crate) fn push_claim_to_DHT(claim: &IdClaim) {

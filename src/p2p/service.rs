@@ -59,7 +59,7 @@ pub(crate) struct Client {
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error>> {
+pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error + Send + Sync>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
     let server = Server::new(config, sys_claim, sysinfo, cmd_receiver).await?;
     let local_peer_id = server.get_peer_id();
@@ -218,7 +218,7 @@ impl<E: EventHandler> Server<E> {
         sys_claim: &IdClaim,
         sysinfo: &SystemInfo,
         cmd_receiver: UnboundedReceiver<Command>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut metric_registry = Registry::default();
         let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &sys_claim.get_symbol_hash());
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::

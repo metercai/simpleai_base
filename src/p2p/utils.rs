@@ -15,38 +15,7 @@ use if_addrs;
 use crate::p2p::error::P2pError;
 
 
-pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
-
-    let exe_path = env::current_exe()?;
-    let cpu = sys.cpus().get(0).unwrap();
-    let password = format!("{}@{}/{}/{}/{}/{}/{}/{}", exe_path.display(), System::host_name().unwrap(),
-        System::distribution_id(), System::name().unwrap(), cpu.brand(),sys.cpus().len(), cpu.frequency(), sys.total_memory()/(1024*1024*1024));
-    tracing::info!("password: {password}");
-
-    let file_path = Path::new(".token_user.pem");
-    let private_key = match file_path.exists() {
-        false => {
-            let private_key = PKey::generate_ed25519()?;
-            let pem_key = private_key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
-            let mut file = File::create(file_path)?;
-            file.write_all(&pem_key)?;
-            private_key.raw_private_key()?
-        }
-        true => {
-            let mut file = File::open(file_path)?;
-            let mut key_data = Vec::new();
-            file.read_to_end(&mut key_data)?;
-            let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
-            private_key.raw_private_key()?
-        }
-    };
-
-    Ok(private_key)
-}
-
-pub(crate) fn get_ipaddr_from_netif() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Error>> {
+pub(crate) fn get_ipaddr_from_netif() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Error + Send + Sync>> {
     let mut ipaddrs: Vec<Ipv4Addr> = Vec::new();
     
     let interfaces = if_addrs::get_if_addrs()?;
