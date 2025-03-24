@@ -12,6 +12,6 @@ print(f'GPU: {sysinfo["gpu_name"]}, RAM: {sysinfo["ram_total"]}MB, SWAP: {sysinf
 guest_did = token.get_guest_did()
 print(f'guest_did:{guest_did}')
 guest_cert = token.get_register_cert(guest_did)
-print(f'guest_cert:{guest_cert}')
+print(f'guest_cert:{guest_cert}, is_registered:{token.is_registered(guest_did)}')
 while True:
     time.sleep(1)

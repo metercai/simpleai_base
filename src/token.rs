@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::path::{Path, PathBuf};
 use chrono::format;
+use prometheus_client::metrics::info;
 use serde_json::{self, json};
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -312,14 +313,14 @@ impl SimpleAI {
 
     fn get_p2p_config(&mut self) -> String {
         let mut p2p_config = self.get_local_admin_vars("p2p_config");
-        if !p2p_config.is_empty() {
+        if !p2p_config.is_empty() && p2p_config != "None" {
             return p2p_config;
         } else {
             let config_path = Path::new("p2pconfig.toml");
             if config_path.exists() {
                 match fs::read_to_string(config_path) {
                     Ok(content) => {
-                        debug!("使用本地 p2pconfig.toml 文件配置");
+                        debug!("使用本地 p2pconfig.toml 文件配置: {}", content);
                         return content;
                     },
                     Err(e) => {
