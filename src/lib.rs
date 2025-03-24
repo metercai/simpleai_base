@@ -5,21 +5,16 @@ use base64::Engine;
 
 use pyo3::prelude::*;
 use crate::token::SimpleAI;
-use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
-use crate::utils::systeminfo::SystemInfo;
-use crate::utils::params_mapper::ComfyTaskParams;
-use crate::dids::token_utils::calc_sha256;
-use crate::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
-use crate::rest_service::{ApiResponse, API_HOST};
+use tokenlib::dids::claims::{LocalClaims, IdClaim, UserContext};
+use tokenlib::utils::systeminfo::SystemInfo;
+use tokenlib::utils::params_mapper::ComfyTaskParams;
+use tokenlib::dids::token_utils::calc_sha256;
+use tokenlib::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
+use tokenlib::rest_service::{ApiResponse, API_HOST};
 
 mod token;
 
-mod rest_service;
 
-mod p2p;
-mod dids;
-mod utils;
-mod user;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {
