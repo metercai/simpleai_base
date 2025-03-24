@@ -20,8 +20,8 @@ pub(crate) mod cert_center;
 pub(crate) mod claims;
 pub(crate) mod token_utils;
 
-pub(crate) static TOKEN_TM_URL: &str = "http://120.79.179.136:3030/api_";
-pub(crate) static TOKEN_TM_DID: &str = "6eR3Pzp9e2VSUC6suwPSycQ93qi6T";
+pub(crate) static TOKEN_ENTRYPOINT_URL: &str = "http://120.79.179.136:3030/api_";
+pub(crate) static TOKEN_ENTRYPOINT_DID: &str = "6eR3Pzp9e2VSUC6suwPSycQ93qi6T";
 
 pub(crate)  static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     Runtime::new().expect("Failed to create Tokio runtime")
@@ -61,7 +61,7 @@ macro_rules! issue_key {
     };
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DidToken {
     pub did: String,
     pub device: String,
@@ -143,8 +143,8 @@ impl DidToken {
             admin
         };
 
-        let upstream_did = if admin == TOKEN_TM_DID {
-            TOKEN_TM_DID.to_string()
+        let upstream_did = if admin == TOKEN_ENTRYPOINT_DID {
+            TOKEN_ENTRYPOINT_DID.to_string()
         } else {
             String::new()
         };
@@ -358,7 +358,7 @@ impl DidToken {
 
     pub fn get_claim(&self, for_did: &str) -> IdClaim {
         let mut claims = self.claims.lock().unwrap();
-        if self.admin == TOKEN_TM_DID {
+        if self.admin == TOKEN_ENTRYPOINT_DID {
             claims.get_claim_from_local(for_did)
         } else {
             claims.get_claim(for_did)
@@ -369,7 +369,7 @@ impl DidToken {
         self.claims.lock().unwrap().local_claims.reverse_lookup_did_by_symbol(&symbol_hash)
     }
 
-    pub fn get_register_cert(&mut self, user_did: &str) -> String {
+    pub fn get_or_create_register_cert(&mut self, user_did: &str) -> String {
         let register_cert = self.certificates.lock().unwrap().get_register_cert(user_did);
         if register_cert != "Unknown".to_string() {
             return register_cert;
@@ -395,7 +395,7 @@ impl DidToken {
         if user_did == "Unknown" {
             return false;
         }
-        let cert_str = self.get_register_cert(user_did);
+        let cert_str = self.certificates.lock().unwrap().get_register_cert(user_did);
         if cert_str.is_empty() || cert_str == "Unknown" {
             return false;
         }
@@ -408,8 +408,8 @@ impl DidToken {
         let timestamp = parts[2].to_string();
         let signature_str = parts[3].to_string();
         if self.node_mode == "online" {
-            let text = format!("{}|{}|{}|{}|{}|{}", TOKEN_TM_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
-            let claim = LocalClaims::load_claim_from_local(TOKEN_TM_DID);
+            let text = format!("{}|{}|{}|{}|{}|{}", TOKEN_ENTRYPOINT_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
+            let claim = LocalClaims::load_claim_from_local(TOKEN_ENTRYPOINT_DID);
             debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
             if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
                 return true;

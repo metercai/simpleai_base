@@ -4,6 +4,7 @@ use std::sync::Arc;
 use sled::Tree;
 use tracing::debug;
 
+use crate::user::user_vars::GlobalLocalVars;
 
 
 #[derive(Debug, Clone, Default)]
@@ -323,17 +324,17 @@ impl AsyncOnlineUsers {
 
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct MessageQueue {
     data: Arc<std::sync::RwLock<HashMap<String, BTreeMap<u64, String>>>>,
-    global_vars: Arc<std::sync::Mutex<Tree>>,
+    user_vars: Arc<std::sync::Mutex<GlobalLocalVars>>,
 }
 
 impl MessageQueue {
-    pub fn new(global_vars: Arc<std::sync::Mutex<Tree>>) -> Self {
+    pub fn new(user_vars: Arc<std::sync::Mutex<GlobalLocalVars>>) -> Self {
         Self {
             data: Arc::new(std::sync::RwLock::new(HashMap::new())),
-            global_vars: global_vars.clone(),
+            user_vars,
         }
     }
 
@@ -347,21 +348,18 @@ impl MessageQueue {
         }
 
         // 内存中没有时从存储加载
-        let key = format!("msg_list_{}", user_id);
-        if let Ok(Some(data_str)) = self.global_vars.lock().unwrap().get(&key) {
-            if let Ok(data_str) = String::from_utf8(data_str.to_vec()) {
-                let mut lock = self.data.write().unwrap();
+        let data_str =  self.user_vars.lock().unwrap().get_message_list(user_id);
+        if !data_str.is_empty() {
+            let mut lock = self.data.write().unwrap();
                 // 双重检查避免重复插入
-                if !lock.contains_key(user_id) {
-                    lock.insert(user_id.to_string(), self.parse_storage_str(&data_str));
-                }
+            if !lock.contains_key(user_id) {
+                lock.insert(user_id.to_string(), self.parse_storage_str(&data_str));
             }
         }
     }
 
     // 保存特定用户数据到存储
     fn save_user_data(&self, user_id: &str) {
-        let key = format!("msg_list_{}", user_id);
         let data_str = {
             let lock = self.data.read().unwrap();
             if let Some(user_data) = lock.get(user_id) {
@@ -371,11 +369,10 @@ impl MessageQueue {
             }
         };
 
-        self.global_vars
+        self.user_vars
             .lock()
             .unwrap()
-            .insert(key, data_str.as_bytes())
-            .expect("Failed to save to storage");
+            .set_message_list(user_id, &data_str);
     }
 
     fn parse_message_entries(input: &str) -> Vec<(u64, String)> {

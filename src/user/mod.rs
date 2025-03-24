@@ -12,19 +12,21 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tracing::{error, warn, info, debug, trace};
 
-use crate::dids::{self, DidToken, TOKEN_TM_DID, TOKEN_TM_URL};
+use crate::dids::{self, DidToken, TOKEN_ENTRYPOINT_DID, TOKEN_ENTRYPOINT_URL};
 use crate::dids::token_utils;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::issue_key;
 use crate::exchange_key;
 
 pub(crate) mod user_mgr;
+pub(crate) mod shared;
+pub(crate) mod user_vars;
 
 lazy_static::lazy_static! {
-    static ref ADMIN_DEFAULT: Arc<Mutex<AdminDefault>> = Arc::new(Mutex::new(AdminDefault::new()));
     static ref TOKEN_USER: Arc<Mutex<TokenUser>> = Arc::new(Mutex::new(TokenUser::new()));
 }
 
+#[derive(Clone, Debug)]
 pub struct TokenUser {
     sys_did: String,
     device_did: String,
@@ -203,7 +205,7 @@ impl TokenUser {
 
     pub(crate) fn sign_user_context(&mut self, did: &str, phrase: &str) -> UserContext {
         if self.blacklist.contains(&did.to_string()) ||
-            (did != self.get_guest_did() && !self.didtoken.lock().unwrap().is_registered(did) && did!=TOKEN_TM_DID.to_string()) {
+            (did != self.get_guest_did() && !self.didtoken.lock().unwrap().is_registered(did) && did!=TOKEN_ENTRYPOINT_DID.to_string()) {
             debug!("sign user context failed, did = {}", did);
             return UserContext::default();
         }
@@ -300,7 +302,7 @@ pub struct DidEntryPoint {
 impl DidEntryPoint {
     pub fn new() -> Self {
         let mut entry_point = HashMap::new();
-        entry_point.insert(TOKEN_TM_DID.to_string(), TOKEN_TM_URL.to_string());
+        entry_point.insert(TOKEN_ENTRYPOINT_DID.to_string(), TOKEN_ENTRYPOINT_URL.to_string());
         Self {
             entry_point,
         }
@@ -311,39 +313,8 @@ impl DidEntryPoint {
     }
 
     pub fn get_entry_point(&self, did: &str) -> String {
-        self.entry_point.get(did).cloned().unwrap_or_else(|| TOKEN_TM_URL.to_string())
+        self.entry_point.get(did).cloned().unwrap_or_else(|| TOKEN_ENTRYPOINT_URL.to_string())
     }
 }
 
-pub struct AdminDefault {
-    data: HashMap<String, String>,
-}
-impl AdminDefault {
 
-    pub fn instance() -> Arc<Mutex<AdminDefault>> {
-        ADMIN_DEFAULT.clone()
-    }
-    pub fn new() -> Self {
-        let mut data= HashMap::new();
-        data.insert("comfyd_active_checkbox".to_string(), "True".to_string());
-        data.insert("fast_comfyd_checkbox".to_string(), "False".to_string());
-        data.insert("reserved_vram".to_string(), "0".to_string());
-        data.insert("minicpm_checkbox".to_string(), "False".to_string());
-        data.insert("advanced_logs".to_string(), "False".to_string());
-        data.insert("wavespeed_strength".to_string(), "0.12".to_string());
-        data.insert("topbar_button_quantity".to_string(), "10".to_string());
-        data.insert("p2p_node".to_string(), "False".to_string());
-        Self {
-            data,
-        }
-    }
-    pub fn get(&self, key: &str) -> String {
-        self.data.get(key).unwrap_or(&"None".to_string()).to_string()
-    }
-    pub fn insert(&mut self, key: String, value: String) {
-        self.data.insert(key, value);
-    }
-    pub fn remove(&mut self, key: &str) -> String {
-        self.data.remove(key).unwrap_or("None".to_string())
-    }
-}

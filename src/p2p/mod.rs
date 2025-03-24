@@ -25,7 +25,7 @@ use crate::dids::token_utils;
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::claims::{GlobalClaims, IdClaim};
 use crate::utils::systeminfo::SystemInfo;
-use crate::shared::{self, SharedData};
+use crate::user::shared::{self, SharedData};
 use crate::p2p::service::{Client, Server, EventHandler};
 use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 
@@ -35,13 +35,14 @@ pub(crate) static P2P_HANDLE: Lazy<Arc<Mutex<Option<tokio::task::JoinHandle<()>>
     Lazy::new(|| Arc::new(Mutex::new(None)));
 pub(crate) static P2P_INSTANCE: Lazy<TokioMutex<Option<Arc<P2p>>>> = Lazy::new(|| TokioMutex::new(None));
 
+//address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
 pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
-address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
-pubsub_topics = ['system', 'online']
+address.upstream_nodes = ['/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
+pubsub_topics = ['system']
 metrics_path = '/metrics' 
 discovery_interval = 60
 node_status_interval = 60
-broadcast_interval = 30
+broadcast_interval = 25
 request_interval = 80
 req_resp.request_timeout = 30
 "#;

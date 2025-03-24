@@ -38,7 +38,7 @@ use crate::p2p::utils::PeerIdExt;
 use crate::dids::token_utils;
 use crate::dids::claims::IdClaim;
 use crate::utils::systeminfo::SystemInfo;
-use crate::shared;
+use crate::user::shared;
 
 const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
 const TOKEN_SERVER_PORT: u16 = 2316;

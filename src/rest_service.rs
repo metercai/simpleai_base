@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::{debug, info, error};
 
-use crate::token::SimpleAI;
 use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
 use crate::dids::claims::{IdClaim, GlobalClaims};
+use crate::dids::cert_center::GlobalCerts;
 use crate::user::TokenUser;
+use crate::user::shared;
+use crate::user::user_vars::GlobalLocalVars;
 use crate::p2p;
 
-// 共享状态类型
-type SharedAI = Arc<Mutex<SimpleAI>>;
 
 pub const API_HOST: &str = "http://127.0.0.1:4515/api";
 
@@ -25,7 +25,7 @@ pub struct ApiResponse<T> {
 }
 
 // 初始化所有路由
-pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
+pub fn start_rest_server(address: String, port: u16) {
     let address: IpAddr = match address.parse() {
         Ok(addr) => addr,
         Err(_) => {
@@ -35,26 +35,21 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
     };
 
     let _server = TOKIO_RUNTIME.spawn(async move {
-
         let get_sys_did = warp::path!("api" / "sys_did")
             .and(warp::get())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_get_sys_did);
 
         let get_device_did = warp::path!("api" / "device_did")
             .and(warp::get())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_get_device_did);
 
         let get_upstream_did = warp::path!("api" / "upstream_did")
             .and(warp::get())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_get_upstream_did);
 
         let get_local_vars = warp::path!("api" / "local_vars")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_get_local_vars);
 
         let get_claim = warp::path!("api" / "get_claim")
@@ -105,7 +100,6 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
         let put_global_message = warp::path!("api" / "put_global_message")
             .and(warp::post())
             .and(warp::body::json())
-            .and(with_simpai(simpai.clone()))
             .and_then(handle_put_global_message);
 
 
@@ -122,22 +116,19 @@ pub fn start_rest_server(simpai: SharedAI, address: String, port: u16) {
             .or(encrypt_for_did)
             .or(decrypt_by_did)
             .or(get_path_in_user_dir)
-            .or(put_global_message);
+            .or(put_global_message)
+            ;
 
         warp::serve(routes).run((address, port)).await;
     });
     println!("{} [RestApi] REST server started at http://{}:{}", token_utils::now_string(), address, port);
 }
 
-// 辅助函数：共享状态注入
-fn with_simpai(ai: SharedAI) -> impl Filter<Extract = (SharedAI,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || ai.clone())
-}
 
 // --- 具体路由处理函数 ---
 
 // 1. 获取系统DID
-async fn handle_get_sys_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
+async fn handle_get_sys_did() -> Result<impl Reply, Rejection> {
     let claims = GlobalClaims::instance();
     let claims = claims.lock().unwrap();
     Ok(warp::reply::json(&ApiResponse {
@@ -147,7 +138,7 @@ async fn handle_get_sys_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
     }))
 }
 
-async fn handle_get_device_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
+async fn handle_get_device_did() -> Result<impl Reply, Rejection> {
     let claims = GlobalClaims::instance();
     let claims = claims.lock().unwrap();
     Ok(warp::reply::json(&ApiResponse {
@@ -157,12 +148,12 @@ async fn handle_get_device_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
     }))
 }
 
-async fn handle_get_upstream_did(ai: SharedAI) -> Result<impl Reply, Rejection> {
+async fn handle_get_upstream_did() -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
-    let mut ai = didtoken.lock().unwrap();
+    let mut didtoken = didtoken.lock().unwrap();
     Ok(warp::reply::json(&ApiResponse {
         success: true,
-        data: ai.get_upstream_did(),
+        data: didtoken.get_upstream_did(),
         error: None,
     }))
 }
@@ -172,16 +163,15 @@ async fn handle_get_upstream_did(ai: SharedAI) -> Result<impl Reply, Rejection> 
 struct GetLocalVarsRequest {
     key: String,
     default: String,
-    user_session: String,
-    ua_hash: String,
+    user_did: String,
 }
 
 async fn handle_get_local_vars(
     req: GetLocalVarsRequest,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
-    let mut ai = ai.lock().unwrap();
-    let value = ai.get_local_vars(&req.key, &req.default, &req.user_session, &req.ua_hash);
+    let global_local_vars = GlobalLocalVars::instance();
+    let mut global_local_vars = global_local_vars.lock().unwrap();
+    let value = global_local_vars.get_local_vars(&req.key, &req.default, &req.user_did);
     Ok(warp::reply::json(&ApiResponse {
         success: !value.is_empty(),
         data: value.clone(),
@@ -211,9 +201,13 @@ async fn handle_get_claim(
             if claim.is_default() {
                 debug!("ready to get claim from upstream with p2p channel");
                 claim = p2p.get_claim_from_upstream(did_clone.to_string()).await;
+                if !claim.is_default() {
+                    info!("get did({}) claim from upstream with p2p channel.", did_clone);
+                }
+            } else {
+                info!("get did({}) claim from DHT.", did_clone);
             }
             if !claim.is_default() {
-                info!("get did({}) claim with p2p channel.", did_clone);
                 let mut claims = claims.lock().unwrap();
                 claims.push_claim_to_local(&claim);
             }
@@ -260,9 +254,9 @@ struct GetRegisterCertRequest {
 async fn handle_get_register_cert(
     req: GetRegisterCertRequest,
 ) -> Result<impl Reply, Rejection> {
-    let didtoken = DidToken::instance();
-    let mut didtoken = didtoken.lock().unwrap();
-    let cert = didtoken.get_register_cert(&req.user_did);
+    let cert_center = GlobalCerts::instance();
+    let mut cert_center = cert_center.lock().unwrap();
+    let cert = cert_center.get_register_cert(&req.user_did);
     Ok(warp::reply::json(&ApiResponse {
         success: cert != "Unknown",
         data: cert.clone(),
@@ -401,16 +395,19 @@ struct PutGlobalMessage {
 
 async fn handle_put_global_message(
     req: PutGlobalMessage,
-    ai: SharedAI,
 ) -> Result<impl Reply, Rejection> {
-    let ai = ai.lock().unwrap();
-    ai.put_global_message(&req.msg);
+    let claims = GlobalClaims::instance();
+    let claims = claims.lock().unwrap();
+    let sys_did = claims.local_claims.get_system_did();
+    let mut shared_data = shared::get_shared_data();
+    shared_data.get_message_queue().push_messages(&sys_did, req.msg);
     Ok(warp::reply::json(&ApiResponse {
         success: true,
         data: "",
         error: None,
     }))
 }
+    
 
 pub async fn request_api<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, reqwest::Error> {
     let url = format!("{}/{}", API_HOST, endpoint);

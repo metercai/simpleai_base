@@ -25,18 +25,18 @@ use crate::utils::env_data::EnvData;
 use crate::dids::claims::{GlobalClaims, IdClaim, UserContext, };
 use crate::utils::systeminfo::SystemInfo;
 use crate::dids::cert_center::GlobalCerts;
-use crate::dids::TOKEN_TM_DID;
+use crate::dids::TOKEN_ENTRYPOINT_DID;
 use crate::user::user_mgr::{OnlineUsers, MessageQueue};
-use crate::user::{TokenUser, DidEntryPoint, AdminDefault};
+use crate::user::{TokenUser, DidEntryPoint};
 use crate::p2p::{P2p, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
-use crate::shared::{self, SharedData};
+use crate::user::shared::{self, SharedData};
+use crate::user::user_vars::{AdminDefault, GlobalLocalVars};
+
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";
 
-use once_cell::sync::OnceCell;
 
-static SYNC_TASK_HANDLE: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
-
+static SYNC_TASK_HANDLE: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
 #[derive(Clone)]
 #[pyclass]
@@ -49,11 +49,12 @@ pub struct SimpleAI {
     didtoken: Arc<Mutex<DidToken>>,
     tokenuser: Arc<Mutex<TokenUser>>,
     ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
-    global_local_vars: Arc<Mutex<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
+    global_local_vars: Arc<Mutex<GlobalLocalVars>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
     last_timestamp: Arc<RwLock<u64>>,
     sid_did_map: Arc<Mutex<HashMap<String, String>>>,
     shared_data: &'static SharedData,
+    p2p_config: String,
 }
 
 #[pymethods]
@@ -71,17 +72,19 @@ impl SimpleAI {
         debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
         let didtoken = DidToken::instance();
+        let tokenuser = TokenUser::instance();
+        let global_local_vars = GlobalLocalVars::instance();
+
         let (sys_did, device_did, guest_did, token_db) = {
             let didtoken = didtoken.lock().unwrap();
             (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did(), didtoken.get_token_db())
         };
-        let (ready_users_tree, global_local_vars_tree) = {
+        let ready_users_tree = {
             let token_db = token_db.lock().unwrap();
-            (token_db.open_tree("ready_users").unwrap(), token_db.open_tree("global_local_vars").unwrap())
+            token_db.open_tree("ready_users").unwrap()
         };
         let ready_users = Arc::new(Mutex::new(ready_users_tree));
-        let global_local_vars = Arc::new(Mutex::new(global_local_vars_tree));
-
+    
         let online_users = OnlineUsers::new(60, 2);
         let message_queue = MessageQueue::new(global_local_vars.clone());
         let mut shared_data = shared::get_shared_data();
@@ -100,13 +103,14 @@ impl SimpleAI {
             device_did,
             guest_did,
             didtoken,
-            tokenuser: TokenUser::instance(),
+            tokenuser,
             ready_users,
             global_local_vars,
             online_users,
             last_timestamp: Arc::new(RwLock::new(0u64)),
             sid_did_map: Arc::new(Mutex::new(HashMap::new())),
             shared_data,
+            p2p_config: DEFAULT_P2P_CONFIG.to_string(),
         }
     }
 
@@ -130,7 +134,7 @@ impl SimpleAI {
 
     pub fn get_node_mode(&mut self) -> String {
         let system_did = self.get_sys_did();
-        let node_mode = self.get_local_vars_base("node_mode_type", "online", &system_did);
+        let node_mode = self.global_local_vars.lock().unwrap().get_local_vars("node_mode_type", "online", &system_did);
         {
             let mut didtoken = self.didtoken.lock().unwrap();
             didtoken.set_node_mode(&node_mode);
@@ -140,15 +144,9 @@ impl SimpleAI {
 
     pub fn set_node_mode(&mut self, mode: &str) {
         let system_did = self.get_sys_did();
-        let current_mode = self.get_local_vars_base("node_mode_type", "online", &system_did);
+        let current_mode = self.global_local_vars.lock().unwrap().get_local_vars("node_mode_type", "online", &system_did);
         if mode != current_mode.as_str() {
-            let local_key = format!("{}_{}", self.get_sys_did(), "node_mode_type");
-            let local_value = mode.to_string();
-            let ivec_data = sled::IVec::from(local_value.as_bytes());
-            {
-                let global_local_vars = self.global_local_vars.lock().unwrap();
-                let _ = global_local_vars.insert(&local_key, ivec_data);
-            }
+            self.global_local_vars.lock().unwrap().set_local_vars("node_mode_type", mode, &self.get_sys_did());
             self.didtoken.lock().unwrap().set_node_mode(&mode);
         }
     }
@@ -177,17 +175,26 @@ impl SimpleAI {
         self.get_upstream_did()
     }
 
+    pub fn disconnect_upstream(&mut self) {
+        self.didtoken.lock().unwrap().set_upstream_did("");
+        if self.get_local_admin_vars("p2p_node") == "False" && !self.get_sys_name().ends_with("_p2p") {
+            self.p2p_stop();
+        }
+        let mut handle_guard = SYNC_TASK_HANDLE.lock().unwrap();
+        if let Some(handle) = handle_guard.take() {
+            handle.abort();
+            *handle_guard = None;
+        }
+    }
+
     pub fn get_upstream_did(&mut self) -> String {
-        if self.get_admin_did() == dids::TOKEN_TM_DID {
-            self.didtoken.lock().unwrap().set_upstream_did(dids::TOKEN_TM_DID);
-            //self.p2p_start();
-            return dids::TOKEN_TM_DID.to_string();
+        if self.get_admin_did() == dids::TOKEN_ENTRYPOINT_DID {
+            self.didtoken.lock().unwrap().set_upstream_did(dids::TOKEN_ENTRYPOINT_DID);
+            self.p2p_start();
+            return dids::TOKEN_ENTRYPOINT_DID.to_string();
         }
         let upstream_did = self.didtoken.lock().unwrap().get_upstream_did();
         if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
-            if self.get_local_admin_vars("p2p_node") == "False" && !self.get_sys_name().ends_with("_p2p") {
-                self.p2p_stop();
-            }
             return upstream_did.clone();
         }
         let timeout = Duration::from_secs(6);
@@ -206,23 +213,28 @@ impl SimpleAI {
             let upstream_url =  self.tokenuser.lock().unwrap().get_did_entry_point(&upstream_did.clone());
             let sys_did = self.get_sys_did();
             let dev_did = self.get_device_did();
-            SYNC_TASK_HANDLE.get_or_init(|| {
-                let sys_did_owned = sys_did.clone();
-                let dev_did_owned = dev_did.clone();
-                let upstream_did_owned = upstream_did.clone();
+            let mut handle_guard = SYNC_TASK_HANDLE.lock().unwrap();
+            if let Some(handle) = handle_guard.take() {
+                handle.abort();
+            }
+            
+            let sys_did_owned = sys_did.clone();
+            let dev_did_owned = dev_did.clone();
+            let upstream_did_owned = upstream_did.clone();
 
-                let entry_point = self.tokenuser.lock().unwrap().get_entry_point();
-                let entry_point = Arc::new(tokio::sync::Mutex::new(entry_point));
-                let online_users = Arc::new(tokio::sync::Mutex::new(self.online_users.clone()));
-                let message_queue =  self.shared_data.get_message_queue().clone();
+            let entry_point = self.tokenuser.lock().unwrap().get_entry_point();
+            let entry_point = Arc::new(tokio::sync::Mutex::new(entry_point));
+            let online_users = Arc::new(tokio::sync::Mutex::new(self.online_users.clone()));
+            let message_queue =  self.shared_data.get_message_queue().clone();
 
-                dids::TOKIO_RUNTIME.spawn(async move {
-                    let task1 = submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned);
-                    let task2 = sync_upstream(&sys_did_owned, &dev_did_owned, upstream_did_owned,
-                                              entry_point, online_users, message_queue);
-                    tokio::join!(task1, task2);
-                })
+            let handle = dids::TOKIO_RUNTIME.spawn(async move {
+                let task1 = submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned);
+                let task2 = sync_upstream(&sys_did_owned, &dev_did_owned, upstream_did_owned,
+                        entry_point, online_users, message_queue);
+                tokio::join!(task1, task2);
             });
+            *handle_guard = Some(handle);
+
             if self.get_local_admin_vars("p2p_node") == "True" || self.get_sys_name().ends_with("_p2p"){
                 self.p2p_start();
             }
@@ -298,23 +310,25 @@ impl SimpleAI {
         format!("P2P 服务重启: {}, {}", stop_result, start_result)
     }
 
-    fn get_p2p_config(&self) -> String {
-        let config_path = Path::new("p2pconfig.toml");
-        if config_path.exists() {
-            match fs::read_to_string(config_path) {
-                Ok(content) => {
-                    debug!("使用本地 p2pconfig.toml 文件配置");
-                    content
-                },
-                Err(e) => {
-                    debug!("读取 p2pconfig.toml 文件失败: {}, 使用默认配置", e);
-                    DEFAULT_P2P_CONFIG.to_string()
+    fn get_p2p_config(&mut self) -> String {
+        let mut p2p_config = self.get_local_admin_vars("p2p_config");
+        if !p2p_config.is_empty() {
+            return p2p_config;
+        } else {
+            let config_path = Path::new("p2pconfig.toml");
+            if config_path.exists() {
+                match fs::read_to_string(config_path) {
+                    Ok(content) => {
+                        debug!("使用本地 p2pconfig.toml 文件配置");
+                        return content;
+                    },
+                    Err(e) => {
+                        debug!("读取 p2pconfig.toml 文件失败: {}, 使用默认配置", e);
+                    }
                 }
             }
-        } else {
-            debug!("未找到 p2pconfig.toml 文件，使用默认配置");
-            DEFAULT_P2P_CONFIG.to_string()
-        }
+        } 
+        return self.p2p_config.clone();
     }
 
     pub fn get_global_status(&self, sid: &str, last_timestamp: u64) -> (usize, usize, usize) {
@@ -347,17 +361,6 @@ impl SimpleAI {
         self.shared_data.online_all.log_access(did.to_string());
     }
 
-    pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
-        let key = format!("global_{}", key);
-        let global_local_vars = self.global_local_vars.lock().unwrap();
-        match global_local_vars.get(&key) {
-            Ok(Some(context)) => {
-                String::from_utf8(context.to_vec()).unwrap()
-            },
-            _ => default.to_string()
-        }
-    }
-
     pub fn get_global_msg_number(&self) -> usize {
         self.shared_data.get_message_queue().get_msg_number(&self.get_sys_did())
     }
@@ -378,110 +381,35 @@ impl SimpleAI {
         let _ = self.shared_data.get_message_queue().push_messages(&self.get_sys_did(), message.to_string());
     }
 
-    pub fn put_global_var(&mut self, key: &str, value: &str) {
-        let key = format!("global_{}", key);
-        let global_local_vars = self.global_local_vars.lock().unwrap();
-        let ivec_data = sled::IVec::from(value.as_bytes());
-        let _ = global_local_vars.insert(&key, ivec_data);
+    pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
+        self.global_local_vars.lock().unwrap().get_global_vars(key, default)
     }
 
+    pub fn put_global_var(&mut self, key: &str, value: &str) {
+        self.global_local_vars.lock().unwrap().put_global_var(key, value)
+    }
 
     pub fn get_global_vars_json(&mut self) -> String {
-        let prefix = "global_";
-        let mut global_vars: HashMap<String, String> = HashMap::new();
-        let global_local_vars = self.global_local_vars.lock().unwrap();
-        for result in global_local_vars.scan_prefix(prefix) {
-            match result {
-                Ok((key, value)) => {
-                    if let (Ok(key_str), Ok(value_str)) = (
-                        std::str::from_utf8(&key).map(|s| s.to_string()),
-                        std::str::from_utf8(&value).map(|s| s.to_string()),
-                    ) {
-                        global_vars.insert(key_str, value_str);
-                    } else {
-                        eprintln!("Failed to convert key or value to UTF-8");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error reading key-value pair: {}", e);
-                }
-            }
-        }
-        serde_json::to_string(&global_vars).unwrap()
+        self.global_local_vars.lock().unwrap().get_global_vars_json()
     }
 
     pub fn get_local_vars(&mut self, key: &str, default: &str, user_session: &str, ua_hash: &str) -> String {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        self.get_local_vars_base(key, default, &user_did)
+        self.global_local_vars.lock().unwrap().get_local_vars(key, default, &user_did)
     }
 
     pub fn get_local_admin_vars(&mut self, key: &str) -> String {
-        let admin_key = format!("admin_{}", key);
-        let default = AdminDefault::instance().lock().unwrap().get(key).to_string();
-        let admin = self.get_admin_did();
-        self.get_local_vars_base(&admin_key, &default, &admin)
-    }
-
-    fn get_local_vars_base(&mut self, key: &str, default: &str, user_did: &str) -> String {
-        let (local_did, local_key) = if key.starts_with("admin_") {
-            (self.get_admin_did(), key.to_string())
-        } else {
-            (user_did.to_string(), format!("{}_{}", user_did, key))
-        };
-
-        let mut value = {
-            let global_local_vars = self.global_local_vars.lock().unwrap();
-            match global_local_vars.get(&local_key) {
-                Ok(Some(var_value)) => {
-                    String::from_utf8(var_value.to_vec()).unwrap()
-                },
-                _ => "Default".to_string()
-            }
-        };
-        if local_key.starts_with("admin_") && value != "Default"{
-            value = self.didtoken.lock().unwrap().decrypt_by_did(&value, &local_did, 0);
-        }
-        if value == "Default" || value == "Unknown" {
-            if local_key.starts_with("admin_") {
-                let local_key = local_key.replace("admin_", "");
-                let admin_default = AdminDefault::instance().lock().unwrap().get(&local_key).to_string();
-                admin_default
-            } else {
-                default.to_string()
-            }
-        } else { value }
-
+        self.global_local_vars.lock().unwrap().get_local_admin_vars(key)
     }
 
     pub fn set_local_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        let admin = self.get_admin_did();
-        let (local_key, local_value) = if key.starts_with("admin_") && admin == user_did  {
-            let encrypted_value = self.didtoken.lock().unwrap().encrypt_for_did(&value.as_bytes(), &admin, 0);
-            (key.to_string(), encrypted_value)
-        } else {
-            if key.starts_with("admin_") {
-                return;
-            }
-            (format!("{}_{}", user_did, key), value.to_string())
-        };
-
-        let global_local_vars = self.global_local_vars.lock().unwrap();
-        let ivec_data = sled::IVec::from(local_value.as_bytes());
-        let _ = global_local_vars.insert(&local_key, ivec_data);
+        self.global_local_vars.lock().unwrap().set_local_vars(key, value, &user_did)
     }
 
     pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        let admin = self.get_admin_did();
-        let guest = self.get_guest_did();
-        if admin == user_did {
-            let local_key = format!("{}_{}", guest, key);
-            let local_value = value.to_string();
-            let global_local_vars = self.global_local_vars.lock().unwrap();
-            let ivec_data = sled::IVec::from(local_value.as_bytes());
-            let _ = global_local_vars.insert(&local_key, ivec_data);
-        }
+        self.global_local_vars.lock().unwrap().set_local_vars_for_guest(key, value, &user_did)
     }
 
 
@@ -627,7 +555,7 @@ impl SimpleAI {
         if user_did != "Unknown" && user_cert != "Unknown" {
             debug!("import_identity_qrcode, ready to push user cert: did={}", user_did);
             let certificates = GlobalCerts::instance();
-            certificates.lock().unwrap().push_user_cert_text(&format!("{}|{}|{}|{}", TOKEN_TM_DID, user_did, "Member", user_cert));
+            certificates.lock().unwrap().push_user_cert_text(&format!("{}|{}|{}|{}", TOKEN_ENTRYPOINT_DID, user_did, "Member", user_cert));
         }
         (user_did, nickname, telephone)
     }
@@ -814,7 +742,7 @@ impl SimpleAI {
     }
 
     pub fn get_register_cert(&mut self, user_did: &str) -> String {
-        self.didtoken.lock().unwrap().get_register_cert(user_did)
+        self.didtoken.lock().unwrap().get_or_create_register_cert(user_did)
     }
 
     fn is_registered(&self, did: &str) -> bool {
@@ -1321,7 +1249,7 @@ impl SimpleAI {
 
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
 
-        let upstream_url = self.tokenuser.lock().unwrap().get_did_entry_point(dids::TOKEN_TM_DID);
+        let upstream_url = self.tokenuser.lock().unwrap().get_did_entry_point(dids::TOKEN_ENTRYPOINT_DID);
         let response = dids::TOKIO_RUNTIME.block_on(async {
             request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await
         });
@@ -1329,6 +1257,9 @@ impl SimpleAI {
         debug!("register_upstream, response: {}", response);
         if let Some(message_list) = ping_vars.get("message_list") {
             self.shared_data.get_message_queue().push_messages(&sys_did, message_list.to_string());
+        }
+        if let Some(p2p_config) = ping_vars.get("p2p_config") {
+            self.p2p_config = p2p_config.clone();
         }
         if let Some(new_did) = ping_vars.get("upstream_did") {
             new_did.clone()
@@ -1585,7 +1516,7 @@ async fn sync_upstream(
                         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
                         let upstream_url = {
                             let ep = entry_point.lock().await;
-                            ep.get_entry_point(dids::TOKEN_TM_DID)
+                            ep.get_entry_point(dids::TOKEN_ENTRYPOINT_DID)
                         };
                         let response = request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await;
                         ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());

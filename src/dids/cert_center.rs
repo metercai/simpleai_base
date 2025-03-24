@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{error, warn, info, debug, trace};
 
 use crate::dids::claims::{IdClaim, GlobalClaims};
-use crate::dids::{self, TOKIO_RUNTIME, TOKEN_TM_DID, token_utils};
+use crate::dids::{self, TOKIO_RUNTIME, TOKEN_ENTRYPOINT_DID, token_utils};
 use crate::rest_service;
 
 lazy_static::lazy_static! {
@@ -61,7 +61,7 @@ impl GlobalCerts {
     }
 
     pub fn get_register_cert(&self, for_did: &str) -> String {
-        let member_cert = self.get_member_cert(TOKEN_TM_DID, for_did);
+        let member_cert = self.get_member_cert(TOKEN_ENTRYPOINT_DID, for_did);
         if member_cert != "Unknown" {
             println!("{} [CertCenter] get global register cert for did={}", token_utils::now_string(), for_did);
             return member_cert;

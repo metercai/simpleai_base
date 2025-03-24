@@ -9,7 +9,7 @@ use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::utils::systeminfo::SystemInfo;
 use crate::utils::params_mapper::ComfyTaskParams;
 use crate::dids::token_utils::calc_sha256;
-use crate::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_TM_DID};
+use crate::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
 use crate::rest_service::{ApiResponse, API_HOST};
 
 mod token;
@@ -20,13 +20,12 @@ mod p2p;
 mod dids;
 mod utils;
 mod user;
-mod shared;
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {
     let token = SimpleAI::new(nickname);
     let instance_arc = Arc::new(Mutex::new(token.clone()));
-    let _rest_server = rest_service::start_rest_server(instance_arc.clone(), "127.0.0.1".to_string(), 4515);
+    let _rest_server = rest_service::start_rest_server("127.0.0.1".to_string(), 4515);
     Ok(token)
 }
 
@@ -72,7 +71,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
             return true;
         }
     }
-    let root_did = TOKEN_TM_DID;
+    let root_did = TOKEN_ENTRYPOINT_DID;
     let text_root = format!("{}|{}", root_did, text);
     let claim_root = LocalClaims::load_claim_from_local(root_did);
     println!("{} cert verify by root did {}, is_default={}", did, root_did, claim_root.is_default());
