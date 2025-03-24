@@ -26,7 +26,7 @@ use crate::p2p::config::{ReqRespConfig, PeerIdWithMultiaddr};
 lazy_static! {
     pub(crate) static ref BOOT_NODES: Vec<PeerIdWithMultiaddr> = vec![
         PeerIdWithMultiaddr::from_str("/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X").unwrap(),
-        PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc").unwrap()
+        //PeerIdWithMultiaddr::from_str("/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc").unwrap()
     ];
 }
 
