@@ -1277,7 +1277,7 @@ impl SimpleAI {
         let entry_point = self.tokenuser.lock().unwrap().get_did_entry_point( &upstream_did);
         let encoded_params = self.didtoken.lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did ,0);
         dids::TOKIO_RUNTIME.block_on(async {
-            debug!("[UpstreamClient] request api_{} with params: {}", api_name, params);
+            info!("[UpstreamClient] sys({}),dev({}) request {}/api_{} with params: {}", self.get_sys_did(), self.get_device_did(), entry_point, api_name, params);
             request_token_api_async(&entry_point, &self.get_sys_did(), &self.get_device_did(), api_name, &encoded_params).await
         })
     }
