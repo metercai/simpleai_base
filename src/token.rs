@@ -1394,8 +1394,17 @@ async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &st
             }
         },
         Err(e) => {
-            info!("Failed to request token api: {}", e);
-            "Unknown".to_string()
+            info!("Failed to request token api: {} to {}{}, sys_did={}, dev_did={}", e, upstream_url, api_name, sys_did, dev_did);
+            if e.is_timeout() {
+                info!("Request timed out");
+                "Unknown".to_string()
+            } else if e.is_connect() {
+                info!("Connection error: {}", e);
+                "Unknown".to_string()
+            } else {
+                info!("Other request error: {}", e);
+                "Unknown".to_string()
+            }
         }
     }
 }
