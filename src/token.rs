@@ -1500,6 +1500,8 @@ async fn sync_upstream(
             }
         };
 
+        info!("{} [Upstream] {} ping upstream node: {}", token_utils::now_string(), sys_did, result_string);
+                        
         if result_string != "Unknown" {
             let mut ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
             if let Some(user_online) = ping_vars.get("user_online") {
