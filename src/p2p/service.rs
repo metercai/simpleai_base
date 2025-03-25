@@ -136,10 +136,8 @@ impl Client {
         Ok(response)
     }
 
-    pub(crate) async fn set_key_value(&self, key: String, value: Vec<u8>) -> String {
-        let (responder, receiver) = oneshot::channel();
-        let _ = self.cmd_sender.send(Command::SetKeyValue(key, value, responder));
-        receiver.await.unwrap_or_default()
+    pub(crate) async fn set_key_value(&self, key: String, value: Vec<u8>) {
+        let _ = self.cmd_sender.send(Command::SetKeyValue(key, value));
     }
 
 }
@@ -157,7 +155,7 @@ pub(crate) enum Command {
     },
     GetStatus(oneshot::Sender<NodeStatus>),
     GetKeyValue(String, oneshot::Sender<Vec<u8>>),
-    SetKeyValue(String, Vec<u8>, oneshot::Sender<String>),
+    SetKeyValue(String, Vec<u8>),
 }
 
 pub(crate) struct Server<E: EventHandler> {
@@ -419,7 +417,7 @@ impl<E: EventHandler> Server<E> {
             Command::Broadcast { topic, message } => self.handle_outbound_broadcast(topic, message),
             Command::GetStatus(responder) => responder.send(self.get_status()).unwrap(),
             Command::GetKeyValue(key, responder) => self.handle_kad_get_key(key, responder).unwrap(),
-            Command::SetKeyValue(key, value, responder) => responder.send(self.handle_kad_set_value(key, value)).unwrap(),
+            Command::SetKeyValue(key, value) => self.handle_kad_set_value(key, value),
         }
     }
     // Process the next event coming from `Swarm`.
@@ -941,16 +939,13 @@ impl<E: EventHandler> Server<E> {
         }
     }
 
-    fn handle_kad_set_value(&mut self, key: String, value: Vec<u8>) -> String {
+    fn handle_kad_set_value(&mut self, key: String, value: Vec<u8>) {
         let query_id = self
             .network_service
             .behaviour_mut()
             .set_key_value(key.clone(), String::from_utf8_lossy(&value).to_string());
         
         tracing::info!("☕ 存储键值对: {} -> {:?}, query_id: {:?}", key, value.len(), query_id);
-        
-        // 返回操作结果
-        format!("已提交存储请求: {}", key)
     }
 
     fn get_peer_id(&self) -> PeerId {

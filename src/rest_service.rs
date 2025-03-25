@@ -193,13 +193,15 @@ async fn handle_get_claim(
         let mut claims = claims.lock().unwrap();
         claims.get_claim_from_local(&req.did)
     };
+    
     if claim.is_default() {
         if let Some(p2p) = p2p::get_instance().await {
-            debug!("ready to get claim from DHT network");
+            debug!("ready to get claim from DHT networkDID: {}", req.did);
             let did_clone = req.did.clone();
             claim = p2p.get_claim_from_DHT(&did_clone).await;
+            
             if claim.is_default() {
-                debug!("ready to get claim from upstream with p2p channel");
+                debug!("ready to get claim from upstream with p2p channel，DID: {}", did_clone);
                 claim = p2p.get_claim_from_upstream(did_clone.to_string()).await;
                 if !claim.is_default() {
                     info!("get did({}) claim from upstream with p2p channel.", did_clone);
@@ -207,6 +209,7 @@ async fn handle_get_claim(
             } else {
                 info!("get did({}) claim from DHT.", did_clone);
             }
+            
             if !claim.is_default() {
                 let mut claims = claims.lock().unwrap();
                 claims.push_claim_to_local(&claim);

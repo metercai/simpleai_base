@@ -164,33 +164,44 @@ impl P2p {
 
     pub async fn get_claim_from_DHT(&self, did: &str) -> IdClaim {
         if did.is_empty() ||!IdClaim::validity(did) {
+            tracing::debug!("无效的DID: {}", did);
             return IdClaim::default();
         }
 
         let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
-        self.client.get_key_value(&key).await.map(|value| {
-            match String::from_utf8(value) {
-                Ok(json_str) => {
-                    match serde_json::from_str::<IdClaim>(&json_str) {
-                        Ok(claim) => {
-                            tracing::info!("{} [P2pNode] get did({}) claim from DHT", token_utils::now_string(), did);
-                            claim
-                        },
-                        Err(e) => {
-                            tracing::error!("解析 DHT 返回的声明失败: {:?}", e);
-                            IdClaim::default()
-                        }
-                    }
-                },
-                Err(e) => {
-                    tracing::error!("DHT 返回的数据不是有效的 UTF-8 字符串: {:?}", e);
-                    IdClaim::default()
+        tracing::debug!("尝试从DHT获取声明，DID: {}, 键: {}", did, key);
+        
+        match self.client.get_key_value(&key).await {
+            Ok(value) => {
+                if value.is_empty() {
+                    tracing::debug!("DHT中未找到DID({})的声明", did);
+                    return IdClaim::default();
                 }
+                
+                match String::from_utf8(value.clone()) {
+                    Ok(json_str) => {
+                        match serde_json::from_str::<IdClaim>(&json_str) {
+                            Ok(claim) => {
+                                tracing::info!("{} [P2pNode] 成功从DHT获取DID({})的声明", token_utils::now_string(), did);
+                                claim
+                            },
+                            Err(e) => {
+                                tracing::error!("解析DHT返回的声明失败: {:?}, 原始数据: {}", e, json_str);
+                                IdClaim::default()
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        tracing::error!("DHT返回的数据不是有效的UTF-8字符串: {:?}, 数据长度: {}", e, value.len());
+                        IdClaim::default()
+                    }
+                }
+            },
+            Err(e) => {
+                tracing::error!("从DHT获取声明失败: {:?}, DID: {}", e, did);
+                IdClaim::default()
             }
-        }).unwrap_or_else(|e| {
-            tracing::error!("从 DHT 获取声明失败: {:?}", e);
-            IdClaim::default()
-        })
+        }
     }
 
     pub async fn put_claim_to_DHT(&self, claim: IdClaim) {
@@ -198,7 +209,7 @@ impl P2p {
         let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
 
         self.client.set_key_value(key, claim.to_json_string().as_bytes().to_vec()).await;
-        tracing::info!("{} [P2pNode] pet did({}) claim to DHT", token_utils::now_string(), did);
+        tracing::info!("{} [P2pNode] put did({}) claim to DHT", token_utils::now_string(), did);
     }
 
     async fn get_node_status(&self) {

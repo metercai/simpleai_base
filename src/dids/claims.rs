@@ -75,14 +75,6 @@ impl GlobalClaims {
         claim
     }
 
-    pub fn push_local_claims_to_DHT(&mut self) {
-        for (did, claim) in &self.local_claims.claims {
-            if claim.self_verify() {
-                GlobalClaims::push_claim_to_DHT(claim);
-            }
-        }
-    }
-
     pub(crate) fn push_claim_to_DHT(claim: &IdClaim) {
         let params = json!({
             "claim": claim,

@@ -1383,18 +1383,18 @@ async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &st
                         debug!("[Upstream] result: {}", result);
                         result
                     } else {
-                        debug!("status_code is unsuccessful: {},{}", status_code, text);
+                        info!("status_code is unsuccessful: {},{}", status_code, text);
                         format!("Unknown_{}", status_code).to_string()
                     }
                 },
                 Err(e) => {
-                    debug!("Failed to read response body: {},{}", status_code,e);
+                    info!("Failed to read response body: {},{}", status_code,e);
                     "Unknown".to_string()
                 }
             }
         },
         Err(e) => {
-            debug!("Failed to request token api: {}", e);
+            info!("Failed to request token api: {}", e);
             "Unknown".to_string()
         }
     }
