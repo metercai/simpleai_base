@@ -231,7 +231,7 @@ impl<E: EventHandler> Server<E> {
         let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
         let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
         let is_global = if locale_ip == public_ip || is_upstream_node { true } else { false };
-        tracing::info!("P2P_node({:?}/{:?}) ready to start up.",
+        tracing::debug!("P2P_node({:?}/{:?}) ready to start up.",
             locale_ip, 
             public_ip,
         );
@@ -273,7 +273,7 @@ impl<E: EventHandler> Server<E> {
                     event = swarm.next() => {
                         match event.unwrap() {
                             SwarmEvent::NewListenAddr { address, .. } => {
-                                tracing::info!("📣 P2P node listening on address:{}", address.clone());
+                                tracing::debug!("📣 P2P node listening on address:{}", address.clone());
                                 listened_addresses.push(address.clone());
                                 lan_addresses.push(format!("{}/p2p/{}", address.clone(), swarm.local_peer_id().to_base58()).parse().unwrap());
                             }

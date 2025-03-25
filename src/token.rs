@@ -1277,7 +1277,7 @@ impl SimpleAI {
         let entry_point = self.tokenuser.lock().unwrap().get_did_entry_point( &upstream_did);
         let encoded_params = self.didtoken.lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did ,0);
         dids::TOKIO_RUNTIME.block_on(async {
-            info!("[UpstreamClient] sys({}),dev({}) request {}/api_{} with params: {}", self.get_sys_did(), self.get_device_did(), entry_point, api_name, params);
+            debug!("[UpstreamClient] sys({}),dev({}) request {}/api_{} with params: {}", self.get_sys_did(), self.get_device_did(), entry_point, api_name, params);
             request_token_api_async(&entry_point, &self.get_sys_did(), &self.get_device_did(), api_name, &encoded_params).await
         })
     }
@@ -1383,28 +1383,19 @@ async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &st
                         debug!("[Upstream] result: {}", result);
                         result
                     } else {
-                        info!("status_code is unsuccessful: {},{}", status_code, text);
+                        debug!("status_code is unsuccessful: {},{}", status_code, text);
                         format!("Unknown_{}", status_code).to_string()
                     }
                 },
                 Err(e) => {
-                    info!("Failed to read response body: {},{}", status_code,e);
+                    debug!("Failed to read response body: {},{}", status_code,e);
                     "Unknown".to_string()
                 }
             }
         },
         Err(e) => {
             info!("Failed to request token api: {} to {}{}, sys_did={}, dev_did={}", e, upstream_url, api_name, sys_did, dev_did);
-            if e.is_timeout() {
-                info!("Request timed out");
-                "Unknown".to_string()
-            } else if e.is_connect() {
-                info!("Connection error: {}", e);
-                "Unknown".to_string()
-            } else {
-                info!("Other request error: {}", e);
-                "Unknown".to_string()
-            }
+            "Unknown".to_string()
         }
     }
 }
@@ -1500,7 +1491,7 @@ async fn sync_upstream(
             }
         };
 
-        info!("{} [Upstream] {} ping upstream node: {}", token_utils::now_string(), sys_did, result_string);
+        debug!("{} [Upstream] {} ping upstream node: {}", token_utils::now_string(), sys_did, result_string);
                         
         if result_string != "Unknown" {
             let mut ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
