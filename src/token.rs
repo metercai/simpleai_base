@@ -178,7 +178,7 @@ impl SimpleAI {
 
     pub fn disconnect_upstream(&mut self) {
         self.didtoken.lock().unwrap().set_upstream_did("");
-        if self.get_local_admin_vars("p2p_node") == "False" && !self.get_sys_name().ends_with("_p2p") {
+        if self.get_local_admin_vars("p2p_active_checkbox") == "False" && !self.get_sys_name().ends_with("_p2p") {
             self.p2p_stop();
         }
         let mut handle_guard = SYNC_TASK_HANDLE.lock().unwrap();
@@ -238,7 +238,7 @@ impl SimpleAI {
             });
             *handle_guard = Some(handle);
 
-            if self.get_local_admin_vars("p2p_node") == "True" || self.get_sys_name().ends_with("_p2p"){
+            if self.get_local_admin_vars("p2p_active_checkbox") == "True" || self.get_sys_name().ends_with("_p2p"){
                 self.p2p_start();
             }
         }
@@ -408,6 +408,13 @@ impl SimpleAI {
     pub fn set_local_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
         self.global_local_vars.lock().unwrap().set_local_vars(key, value, &user_did)
+    }
+
+    pub fn set_local_admin_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
+        let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
+        if user_did == self.get_admin_did() {
+            self.global_local_vars.lock().unwrap().set_local_vars(&format!("admin_{}", key), value, &user_did)
+        }
     }
 
     pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
