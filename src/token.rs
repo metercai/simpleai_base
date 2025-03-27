@@ -94,7 +94,7 @@ impl SimpleAI {
 
         let admin_did = didtoken.lock().unwrap().get_admin_did();
         if !admin_did.is_empty() {
-            online_users.log_register(admin_did.clone());
+            //online_users.log_register(admin_did.clone());
             shared_data.online_all.log_register(admin_did.clone());
         }
         
@@ -354,12 +354,14 @@ impl SimpleAI {
         self.online_users.get_nodes_top_list()
     }
 
-    pub fn log_register(&self, did: &str) {
+    pub fn log_register(&self, sid: &str) {
+        let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.online_users.log_register(did.to_string());
         self.shared_data.online_all.log_register(did.to_string());
     }
 
-    pub fn log_access(&self, did: &str) {
+    pub fn log_access(&self, sid: &str) {
+        let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.online_users.log_access(did.to_string());
         self.shared_data.online_all.log_access(did.to_string());
     }
