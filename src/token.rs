@@ -279,9 +279,9 @@ impl SimpleAI {
     
     /// 停止 P2P 服务
     pub(crate) fn p2p_stop(&mut self) -> String {
-        // 如果没有运行的服务，返回提示信息
         let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         if p2p_handle.is_none() {
+            println!("{} [P2pNode] p2p server({}) not running.", token_utils::now_string(), self.get_sys_did());
             return "P2P 服务未运行".to_string();
         }
         

@@ -149,9 +149,9 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
                     };
                     if verify_signature(&text, sig_base64, &claim.get_cert_verify_key()) {
                         certificates.insert(key.clone(), secrets_str.to_string());
-                        println!("Valid signature for user certificate at loading: did={}, key={}", claim.gen_did(), key);
+                        debug!("Valid signature for user certificate at loading: did={}, key={}", claim.gen_did(), key);
                     } else {
-                        println!("Invalid signature for user certificate at loading: did={}, cert_verify_key={}, key={}, text={}, sig={}", claim.gen_did(), URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()), key, text, sig_base64, );
+                        debug!("Invalid signature for user certificate at loading: did={}, cert_verify_key={}, key={}, text={}, sig={}", claim.gen_did(), URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()), key, text, sig_base64, );
                     }
                 }
             }

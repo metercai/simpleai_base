@@ -101,22 +101,25 @@ impl P2p {
             handle: Some(handle),
         };
 
+        Ok(Arc::new(p2p))
+    }
+
+    pub async fn put_local_claim_to_DHT() {
         let claims = GlobalClaims::instance();
         let claims_copy = {
             let claims_lock = claims.lock().unwrap();
-            // 收集所有需要处理的claim到Vec中
             claims_lock.iter()
                 .filter(|(_, claim)| claim.self_verify())
                 .map(|(_, claim)| claim.clone())
                 .collect::<Vec<IdClaim>>()
-            // MutexGuard在这里自动drop
         };
-        for claim in claims_copy {
-            if claim.self_verify() {
-                p2p.put_claim_to_DHT(claim.clone()).await;
+        if let Some(p2p) = get_instance().await {
+            for claim in claims_copy {
+                if claim.self_verify() {
+                    p2p.put_claim_to_DHT(claim.clone()).await;
+                }
             }
         }
-        Ok(Arc::new(p2p))
     }
 
     pub async fn get_claim_from_upstream(&self, did: String) -> IdClaim {
@@ -212,7 +215,7 @@ impl P2p {
         let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
 
         self.client.set_key_value(key, claim.to_json_string().as_bytes().to_vec()).await;
-        tracing::info!("{} [P2pNode] put did({}) claim to DHT", token_utils::now_string(), did);
+        tracing::debug!("{} [P2pNode] put did({}) claim to DHT", token_utils::now_string(), did);
     }
 
     async fn get_node_status(&self) {

@@ -954,7 +954,7 @@ impl<E: EventHandler> Server<E> {
             .behaviour_mut()
             .set_key_value(key.clone(), String::from_utf8_lossy(&value).to_string());
         
-        tracing::info!("☕ 存储键值对: {} -> {:?}, query_id: {:?}", key, value.len(), query_id);
+        tracing::debug!("☕ 存储键值对: {} -> {:?}, query_id: {:?}", key, value.len(), query_id);
     }
 
     fn get_peer_id(&self) -> PeerId {
