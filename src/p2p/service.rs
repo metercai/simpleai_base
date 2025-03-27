@@ -297,7 +297,9 @@ impl<E: EventHandler> Server<E> {
 
         let short_peer_id = swarm.local_peer_id().short_id();
         let short_sys_did = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
-        tracing::info!("P2P_node({}/{}) start up, peer_id({})", short_sys_did, short_peer_id, swarm.local_peer_id().to_base58());
+        if is_global {
+            println!("{} P2P_node({}/{}) start up, peer_id({})", token_utils::now_string(), short_sys_did, short_peer_id, swarm.local_peer_id().to_base58());
+        } 
 
         swarm.behaviour_mut().kademlia
             .set_mode(Some(kad::Mode::Server));
@@ -318,7 +320,7 @@ impl<E: EventHandler> Server<E> {
         }
         if !is_global {
             let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
-            tracing::info!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
+            println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
                 token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
         }
         for node in upstream_nodes.iter() {
@@ -998,7 +1000,7 @@ impl<E: EventHandler> Server<E> {
             .join(", ");
         match reason {
             Ok(()) => {
-                tracing::info!("📣 Listener ({}) closed gracefully", addrs)
+                tracing::info!("Listener ({}) closed gracefully", addrs)
             }
             Err(e) => {
                 tracing::error!("❌ Listener ({}) closed: {}", addrs, e)

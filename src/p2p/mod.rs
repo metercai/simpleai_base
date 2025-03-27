@@ -221,7 +221,7 @@ impl P2p {
     async fn get_node_status(&self) {
         let node_status = self.client.get_node_status().await;
         let short_id = self.client.get_short_id();
-        tracing::info!("[P2pNode] 📣 {}", node_status.short_format());
+        println!("{} [P2pNode] {}", token_utils::now_string(), node_status.short_format());
     }
 
     async fn broadcast(&self, topic: String, message: String) {
@@ -395,7 +395,7 @@ async fn get_node_status(client: Client, interval: u64) {
     loop {
         time::sleep(dur).await;
         let node_status = client.get_node_status().await;
-        tracing::info!("{} [P2pNode] 📣 {}", token_utils::now_string(), node_status.short_format());
+        println!("{} [P2pNode] {}", token_utils::now_string(), node_status.short_format());
     }
 }
 
