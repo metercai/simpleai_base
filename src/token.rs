@@ -29,7 +29,7 @@ use crate::dids::cert_center::GlobalCerts;
 use crate::dids::TOKEN_ENTRYPOINT_DID;
 use crate::user::user_mgr::{OnlineUsers, MessageQueue};
 use crate::user::{TokenUser, DidEntryPoint};
-use crate::p2p::{P2p, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
+use crate::p2p::{self, P2p, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::{AdminDefault, GlobalLocalVars};
 
@@ -287,12 +287,15 @@ impl SimpleAI {
         
         // 取出并中止 P2P 服务
         if let Some(handle) = p2p_handle.take() {
-            handle.abort();
             dids::TOKIO_RUNTIME.block_on(async {
+                if let Some(p2p) = p2p::get_instance().await {
+                    p2p.stop().await;
+                }
                 let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                 *p2p_instance_guard = None;
             });
-            debug!("P2P 服务已停止");
+            handle.abort();
+            println!("{} [P2pNode] p2p server({}) has stopped.", token_utils::now_string(), self.get_sys_did());
             "P2P 服务已停止".to_string()
         } else {
             "P2P 服务未运行".to_string()

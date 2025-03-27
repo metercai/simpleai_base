@@ -140,6 +140,10 @@ impl Client {
         let _ = self.cmd_sender.send(Command::SetKeyValue(key, value));
     }
 
+    pub(crate) async fn stop(&self) {
+        let _ = self.cmd_sender.send(Command::Stop);
+    }
+
 }
 
 /// The commands sent by the `Client` to the `Server`.
@@ -156,6 +160,7 @@ pub(crate) enum Command {
     GetStatus(oneshot::Sender<NodeStatus>),
     GetKeyValue(String, oneshot::Sender<Vec<u8>>),
     SetKeyValue(String, Vec<u8>),
+    Stop,
 }
 
 pub(crate) struct Server<E: EventHandler> {
@@ -186,6 +191,8 @@ pub(crate) struct Server<E: EventHandler> {
     rendezvous_cookie: Option<rendezvous::Cookie>,
     connection_failure_counts: Mutex<HashMap<PeerId, Vec<Instant>>>,
     connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
+    /// Flag to control server running state
+    stop_flag: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -363,6 +370,7 @@ impl<E: EventHandler> Server<E> {
             rendezvous_cookie: None,
             connection_failure_counts: Mutex::new(HashMap::new()),
             connection_quality: Mutex::new(HashMap::new()),
+            stop_flag: false,
         })
     }
 
@@ -373,7 +381,7 @@ impl<E: EventHandler> Server<E> {
 
     /// Run the `Server`.
     pub(crate) async fn run(mut self) {
-        loop {
+        while !self.stop_flag {
             select! {
                 // Next discovery process.
                 _ = self.discovery_ticker.tick() => {
@@ -418,6 +426,7 @@ impl<E: EventHandler> Server<E> {
             Command::GetStatus(responder) => responder.send(self.get_status()).unwrap(),
             Command::GetKeyValue(key, responder) => self.handle_kad_get_key(key, responder).unwrap(),
             Command::SetKeyValue(key, value) => self.handle_kad_set_value(key, value),
+            Command::Stop => self.stop_flag = true,
         }
     }
     // Process the next event coming from `Swarm`.

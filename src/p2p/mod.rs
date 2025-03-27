@@ -52,6 +52,7 @@ pub struct P2p {
     config: config::Config,
     client: Client,
     shared_data: &'static SharedData,
+    handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl P2p {
@@ -76,7 +77,8 @@ impl P2p {
 
         let config_clone = config.clone();
         let client_clone = client.clone();
-        TOKIO_RUNTIME.spawn(async move {
+
+        let handle = TOKIO_RUNTIME.spawn(async move {
             let task_run = server.run();
             let task_node_status = get_node_status(client_clone.clone(), config_clone.get_node_status_interval());
             let task_broadcast_online = broadcast_online_users(
@@ -96,6 +98,7 @@ impl P2p {
             config: config.clone(),
             client: client.clone(),
             shared_data,
+            handle: Some(handle),
         };
 
         let claims = GlobalClaims::instance();
@@ -221,6 +224,14 @@ impl P2p {
     async fn broadcast(&self, topic: String, message: String) {
         let _ = self.client.broadcast(topic.clone(), message.as_bytes().to_vec()).await;
         tracing::debug!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
+    }
+
+    pub async fn stop(&self) {
+        let _ = self.client.stop().await;
+        if let Some(handle) = &self.handle {
+            handle.abort();
+            tracing::info!("[P2pNode] P2P service stopped");
+        }
     }
 
     async fn request(&self, target: String, message: String) -> String {
