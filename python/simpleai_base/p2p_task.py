@@ -19,10 +19,10 @@ def init_p2p_task(_worker, _model_management, _token):
     worker = _worker
     model_management = _model_management
     token = _token
-    callback_result = _worker.yield_result
-    callback_progress = _worker.progressbar
-    callback_save_and_log = _worker.p2p_save_and_log
-    callback_stop = _worker.stop_processing
+    callback_result = _worker.worker.yield_result
+    callback_progress = _worker.worker.progressbar
+    callback_save_and_log = _worker.worker.p2p_save_and_log
+    callback_stop = _worker.worker.stop_processing
 
 def gc_p2p_task():
     global pending_tasks, TASK_MAX_TIMEOUT
