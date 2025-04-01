@@ -12,16 +12,17 @@ token = None
 callback_result = None
 callback_progress = None
 callback_stop = None   
+callback_save_and_log = None
 
-
-def init_p2p_task(_worker, _model_management, _token, _callback_result, _callback_progress, _callback_stop):
-    global worker, model_management, token, callback_result, callback_progress, callback_stop
+def init_p2p_task(_worker, _model_management, _token):
+    global worker, model_management, token, callback_result, callback_progress, callback_save_and_log, callback_stop
     worker = _worker
     model_management = _model_management
     token = _token
-    callback_result = _callback_result
-    callback_progress = _callback_progress
-    callback_stop = _callback_stop
+    callback_result = _worker.yield_result
+    callback_progress = _worker.progressbar
+    callback_save_and_log = _worker.p2p_save_and_log
+    callback_stop = _worker.stop_processing
 
 def gc_p2p_task():
     global pending_tasks, TASK_MAX_TIMEOUT
@@ -112,13 +113,19 @@ def call_remote_result(task, imgs, progressbar_index, black_out_nsfw, censor=Tru
     task_method = 'remote_result'
     return token.response_remote_task(task_id, task_method, result_cbor2)
 
+def call_remote_save_and_log(task, img, log_item):
+    task_id = task.task_id
+    result = (img, log_item)
+    result_cbor2 = cbor2.dumps(result)
+    task_method = 'remote_save_and_log'
+    return token.response_remote_task(task_id, task_method, result_cbor2)
+
 def call_remote_stop(task, processing_start_time, status='Finished'):
     task_id = task.task_id
     result = (processing_start_time, status)
     result_cbor2 = cbor2.dumps(result)
     task_method = 'remote_stop'
     return token.response_remote_task(task_id, task_method, result_cbor2)
-
 
 def call_response_by_p2p_task(task_id, method, result_cbor2):
     global pending_tasks, callback_result, callback_progress, callback_stop
@@ -131,6 +138,9 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
         elif method =='remote_result':
             imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images = cbor2.loads(result_cbor2)
             callback_result(task, imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images)
+        elif method =='remote_save_and_log':
+            img, log_item = cbor2.loads(result_cbor2)
+            callback_save_and_log(task, img, log_item)
         elif method =='remote_stop':
             processing_start_time, status = cbor2.loads(result_cbor2)
             callback_stop(task, processing_start_time, status)
