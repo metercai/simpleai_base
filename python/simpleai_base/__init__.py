@@ -3,7 +3,7 @@ import importlib.util
 
 from simpleai_base import simpleai_base
 
-__all__ = ['models_info', 'comfyclient_pipeline', 'params_mapper', 'comfyd', 'systeminfo', 'utils']
+__all__ = ['models_info', 'comfyclient_pipeline', 'params_mapper', 'comfyd', 'systeminfo', 'utils', 'p2p_task']
 
 
 def get_torch_xformers_cuda_version():
