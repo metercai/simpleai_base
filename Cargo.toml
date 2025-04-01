@@ -59,3 +59,5 @@ unsigned-varint = { version = "0.7", features = [
     "futures",
     "asynchronous_codec",
 ] }
+bytes = "1.5"
+serde_cbor = "0.11"

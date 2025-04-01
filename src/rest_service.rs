@@ -2,8 +2,11 @@ use warp::{Filter, Rejection, Reply};
 use std::sync::{Arc, Mutex};
 use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::{debug, info, error};
+use bytes::Bytes;
+
 
 use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
 use crate::dids::claims::{IdClaim, GlobalClaims};
@@ -15,6 +18,12 @@ use crate::p2p;
 
 
 pub const API_HOST: &str = "http://127.0.0.1:4515/api";
+
+// 自定义错误类型，用于序列化/反序列化错误
+#[derive(Debug)]
+struct InvalidSerializationError;
+
+impl warp::reject::Reject for InvalidSerializationError {}
 
 // 统一响应格式
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,6 +110,16 @@ pub fn start_rest_server(address: String, port: u16) {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_put_global_message);
+        
+        let p2p_request = warp::path!("api" / "p2p_request")
+        .and(warp::post())
+        .and(warp::body::bytes())
+        .and_then(handle_p2p_request);
+
+        let p2p_response = warp::path!("api" / "p2p_response")
+        .and(warp::post())
+        .and(warp::body::bytes())
+        .and_then(handle_p2p_response);
 
 
         let routes = get_sys_did
@@ -117,12 +136,29 @@ pub fn start_rest_server(address: String, port: u16) {
             .or(decrypt_by_did)
             .or(get_path_in_user_dir)
             .or(put_global_message)
+            .or(p2p_request)
+            .or(p2p_response)
             ;
 
         warp::serve(routes).run((address, port)).await;
     });
     println!("{} [RestApi] REST server started at http://{}:{}", token_utils::now_string(), address, port);
 }
+
+
+// 创建一个自定义的CBOR请求体处理过滤器
+fn body<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T, ), Error = warp::Rejection> + Clone {
+    warp::body::bytes().and_then(|body: Bytes| async move {
+        match serde_cbor::from_slice(&body) {
+            Ok(resp) => Ok(resp),
+            Err(e) => {
+                error!("Failed to deserialize CBOR body: {}", e);
+                Err(warp::reject::custom(InvalidSerializationError))
+            }
+        }
+    })
+}
+
 
 
 // --- 具体路由处理函数 ---
@@ -412,28 +448,116 @@ async fn handle_put_global_message(
 }
     
 
+
+async fn handle_p2p_request(
+    body: Bytes,
+) -> Result<impl Reply, Rejection> {
+    let p2p = p2p::get_instance().await;
+    if let Some(p2p) = p2p {
+        let res = p2p.request_task(body).await;
+        Ok(warp::reply::json(&ApiResponse {
+            success:!res.is_empty(),
+            data: res,
+            error: None,
+        }))
+    } else {
+        Ok(warp::reply::json(&ApiResponse {
+            success: false,
+            data: "".to_string(),
+            error: Some("P2P not initialized".to_string()),
+        }))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct P2pResponse {
+    target_did: String,
+    task_id: String,
+    task_method: String,
+    task_result: Vec<u8>,
+}
+async fn handle_p2p_response(
+    body: Bytes,
+) -> Result<impl Reply, Rejection> {
+    let p2p = p2p::get_instance().await;
+    if let Some(p2p) = p2p {
+        let res = p2p.response_task(body).await;
+        Ok(warp::reply::json(&ApiResponse {
+            success:!res.is_empty(),
+            data: res,
+            error: None,
+        }))
+    } else {
+        Ok(warp::reply::json(&ApiResponse {
+            success: false,
+            data: "".to_string(),
+            error: Some("P2P not initialized".to_string()),
+        }))
+    }
+}
+
 pub async fn request_api<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, reqwest::Error> {
     let url = format!("{}/{}", API_HOST, endpoint);
 
-    let res = if let Some(json_params) = params {
-        REQWEST_CLIENT.post(&url).json(&json_params).send().await?
+    if let Some(json_params) = params {
+        let res = REQWEST_CLIENT.post(&url).json(&json_params).send().await?;
+        let data: ApiResponse<String> = res.json().await?;
+        Ok(data.data)
     } else {
-        REQWEST_CLIENT.get(&url).send().await?
-    };
+        Ok("Unknown".to_string())
+    }
 
-    let data: ApiResponse<String> = res.json().await?;
-    Ok(data.data)
 }
 
 pub fn request_api_sync<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
     let url = format!("{}/{}", API_HOST, endpoint);
 
-    let res = if let Some(json_params) = params {
-        REQWEST_CLIENT_SYNC.post(&url).json(&json_params).send()?
+    if let Some(json_params) = params {
+        let res = REQWEST_CLIENT_SYNC.post(&url).json(&json_params).send()?;
+        let data: ApiResponse<String> = res.json()?;
+        Ok(data.data)
     } else {
-        REQWEST_CLIENT_SYNC.get(&url).send()?
-    };
-
-    let data: ApiResponse<String> = res.json()?;
-    Ok(data.data)
+        Ok("Unknown".to_string())
+    }
 }
+
+pub async fn request_api_cbor<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
+    let url = format!("{}/{}", API_HOST, endpoint);
+    
+    if let Some(cbor_params) = params {
+        let cbor_data = serde_cbor::to_vec(&cbor_params)
+            .map_err(|e| {
+                error!("Failed to serialize CBOR params: {}", e);
+                e
+            })?;
+        let res = REQWEST_CLIENT
+            .post(&url)
+            .header("Content-Type", "application/cbor")
+            .body(cbor_data)
+            .send()
+            .await?;
+        let data: ApiResponse<String> = res.json().await?;
+        Ok(data.data)
+    } else {
+        Ok("Unknown".to_string())
+    }
+}
+
+
+pub fn request_api_cbor_sync<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
+    let url = format!("{}/{}", API_HOST, endpoint);
+
+    if let Some(cbor_params) = params {
+        let cbor_data = serde_cbor::to_vec(&cbor_params)?;
+        let res = REQWEST_CLIENT_SYNC
+            .post(&url)
+            .header("Content-Type", "application/cbor")
+            .body(cbor_data)
+            .send()?;
+        let data: ApiResponse<String> = res.json()?;
+        Ok(data.data)
+    } else {
+        Ok("Unknown".to_string())
+    }
+}
+

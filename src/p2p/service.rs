@@ -28,6 +28,7 @@ use futures::{executor::block_on};
 use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
 use rand::Rng;
+use bytes::Bytes;
 
 use crate::p2p::{http_service, utils};
 use crate::p2p::protocol::*;
@@ -46,7 +47,7 @@ const TOKEN_SERVER_PORT: u16 = 2316;
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
 pub(crate) trait EventHandler: Debug + Send + 'static {
     /// Handles an inbound request from a remote peer.
-    fn handle_inbound_request(&self, request: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
+    fn handle_inbound_request(&self, peer: PeerId, request: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
     /// Handles an broadcast message from a remote peer.
     fn handle_broadcast(&self, topic: &str, message: Vec<u8>, sender: PeerId);
 }
@@ -92,7 +93,7 @@ impl Client {
     }
 
     /// Send a blocking request to the `target` peer.
-    pub(crate) async fn request(&self, target: &str, request: Vec<u8>) -> Result<Vec<u8>, P2pError> {
+    pub(crate) async fn request(&self, target: &str, request: Bytes) -> Result<Vec<u8>, P2pError> {
         let target = target.parse().map_err(|_| P2pError::InvalidPeerId)?;
 
         let (responder, receiver) = oneshot::channel();
@@ -150,7 +151,7 @@ impl Client {
 pub(crate) enum Command {
     SendRequest {
         target: PeerId,
-        request: Vec<u8>,
+        request: Bytes,
         responder: oneshot::Sender<ResponseType>,
     },
     Broadcast {
@@ -611,10 +612,11 @@ impl<E: EventHandler> Server<E> {
             }
 
             BehaviourEvent::ReqResp(request_response::Event::Message {
+                peer,
                 message:
                 request_response::Message::Request { request, channel, .. },
                 ..
-            }) => self.handle_inbound_request(request, channel),
+            }) => self.handle_inbound_request(peer, request, channel),
 
             BehaviourEvent::ReqResp(request_response::Event::Message {
                 message:
@@ -814,9 +816,9 @@ impl<E: EventHandler> Server<E> {
     }
 
     // Inbound requests are handled by the `EventHandler` which is provided by the application layer.
-    fn handle_inbound_request(&mut self, request: Vec<u8>, ch: ResponseChannel<ResponseType>) {
+    fn handle_inbound_request(&mut self, peer: PeerId, request: Vec<u8>, ch: ResponseChannel<ResponseType>) {
         if let Some(handler) = self.event_handler.get() {
-            let response = handler.handle_inbound_request(request).map_err(|_| ());
+            let response = handler.handle_inbound_request(peer, request).map_err(|_| ());
             self.network_service.behaviour_mut().send_response(ch, response);
         }
     }
@@ -825,7 +827,7 @@ impl<E: EventHandler> Server<E> {
     fn handle_outbound_request(
         &mut self,
         target: PeerId,
-        request: Vec<u8>,
+        request: Bytes,
         responder: oneshot::Sender<ResponseType>,
     ) {
         let req_id = self

@@ -17,6 +17,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "psutil",
+    "cbor2",
 ]
 [tool.maturin]
 features = ["pyo3/extension-module"]

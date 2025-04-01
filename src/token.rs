@@ -29,10 +29,10 @@ use crate::dids::cert_center::GlobalCerts;
 use crate::dids::TOKEN_ENTRYPOINT_DID;
 use crate::user::user_mgr::{OnlineUsers, MessageQueue};
 use crate::user::{TokenUser, DidEntryPoint};
-use crate::p2p::{self, P2p, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
+use crate::p2p::{self, P2p, P2pRequest, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::{AdminDefault, GlobalLocalVars};
-
+use crate::rest_service;
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";
 
@@ -337,6 +337,54 @@ impl SimpleAI {
         return self.p2p_config.clone();
     }
 
+    pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>) -> String {
+        let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
+        if self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out" 
+            && IdClaim::validity(&p2p_out_did_list) {
+ 
+            let request = P2pRequest {
+                target_did: p2p_out_did_list.to_string(),
+                method: "generate_image".to_string(),
+                task_id: task_id.to_string(),
+                task_method: task_method.to_string(),
+                task_args: args,
+            };
+
+            let result = rest_service::request_api_cbor_sync("p2p_request", Some(request))
+                .unwrap_or_else(|e| {
+                    error!("request_remote_task({}) error: {}", p2p_out_did_list, e);
+                    "".to_string()
+                });
+            result
+        } else {
+            "".to_string()
+        }
+    }
+
+    pub fn response_remote_task(&mut self, task_id: &str, task_method: &str, result: Vec<u8>) -> String {
+        let p2p_in_did_list = self.get_local_admin_vars("p2p_in_did_list");
+        if self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" 
+            && IdClaim::validity(&p2p_in_did_list) {
+            
+            let response = P2pRequest {
+                target_did: p2p_in_did_list.to_string(),
+                method: "async_response".to_string(),
+                task_id: task_id.to_string(),
+                task_method: task_method.to_string(),
+                task_args: result,
+            };
+            
+            let result = rest_service::request_api_cbor_sync("p2p_response", Some(response))
+                .unwrap_or_else(|e| {
+                    error!("request_remote_task({}) error: {}", p2p_in_did_list, e);
+                    "".to_string()
+                });
+            result
+        } else {
+            "".to_string()
+        }
+    }
+    
     pub fn get_global_status(&self, sid: &str, last_timestamp: u64) -> (usize, usize, usize) {
         let last_time = self.last_timestamp.read().unwrap();
         let user_list = self.online_users.get_full_list();

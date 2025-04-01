@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use libp2p::{autonat, dcutr, mdns, upnp};
 use libp2p::identify;
 use libp2p::kad::{self, QueryId};
@@ -194,8 +195,8 @@ impl Behaviour {
         req_resp::BehaviourBuilder::default().build()
     }
 
-    pub fn send_request(&mut self, target: &PeerId, request: Vec<u8>) -> OutboundRequestId {
-        self.req_resp.send_request(target, request)
+    pub fn send_request(&mut self, target: &PeerId, request: Bytes) -> OutboundRequestId {
+        self.req_resp.send_request(target, request.to_vec())
     }
 
     pub fn send_response(&mut self, ch: ResponseChannel<req_resp::ResponseType>, response: req_resp::ResponseType) {

@@ -6,6 +6,7 @@ setup(
     packages=['simpleai_base'],
     install_requires=[
         'maturin @ git+https://github.com/PyO3/maturin.git@v0.14.0',
+        'cbor2',
     ],
     include_package_data=True,
     description='A Python package with Rust code',

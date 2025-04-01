@@ -198,6 +198,9 @@ impl AdminDefault {
         data.insert("wavespeed_strength".to_string(), "0.12".to_string());
         data.insert("topbar_button_quantity".to_string(), "10".to_string());
         data.insert("p2p_active_checkbox".to_string(), "False".to_string());
+        data.insert("p2p_remote_process".to_string(), "Disable".to_string());
+        data.insert("p2p_in_did_list".to_string(), "".to_string());
+        data.insert("p2p_out_did_list".to_string(), "".to_string());
         Self {
             data,
         }

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use serde::{Serialize, Deserialize};
@@ -23,7 +23,6 @@ pub struct Task {
 #[derive(Debug)]
 pub struct SharedData {
     sys_did: Mutex<String>,
-    tasks: Mutex<VecDeque<Task>>,
     pub user_list: Mutex<String>,
     did_node_map: RwLock<HashMap<String, String>>,
     node_did_map: RwLock<HashMap<String, String>>,
@@ -32,13 +31,15 @@ pub struct SharedData {
     pub online_nodes: OnlineUsers,
     pub claims: Arc<Mutex<GlobalClaims>>, 
     pub certificates: Arc<Mutex<GlobalCerts>>,
+    pub p2p_in_did_list: Arc<Mutex<HashSet<String>>>,
+    pub p2p_out_did_list: Arc<Mutex<HashSet<String>>>,
+    
 }
 
 impl SharedData {
     pub fn new() -> Self {
         Self {
             sys_did: Mutex::new(String::new()),
-            tasks: Mutex::new(VecDeque::new()),
             user_list: Mutex::new(String::new()),
             did_node_map: RwLock::new(HashMap::new()),
             node_did_map: RwLock::new(HashMap::new()),
@@ -47,6 +48,8 @@ impl SharedData {
             online_nodes: OnlineUsers::new(600, 5),
             claims: GlobalClaims::instance(), 
             certificates: GlobalCerts::instance(),
+            p2p_in_did_list: Arc::new(Mutex::new(HashSet::new())),
+            p2p_out_did_list: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -72,14 +75,6 @@ impl SharedData {
             debug!("update online user list: {}", user_list);
         }
         
-        // 获取任务队列中时间戳大于 last_timestamp 的任务
-        let tasks = {
-            let tasks_read = self.tasks.lock().unwrap();
-            tasks_read.iter()
-                .filter(|task| task.timestamp > last_timestamp)
-                .cloned()
-                .collect::<Vec<_>>()
-        };
         let sys_did = self.sys_did.lock().unwrap().clone();
         let messages_len = self.get_message_queue().get_msg_number_from(did, last_timestamp);
         let msg_sys_len = self.get_message_queue().get_msg_number_from(&sys_did, last_timestamp);
@@ -116,6 +111,40 @@ impl SharedData {
                 });
     }
 
+    pub fn is_p2p_in_dids(&self, did: &str) -> bool {
+        let guard = self.p2p_in_did_list.lock().unwrap();
+        guard.contains(did)
+    }
+
+    pub fn is_p2p_out_dids(&self, did: &str) -> bool {
+        let guard = self.p2p_out_did_list.lock().unwrap();
+        guard.contains(did)
+    }
+
+    pub fn set_p2p_in_dids(&self, did_list: &str) {
+        if !did_list.is_empty() {
+            let mut guard = self.p2p_in_did_list.lock().unwrap();
+            guard.clear();
+            did_list
+                   .split('|') // 按 '|' 分隔字符串
+                   .map(|id| id.trim()) // 去除空白字符
+                   .for_each(|id| {
+                        guard.insert(id.to_string());
+                    });
+        }
+    }
+    pub fn set_p2p_out_dids(&self, did_list: &str) {
+        if!did_list.is_empty() {
+            let mut guard = self.p2p_out_did_list.lock().unwrap();
+            guard.clear();
+            did_list
+                    .split('|') // 按 '|' 分隔字符串
+                    .map(|id| id.trim()) // 去除空白字符
+                    .for_each(|id| {
+                        guard.insert(id.to_string());
+                    }); 
+        }
+    }
 
 }
 
