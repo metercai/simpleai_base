@@ -64,6 +64,7 @@ macro_rules! issue_key {
 #[derive(Clone, Debug)]
 pub struct DidToken {
     pub did: String,
+    pub node: String,
     pub device: String,
     pub admin: String,
     pub guest: String,
@@ -154,6 +155,7 @@ impl DidToken {
         
         Self {
             did: local_did,
+            node: "".to_string(),
             device: device_did,
             guest: guest_did,
             node_mode: "online".to_string(),
@@ -170,6 +172,14 @@ impl DidToken {
     pub fn get_sys_did(&self) -> String {
         self.did.clone()
     }
+
+    pub fn get_node_id(&self) -> String {
+        self.node.clone()
+    }
+    pub fn set_node_id(&mut self, node_id: &str) {
+        self.node = node_id.to_string();
+    }
+    
     pub fn get_device_did(&self) -> String {
         self.device.clone()
     }
@@ -287,19 +297,27 @@ impl DidToken {
     }
 
     pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
-        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
-        let for_did_public = self.get_claim(for_did).get_crypt_key();
-        let shared_key = token_utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
-        let ctext = token_utils::encrypt(text, &shared_key, period);
+        let ctext = self.encrypt_bytes_for_did(text, for_did, period);
         URL_SAFE_NO_PAD.encode(ctext)
     }
 
     pub fn decrypt_by_did(&mut self, ctext: &str, by_did: &str, period:u64) -> String {
+        let text = self.decrypt_bytes_by_did(&URL_SAFE_NO_PAD.decode(ctext).unwrap(), by_did, period);
+        String::from_utf8_lossy(text.as_slice()).to_string()
+    }
+
+    pub fn encrypt_bytes_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> Vec<u8> {
+        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
+        let for_did_public = self.get_claim(for_did).get_crypt_key();
+        let shared_key = token_utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
+        token_utils::encrypt(text, &shared_key, period)
+    }
+
+    pub fn decrypt_bytes_by_did(&mut self, ctext: &[u8], by_did: &str, period:u64) -> Vec<u8> {
         let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let by_did_public = self.get_claim(by_did).get_crypt_key();
         let shared_key = token_utils::get_diffie_hellman_key(by_did_public, self_crypt_secret);
-        let text = token_utils::decrypt(URL_SAFE_NO_PAD.decode(ctext).unwrap().as_slice(), &shared_key, period);
-        String::from_utf8_lossy(text.as_slice()).to_string()
+        token_utils::decrypt(ctext, &shared_key, period)
     }
 
     pub(crate) fn add_crypt_secret_for_user(&mut self, user_claim: &IdClaim, phrase: &str) -> String{

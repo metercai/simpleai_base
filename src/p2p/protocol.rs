@@ -236,7 +236,7 @@ impl Behaviour {
         peers
     }
 
-    pub(crate) fn broadcast(&mut self, topic: String, message: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    pub(crate) fn broadcast(&mut self, topic: String, message: Bytes) -> Result<(), Box<dyn Error>> {
         let topic = gossipsub::IdentTopic::new(topic);
         self.pubsub.publish(topic.clone(), message)?;
         tracing::debug!("☕ =====>>>  Broadcast message to topic {}", topic);

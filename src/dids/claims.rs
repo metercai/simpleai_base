@@ -245,6 +245,7 @@ impl LocalClaims {
                 None,
                 Some(disk_uuid.clone()),
                 &device_phrase,
+                None,
             );
             device_did = device_claim.gen_did();
             claims.insert(device_did.clone(), device_claim.clone());
@@ -262,6 +263,7 @@ impl LocalClaims {
                 None,
                 Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
                 &sys_phrase,
+                None,
             );
             sys_did = local_claim.gen_did();
             claims.insert(sys_did.clone(), local_claim.clone());
@@ -279,6 +281,7 @@ impl LocalClaims {
                 None,
                 Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
                 &guest_phrase,
+                None,
             );
             guest = guest_claim.gen_did();
             claims.insert(guest.clone(), guest_claim.clone());
@@ -394,6 +397,7 @@ impl LocalClaims {
         telephone: Option<String>,
         id_card: Option<String>,
         phrase: &str,
+        timestamp: Option<u64>,
     ) -> IdClaim {
         debug!(
             "generate_did_claim: id_type={}, nickname={}",
@@ -418,6 +422,7 @@ impl LocalClaims {
             id_card_hash,
             face_image_hash,
             file_hash_hash,
+            timestamp,
         );
         debug!("generate_did_claim result: {}", claim.to_json_string());
         claim
@@ -488,8 +493,8 @@ pub struct IdClaim {
     pub id_type: String,
     pub nickname: String,
     pub verify_key: String,      // 验签公钥
-    pub cert_verify_key: String, // 证书公钥
-    pub crypt_key: String,       // 交换公钥
+    pub cert_verify_key: String, // 证书公钥, 需要根据代理的did做扩展，通过DHT获取授予不同代理处的验证公钥
+    pub crypt_key: String,       // 交换公钥，需要根据代理的did做扩展，通过DHT获取授予不同代理处的验证公钥
     pub fingerprint: String,
     pub timestamp: u64,
     pub signature: String,
@@ -510,6 +515,7 @@ impl IdClaim {
         id_card_hash: [u8; 32],
         face_image_hash: [u8; 32],
         file_hash_hash: [u8; 32],
+        timestamp: Option<u64>,
     ) -> Self {
         let nickname = token_utils::truncate_nickname(nickname);
         let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
@@ -547,10 +553,16 @@ impl IdClaim {
             URL_SAFE_NO_PAD.encode(token_utils::get_cert_verify_key(&cert_secret));
         let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
         let claim_time = match id_type {
-            "User" => SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                .as_secs(),
+            "User" => {
+                if let Some(ts) = timestamp {
+                    ts
+                } else {
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                        .as_secs()
+                }
+            }
             "Device" => sysinfo.os_time,
             "System" => sysinfo.root_time,
             _ => 0,
@@ -597,7 +609,7 @@ impl IdClaim {
                         eprintln!("Failed to verify signature");
                         IdClaim::default()
                     }
-                },
+                }
                 Err(e) => {
                     eprintln!("Failed to parse JSON: {}", e);
                     IdClaim::default()
@@ -610,18 +622,6 @@ impl IdClaim {
         }
     }
 
-    pub(crate) fn update_timestamp(&mut self, timestamp: u64, phrase: &str) -> Self {
-        self.timestamp = timestamp;
-        let text_sig = self.get_format_text();
-        let symbol_hash = self.get_symbol_hash();
-        self.signature = URL_SAFE_NO_PAD.encode(token_utils::get_signature(
-            &text_sig,
-            "User",
-            &symbol_hash,
-            phrase,
-        ));
-        self.clone()
-    }
 
     fn get_format_text(&self) -> String {
         format!(

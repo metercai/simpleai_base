@@ -15,7 +15,7 @@ use tracing::{error, warn, info, debug, trace};
 use tracing_subscriber::EnvFilter;
 use qrcode::{QrCode, Version, EcLevel};
 use qrcode::render::svg;
-
+use bytes::Bytes;
 
 use pyo3::prelude::*;
 
@@ -29,7 +29,7 @@ use crate::dids::cert_center::GlobalCerts;
 use crate::dids::TOKEN_ENTRYPOINT_DID;
 use crate::user::user_mgr::{OnlineUsers, MessageQueue};
 use crate::user::{TokenUser, DidEntryPoint};
-use crate::p2p::{self, P2p, P2pRequest, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
+use crate::p2p::{self, P2p, P2pRequest, DidMessage, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::{AdminDefault, GlobalLocalVars};
 use crate::rest_service;
@@ -44,9 +44,13 @@ static SYNC_TASK_HANDLE: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new
 pub struct SimpleAI {
     pub sys_name: String,
     pub sys_did: String,
+    pub node_id: String,
     pub device_did: String,
     pub guest_did: String,
 
+    sys_phrase: String,
+    device_phrase: String,
+    guest_phrase: String,
     didtoken: Arc<Mutex<DidToken>>,
     tokenuser: Arc<Mutex<TokenUser>>,
     ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
@@ -101,8 +105,12 @@ impl SimpleAI {
         Self {
             sys_name,
             sys_did,
+            node_id: "".to_string(),
             device_did,
             guest_did,
+            sys_phrase,
+            device_phrase,
+            guest_phrase,
             didtoken,
             tokenuser,
             ready_users,
@@ -118,7 +126,13 @@ impl SimpleAI {
 
     pub fn get_sys_name(&self) -> String { self.sys_name.clone() }
     pub fn get_sys_did(&self) -> String { self.sys_did.clone() }
-
+    pub fn get_node_id(&self) -> String {
+        self.node_id.clone()
+    }
+    pub fn set_node_id(&mut self, node_id: &str) {
+        self.node_id = node_id.to_string();
+        self.didtoken.lock().unwrap().set_node_id(node_id);
+    }
     pub fn get_device_did(&self) -> String {
         self.device_did.clone()
     }
@@ -260,9 +274,23 @@ impl SimpleAI {
             let didtoken = self.didtoken.lock().unwrap();
             (didtoken.get_claim(&self.get_sys_did()), didtoken.get_sysinfo())
         };
+        let sys_did = self.get_sys_did();
+        let node_id = self.get_node_id();
+        let sys_phrase = self.sys_phrase.clone();
         let handle = dids::TOKIO_RUNTIME.spawn(async move {
             match P2p::start(p2p_config, &local_claim, &sysinfo).await {
                 Ok(p2p) => {
+                    let mut message = DidMessage::new(sys_did.clone(), "login".to_string(), 
+                        format!("{}:{}", node_id, sys_did.clone()));
+                    message.signature(&sys_phrase);
+                    match serde_cbor::to_vec(&message) {
+                        Ok(msg_bytes) => p2p.broadcast_user_msg(Bytes::from(msg_bytes)).await,
+                        Err(e) => {
+                            print!("Failed to serialize message in start: {:?}", e);
+                            "Failed to serialize message".to_string()
+                        }
+                    };
+                    
                     let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                     *p2p_instance_guard = Some(p2p);
                 },
@@ -274,6 +302,14 @@ impl SimpleAI {
         let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         *p2p_handle = Some(handle);
 
+        let result = rest_service::request_api_sync("p2p_status", None as Option<serde_json::Value>)
+                .unwrap_or_else(|e| {
+                    error!("p2p_status error: {}", e);
+                    "".to_string()
+                });
+        if !result.is_empty() {
+            self.set_node_id(&result);
+        } 
         "P2P 服务启动成功".to_string()
     }
     
@@ -341,7 +377,6 @@ impl SimpleAI {
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
         if self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out" 
             && IdClaim::validity(&p2p_out_did_list) {
- 
             let request = P2pRequest {
                 target_did: p2p_out_did_list.to_string(),
                 method: "generate_image".to_string(),
@@ -411,10 +446,12 @@ impl SimpleAI {
         self.shared_data.online_all.log_register(did.to_string());
     }
 
-    pub fn log_access(&self, sid: &str) {
+    pub fn log_access(&self, sid: &str) -> (usize, usize, usize, usize) {
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.online_users.log_access(did.to_string());
         self.shared_data.online_all.log_access(did.to_string());
+        let (domain_online_nodes, domain_online_users) = self.online_users.get_nodes_users();
+        (self.online_users.get_number(), domain_online_nodes, domain_online_users, self.shared_data.get_message_queue().get_msg_number(&self.get_sys_did()))
     }
 
     pub fn get_global_msg_number(&self) -> usize {
@@ -1403,6 +1440,10 @@ impl SimpleAI {
 
     pub fn import_user(&mut self, symbol_hash_base64: &str, encrypted_identity: &str, phrase: &str) -> String {
         self.tokenuser.lock().unwrap().import_user(symbol_hash_base64, encrypted_identity, phrase)
+    }
+
+    pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
+        self.didtoken.lock().unwrap().encrypt_for_did(text, for_did, period)
     }
 
     pub fn decrypt_by_did(&mut self, ctext: &str, by_did: &str, period:u64) -> String {

@@ -1088,8 +1088,7 @@ pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec
             let id_card_base64 = URL_SAFE_NO_PAD.encode(calc_sha256(format!("{}:id_card:{}", nickname, "-").as_bytes()));
             let symbol_hash = calc_sha256(format!("{}|{}|{}", nickname, telephone_base64, id_card_base64).as_bytes());
             save_key_to_pem(&symbol_hash, &user_key, &phrase);
-            let mut user_claim = LocalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase);
-            user_claim.update_timestamp(timestamp, phrase);
+            let mut user_claim = LocalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase, Some(timestamp));
             user_claim
         } else {
             println!("{} [UserBase] import_identity: Invalid identity secret", now_string());

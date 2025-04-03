@@ -2,6 +2,7 @@ use base58::ToBase58;
 use bytes::Bytes;
 use chrono::{format, DateTime, Local};
 use libp2p::PeerId;
+use openssl::sign;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
@@ -11,6 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 
 mod config;
 mod error;
@@ -25,9 +28,8 @@ use once_cell::sync::OnceCell;
 
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::claims::{GlobalClaims, IdClaim};
-use crate::dids::token_utils;
-use crate::dids::TOKIO_RUNTIME;
-use crate::p2p::service::{Client, EventHandler, Server};
+use crate::dids::{DidToken, token_utils, TOKIO_RUNTIME};
+use crate::p2p::service::{Client, EventHandler, NodeStatus};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 use crate::utils::systeminfo::SystemInfo;
@@ -42,7 +44,7 @@ pub(crate) static P2P_INSTANCE: Lazy<TokioMutex<Option<Arc<P2p>>>> =
 //address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
 pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
 address.upstream_nodes = ['/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
-pubsub_topics = ['system']
+pubsub_topics = ['system','user']
 metrics_path = '/metrics' 
 discovery_interval = 60
 node_status_interval = 60
@@ -266,7 +268,7 @@ impl P2p {
         );
     }
 
-    async fn get_node_status(&self) {
+    pub async fn get_node_status(&self) -> NodeStatus {
         let node_status = self.client.get_node_status().await;
         let short_id = self.client.get_short_id();
         println!(
@@ -274,14 +276,7 @@ impl P2p {
             token_utils::now_string(),
             node_status.short_format()
         );
-    }
-
-    async fn broadcast(&self, topic: String, message: String) {
-        let _ = self
-            .client
-            .broadcast(topic.clone(), message.as_bytes().to_vec())
-            .await;
-        tracing::debug!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
+        node_status
     }
 
     pub async fn stop(&self) {
@@ -368,6 +363,19 @@ impl P2p {
             }
         };
         String::from_utf8_lossy(&response).to_string()
+    }
+
+    pub async fn broadcast_user_msg(&self, message: Bytes) -> String {
+        self.broadcast("user".to_string(), message);
+        "ok".to_string()
+    }
+
+    async fn broadcast(&self, topic: String, message: Bytes) {
+        let _ = self
+            .client
+            .broadcast(topic.clone(), message)
+            .await;
+        tracing::debug!("📣 >>>> Outbound broadcast: {:?}", topic);
     }
 }
 
@@ -505,13 +513,10 @@ impl EventHandler for Handler {
     }
 
     fn handle_broadcast(&self, topic: &str, message: Vec<u8>, sender: PeerId) {
-        let message_str = String::from_utf8_lossy(&message).to_string();
-
-        tracing::debug!("📣 <<<< Inbound BROADCAST: {:?} {:?}", topic, message_str);
-
         // 处理不同类型的广播消息
         match topic {
             "online" => {
+                let message_str = String::from_utf8_lossy(&message).to_string();
                 if !message_str.is_empty() {
                     let parts: Vec<&str> = message_str.splitn(3, ':').collect();
                     if parts.len() != 3 {
@@ -553,7 +558,42 @@ impl EventHandler for Handler {
                         .insert_did_node_batch(&user_list, &sender_id);
                 }
             }
+            "user" => {
+                match serde_cbor::from_slice::<DidMessage>(message.as_slice()) {
+                    Ok(msg) => {
+                        if msg.verify() {
+                            tracing::debug!("📣 <<<< Inbound BROADCAST: {:?} {:?}", topic, msg);
+                            match msg.msg_type.as_str() {
+                                "login" => {
+                                    let mut parts = msg.body.splitn(2, ':');
+                                    let node_id = parts.next().unwrap_or("").trim().to_string();
+                                    let node_did = parts.next().unwrap_or("").trim().to_string();
+                                    
+                                    if !node_id.is_empty() 
+                                        && !node_did.is_empty() 
+                                        && IdClaim::validity(&node_did) 
+                                        && PeerId::from_bytes(node_id.as_bytes()).is_ok() {
+                                        
+                                        self.shared_data.insert_node_did(&node_id, &node_did);
+                                        self.shared_data.insert_did_node(&msg.user_did, &node_id);
+                                        tracing::debug!("成功映射节点ID({})和DID({})", node_id, node_did);
+                                    } else {
+                                        tracing::warn!("无效的登录消息格式或ID/DID: node_id={}, node_did={}", node_id, node_did);
+                                    }
+                                }
+                                _ => {
+                                    // 处理其他类型的用户消息
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("CBOR反序列化DidMessage失败: {:?}", e);
+                    }
+                }
+            }
             "system" => {
+                let message_str = String::from_utf8_lossy(&message).to_string();
                 // 收到系统消息，更新本地消息队列
                 if !message_str.is_empty() {
                     let count = self
@@ -596,7 +636,7 @@ async fn broadcast(client: Client, interval: u64) {
         let now_time = Local::now();
         let message = format!("From {} at {}!", short_id, now_time);
         tracing::debug!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
-        let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
+        let _ = client.broadcast(topic, Bytes::from(message.as_bytes().to_vec())).await;
     }
 }
 
@@ -662,7 +702,7 @@ async fn broadcast_online_users(client: Client, interval: u64) {
                 users_list
             );
             let message = format!("{}:{}:{}", client.get_sys_did(), unix_timestamp, users_list);
-            let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
+            let _ = client.broadcast(topic, Bytes::from(message.as_bytes().to_vec())).await;
         } else {
             tracing::info!("no users on node ...");
         }
@@ -681,4 +721,42 @@ pub struct P2pRequest {
     pub task_id: String,
     pub task_method: String,
     pub task_args: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct P2pMessage {
+    pub node_did: String,
+    pub msg_type: String,
+    pub body: Vec<u8>,
+    pub sig: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DidMessage {
+    pub user_did: String,
+    pub msg_type: String,
+    pub body: String,
+    pub sig: Vec<u8>,
+}
+impl DidMessage {
+    pub fn new(user_did: String, msg_type: String, body: String) -> Self {
+        Self {
+            user_did,
+            msg_type,
+            body,
+            sig: Vec::new(),
+        }
+    }
+    pub fn signature(&mut self, phrase: &str) {
+        let text = format!("{}|{}|{}", self.user_did, self.msg_type, self.body);
+        let didtoken = DidToken::instance();
+        self.sig = didtoken.lock().unwrap().sign_by_did(&text, &self.user_did, phrase);
+    }
+    pub fn verify(&self) -> bool {
+        let text = format!("{}|{}|{}", self.user_did, self.msg_type, self.body);
+        let signature = URL_SAFE_NO_PAD.encode(self.sig.clone());
+        let didtoken = DidToken::instance();
+        let verify = didtoken.lock().unwrap().verify_by_did(&text, &self.user_did, &signature);
+        verify
+    }
 }

@@ -29,6 +29,7 @@ use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
 use rand::Rng;
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 
 use crate::p2p::{http_service, utils};
 use crate::p2p::protocol::*;
@@ -108,7 +109,7 @@ impl Client {
     }
 
     /// Publish a message to the given topic.
-    pub(crate) async fn broadcast(&self, topic: String, message: Vec<u8>) {
+    pub(crate) async fn broadcast(&self, topic: String, message: Bytes) {
         let _ = self.cmd_sender.send(Command::Broadcast {
             topic: topic.into(),
             message: message,
@@ -156,7 +157,7 @@ pub(crate) enum Command {
     },
     Broadcast {
         topic: String,
-        message: Vec<u8>,
+        message: Bytes,
     },
     GetStatus(oneshot::Sender<NodeStatus>),
     GetKeyValue(String, oneshot::Sender<Vec<u8>>),
@@ -878,7 +879,7 @@ impl<E: EventHandler> Server<E> {
     }
 
     // Broadcast a message to all peers subscribed to the given topic.
-    fn handle_outbound_broadcast(&mut self, topic: String, message: Vec<u8>) {
+    fn handle_outbound_broadcast(&mut self, topic: String, message: Bytes) {
         let _ = self
             .network_service
             .behaviour_mut()

@@ -17,6 +17,8 @@ use crate::dids::token_utils;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::issue_key;
 use crate::exchange_key;
+use crate::rest_service;
+use crate::p2p::DidMessage;
 
 pub(crate) mod user_mgr;
 pub(crate) mod shared;
@@ -83,6 +85,9 @@ impl TokenUser {
     pub fn get_sys_did(&self) -> String {
         self.sys_did.clone()
     }
+    pub fn get_node_id(&self) -> String {
+        self.didtoken.lock().unwrap().get_node_id()
+    }
     pub fn get_device_did(&self) -> String {
         self.device_did.clone()
     }
@@ -101,7 +106,7 @@ impl TokenUser {
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(user_telephone.clone()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
-        let user_claim = LocalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase);
+        let user_claim = LocalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase, None);
         let user_did = self.didtoken.lock().unwrap().add_crypt_secret_for_user(&user_claim, &phrase);
         let identity = self.export_user(&nickname, &user_telephone, &phrase);
         let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
@@ -213,6 +218,16 @@ impl TokenUser {
         let mut context = token_utils::get_or_create_user_context_token(
             did, &self.get_sys_did(), &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
         let _ = context.signature(phrase);
+
+        let mut msg = DidMessage::new(did.to_string(), "login".to_string(), 
+        format!("{}:{}", self.get_node_id(), self.get_sys_did()));
+        msg.signature(phrase);
+        let result = rest_service::request_api_cbor_sync("p2p_put_msg", Some(msg))
+            .unwrap_or_else(|e| {
+                error!("p2p_put_msg: login({}) error: {}", did, e);
+                "".to_string()
+            });
+
         if token_utils::update_user_token_to_file(&context, "add") == "Ok"  {
             let admin_did = self.didtoken.lock().unwrap().get_admin_did();
             if admin_did.is_empty() && did != self.get_guest_did() {
@@ -316,5 +331,4 @@ impl DidEntryPoint {
         self.entry_point.get(did).cloned().unwrap_or_else(|| TOKEN_ENTRYPOINT_URL.to_string())
     }
 }
-
 

@@ -107,6 +107,10 @@ fn check_entry_point(entry_point: String) -> bool {
     token_utils::check_entry_point_of_service(&entry_point)
 }
 
+#[pyfunction]
+fn validity_did(did: String) -> bool {
+    IdClaim::validity(&did)
+}
 
 #[pymodule]
 fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -115,6 +119,7 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_entry_point_id, m)?)?;
     m.add_function(wrap_pyfunction!(gen_ua_session, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
+    m.add_function(wrap_pyfunction!(validity_did, m)?)?;
     m.add_function(wrap_pyfunction!(export_identity_qrcode_svg, m)?)?;
     m.add_function(wrap_pyfunction!(import_identity_qrcode, m)?)?;
     m.add_class::<SimpleAI>()?;

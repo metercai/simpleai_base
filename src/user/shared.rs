@@ -101,6 +101,11 @@ impl SharedData {
         write_guard.insert(did.to_string(), peer_id.to_string());
     }
 
+    pub fn insert_did_node(&self, did: &str, peer_id: &str) {
+        let mut write_guard = self.did_node_map.write().unwrap();
+        write_guard.insert(did.to_string(), peer_id.to_string());
+    }
+
     pub fn insert_did_node_batch(&self, user_list: &str, peer_id: &str) {
         let mut write_guard = self.did_node_map.write().unwrap();
         user_list

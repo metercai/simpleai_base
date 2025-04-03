@@ -121,6 +121,15 @@ pub fn start_rest_server(address: String, port: u16) {
         .and(warp::body::bytes())
         .and_then(handle_p2p_response);
 
+        let p2p_put_msg = warp::path!("api" / "p2p_put_msg")
+        .and(warp::post())
+        .and(warp::body::bytes())
+        .and_then(handle_p2p_put_msg);
+
+        let p2p_status = warp::path!("api" / "p2p_status")
+        .and(warp::get())
+        .and_then(handle_p2p_status);
+
 
         let routes = get_sys_did
             .or(get_device_did)
@@ -138,6 +147,8 @@ pub fn start_rest_server(address: String, port: u16) {
             .or(put_global_message)
             .or(p2p_request)
             .or(p2p_response)
+            .or(p2p_put_msg)
+            .or(p2p_status)
             ;
 
         warp::serve(routes).run((address, port)).await;
@@ -446,8 +457,6 @@ async fn handle_put_global_message(
         error: None,
     }))
 }
-    
-
 
 async fn handle_p2p_request(
     body: Bytes,
@@ -469,13 +478,7 @@ async fn handle_p2p_request(
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct P2pResponse {
-    target_did: String,
-    task_id: String,
-    task_method: String,
-    task_result: Vec<u8>,
-}
+
 async fn handle_p2p_response(
     body: Bytes,
 ) -> Result<impl Reply, Rejection> {
@@ -496,6 +499,44 @@ async fn handle_p2p_response(
     }
 }
 
+async fn handle_p2p_put_msg(
+    message: Bytes,
+) -> Result<impl Reply, Rejection> {
+    let p2p = p2p::get_instance().await;
+    if let Some(p2p) = p2p {
+        let res = p2p.broadcast_user_msg(message).await;
+        Ok(warp::reply::json(&ApiResponse {
+            success:!res.is_empty(),
+            data: res,
+            error: None,
+        }))
+    } else {
+        Ok(warp::reply::json(&ApiResponse {
+            success: false,
+            data: "".to_string(),
+            error: Some("P2P not initialized".to_string()),
+        }))
+    }
+}
+
+async fn handle_p2p_status() -> Result<impl Reply, Rejection> {
+    let p2p = p2p::get_instance().await;
+    if let Some(p2p) = p2p {
+        let res = p2p.get_node_status().await;
+        Ok(warp::reply::json(&ApiResponse {
+            success:!res.local_peer_id.is_empty(),
+            data: res.local_peer_id,
+            error: None,
+        }))
+    } else {
+        Ok(warp::reply::json(&ApiResponse {
+            success: false,
+            data: "".to_string(),
+            error: Some("P2P not initialized".to_string()),
+        }))
+    }
+}
+
 pub async fn request_api<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, reqwest::Error> {
     let url = format!("{}/{}", API_HOST, endpoint);
 
@@ -504,7 +545,9 @@ pub async fn request_api<T: Serialize>(endpoint: &str, params: Option<T>) -> Res
         let data: ApiResponse<String> = res.json().await?;
         Ok(data.data)
     } else {
-        Ok("Unknown".to_string())
+        let res = REQWEST_CLIENT.get(&url).send().await?;
+        let data: ApiResponse<String> = res.json().await?;
+        Ok(data.data)
     }
 
 }
@@ -517,9 +560,12 @@ pub fn request_api_sync<T: Serialize>(endpoint: &str, params: Option<T>) -> Resu
         let data: ApiResponse<String> = res.json()?;
         Ok(data.data)
     } else {
-        Ok("Unknown".to_string())
+        let res = REQWEST_CLIENT_SYNC.get(&url).send()?;
+        let data: ApiResponse<String> = res.json()?;
+        Ok(data.data)
     }
 }
+
 
 pub async fn request_api_cbor<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
     let url = format!("{}/{}", API_HOST, endpoint);
@@ -539,7 +585,9 @@ pub async fn request_api_cbor<T: Serialize>(endpoint: &str, params: Option<T>) -
         let data: ApiResponse<String> = res.json().await?;
         Ok(data.data)
     } else {
-        Ok("Unknown".to_string())
+        let res = REQWEST_CLIENT.get(&url).send().await?;
+        let data: ApiResponse<String> = res.json().await?;
+        Ok(data.data)
     }
 }
 
@@ -557,7 +605,9 @@ pub fn request_api_cbor_sync<T: Serialize>(endpoint: &str, params: Option<T>) ->
         let data: ApiResponse<String> = res.json()?;
         Ok(data.data)
     } else {
-        Ok("Unknown".to_string())
+        let res = REQWEST_CLIENT_SYNC.get(&url).send()?;
+        let data: ApiResponse<String> = res.json()?;
+        Ok(data.data)
     }
 }
 

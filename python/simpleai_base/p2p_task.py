@@ -67,7 +67,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
         current_time = time.time()
         if (current_time - MAX_WAIT_TIME*loop_num - last_update_time) < MAX_WAIT_TIME:
             qsize = worker.get_task_size()
-            call_remote_progress(1, f'生图任务排队中({qsize})，请等待...')
+            call_remote_progress(1, f'远程生图任务排队中({qsize})，请等待...')
             if worker.get_processing_id() == task.task_id:
                 ready_flag = True
                 break
