@@ -6,6 +6,7 @@ use openssl::sign;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
+use sha2::digest::generic_array::sequence::Shorten;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -515,49 +516,6 @@ impl EventHandler for Handler {
     fn handle_broadcast(&self, topic: &str, message: Vec<u8>, sender: PeerId) {
         // 处理不同类型的广播消息
         match topic {
-            "online" => {
-                let message_str = String::from_utf8_lossy(&message).to_string();
-                if !message_str.is_empty() {
-                    let parts: Vec<&str> = message_str.splitn(3, ':').collect();
-                    if parts.len() != 3 {
-                        tracing::warn!("在线用户消息格式不正确: {}", message_str);
-                        return;
-                    }
-                    let sys_did = parts[0].to_string();
-                    let user_list = parts[2].to_string();
-
-                    let sender_id = sender.to_base58();
-                    let online_all_num = {
-                        self.shared_data
-                            .online_all
-                            .log_access_batch(user_list.clone());
-                        self.shared_data.online_all.get_number()
-                    };
-                    let (online_nodes_num, online_nodes_top) = {
-                        self.shared_data
-                            .online_nodes
-                            .log_access_batch(sender_id.clone());
-                        (
-                            self.shared_data.online_nodes.get_number(),
-                            self.shared_data.online_nodes.get_nodes_top_list(),
-                        )
-                    };
-                    tracing::info!(
-                        "{} [P2pNode] update online list: nodes={}, users={}",
-                        token_utils::now_string(),
-                        online_nodes_num,
-                        online_all_num
-                    );
-                    let entries: Vec<(String, String)> = message_str
-                        .split('|')
-                        .filter(|entry| !entry.is_empty())
-                        .map(|user_id| (user_id.to_string(), sender_id.clone()))
-                        .collect();
-                    self.shared_data.insert_node_did(&sender_id, &sys_did);
-                    self.shared_data
-                        .insert_did_node_batch(&user_list, &sender_id);
-                }
-            }
             "user" => {
                 match serde_cbor::from_slice::<DidMessage>(message.as_slice()) {
                     Ok(msg) => {
@@ -576,7 +534,9 @@ impl EventHandler for Handler {
                                         
                                         self.shared_data.insert_node_did(&node_id, &node_did);
                                         self.shared_data.insert_did_node(&msg.user_did, &node_id);
-                                        tracing::debug!("成功映射节点ID({})和DID({})", node_id, node_did);
+                                        let short_did = node_did.chars().skip(node_did.len() - 7).collect::<String>();
+                                        let short_id = node_id.chars().skip(node_id.len() - 7).collect::<String>();
+                                        tracing::info!("DID({})已记录到节点({})上", short_did, short_id);
                                     } else {
                                         tracing::warn!("无效的登录消息格式或ID/DID: node_id={}, node_did={}", node_id, node_did);
                                     }
