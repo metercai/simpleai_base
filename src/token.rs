@@ -290,13 +290,13 @@ impl SimpleAI {
         *p2p_handle = Some(handle);
 
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
-        if !p2p_out_did_list.is_empty() {
-            self.shared_data.set_p2p_out_dids(&p2p_out_did_list);
-        }
+        self.shared_data.set_p2p_out_dids(&p2p_out_did_list);
+        println!("p2p start, get default value: p2p_out_did_list={}", p2p_out_did_list);
+        
         let p2p_in_did_list = self.get_local_admin_vars("p2p_in_did_list");
-        if !p2p_in_did_list.is_empty() {
-            self.shared_data.set_p2p_out_dids(&p2p_in_did_list);
-        }
+        self.shared_data.set_p2p_out_dids(&p2p_in_did_list);
+        println!("p2p start, get default value: p2p_in_did_list={}", p2p_in_did_list);
+        
         let result = rest_service::request_api_sync("p2p_status", None as Option<serde_json::Value>)
                 .unwrap_or_else(|e| {
                     error!("p2p_status error: {}", e);

@@ -16,6 +16,11 @@ use tokio::time;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
+#[cfg(feature = "extension-module")]
+use pyo3::prelude::*;
+#[cfg(feature = "extension-module")]
+use pyo3::types::PyModule;
+
 mod config;
 mod error;
 mod http_service;
@@ -446,16 +451,16 @@ impl EventHandler for Handler {
                         return Ok(response.as_bytes().to_vec());
                     }
                     "generate_image" => {
-                        println!("generate_image, is_p2p_in_dids: {}", self.shared_data.is_p2p_in_dids(&from_peer_did));
+                        println!("generate_image: is_p2p_in_dids={}, from_peer={}", self.shared_data.is_p2p_in_dids(&from_peer_did), from_peer_did);
                         let response = {
                             if self.shared_data.is_p2p_in_dids(&from_peer_did) {
                                 self.pending_task
                                     .lock()
                                     .unwrap()
                                     .insert(request.task_id.clone(), from_peer_did.clone());
-                                println!("{} [P2pNode] generate_image task({}) from {}", token_utils::now_string(), request.task_id.clone(), from_peer_did);
                                 #[cfg(feature = "extension-module")]
                                 {
+                                    println!("{} [P2pNode] generate_image task({}) from {}", token_utils::now_string(), request.task_id.clone(), from_peer_did);
                                     let results = Python::with_gil(|py| -> PyResult<String> {
                                         let p2p_task =
                                             PyModule::import_bound(py, "simpleai_base.p2p_task")
