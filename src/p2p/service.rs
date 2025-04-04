@@ -583,9 +583,11 @@ impl<E: EventHandler> Server<E> {
                     let agent_name = parts.next().unwrap_or("").trim().to_string();
                     let agent_did = parts.next().unwrap_or("").trim().to_string();
                     let agent_ver = parts.next().unwrap_or("").trim().to_string();
-                    self.shared_data.insert_node_did(&peer_id.to_base58(), &agent_did);
-                    let short_did = agent_did.chars().skip(agent_did.len() - 7).collect::<String>();
-                    tracing::info!("P2P_node({}) record id-did mapping({}, {})", self.get_short_id(), peer_id.short_id(), short_did);                                    
+                    if !agent_did.is_empty() && IdClaim::validity(&agent_did) {
+                        self.shared_data.insert_node_did(&peer_id.to_base58(), &agent_did);
+                        let short_did = agent_did.chars().skip(agent_did.len() - 7).collect::<String>();
+                        tracing::info!("P2P_node({}) record id-did mapping({}, {})", self.get_short_id(), peer_id.short_id(), short_did);
+                    }                                    
                 };
                 self.network_service.add_external_address(observed_addr.clone());
                 tracing::debug!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
