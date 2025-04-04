@@ -49,8 +49,9 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
     if method != 'generate_image':
         return
     args = cbor2.loads(args_cbor2)
-    task = worker.AsyncTask(args=args)
+    task = worker.AsyncTask(args=args, task_id=task_id)
     task.remote_task = True
+    print(f"Received remote task: {task.task_id}, method: {method}, args: {args}")
 
     with model_management.interrupt_processing_mutex:
         model_management.interrupt_processing = False
@@ -60,6 +61,8 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
 
     worker.add_task(task)
     MAX_LOOP_NUM = worker.get_task_size()
+    print(f"task was pushed: qsize={MAX_LOOP_NUM}")
+    
     last_update_time = time.time()
     loop_num = 0
     ready_flag = False

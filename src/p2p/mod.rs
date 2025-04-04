@@ -446,12 +446,14 @@ impl EventHandler for Handler {
                         return Ok(response.as_bytes().to_vec());
                     }
                     "generate_image" => {
+                        println!("generate_image, is_p2p_in_dids: {}", self.shared_data.is_p2p_in_dids(&from_peer_did));
                         let response = {
                             if self.shared_data.is_p2p_in_dids(&from_peer_did) {
                                 self.pending_task
                                     .lock()
                                     .unwrap()
-                                    .insert(request.task_id, from_peer_did);
+                                    .insert(request.task_id.clone(), from_peer_did.clone());
+                                println!("{} [P2pNode] generate_image task({}) from {}", token_utils::now_string(), request.task_id.clone(), from_peer_did);
                                 #[cfg(feature = "extension-module")]
                                 {
                                     let results = Python::with_gil(|py| -> PyResult<String> {
