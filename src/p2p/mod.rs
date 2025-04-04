@@ -468,12 +468,14 @@ impl EventHandler for Handler {
                             let results = Python::with_gil(|py| -> PyResult<String> {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
                                     .expect("No simpleai_base.p2p_task.");
+                                // 将Vec<u8>转换为Python的bytes对象
+                                let py_bytes = pyo3::types::PyBytes::new(py, &request.task_args);
                                 let result: String = p2p_task
                                     .getattr("call_request_by_p2p_task")?
                                     .call1((
                                         request.task_id,
                                         request.task_method,
-                                        request.task_args,
+                                        py_bytes,
                                     ))?
                                     .extract()?;
                                 println!("call request_by_p2p_task success: {:?}", result.clone());
@@ -500,12 +502,14 @@ impl EventHandler for Handler {
                             let results = Python::with_gil(|py| -> PyResult<String> {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
                                     .expect("No simpleai_base.p2p_task.");
+                                // 将Vec<u8>转换为Python的bytes对象
+                                let py_bytes = pyo3::types::PyBytes::new(py, &request.task_args);
                                 let result: String = p2p_task
                                     .getattr("call_response_by_p2p_task")?
                                     .call1((
                                         request.task_id,
                                         request.task_method,
-                                        request.task_args,
+                                        py_bytes,
                                     ))?
                                     .extract()?;
                                 Ok(result)
