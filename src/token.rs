@@ -289,6 +289,14 @@ impl SimpleAI {
         let mut p2p_handle = P2P_HANDLE.lock().unwrap();
         *p2p_handle = Some(handle);
 
+        let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
+        if !p2p_out_did_list.is_empty() {
+            self.shared_data.set_p2p_out_dids(&p2p_out_did_list);
+        }
+        let p2p_in_did_list = self.get_local_admin_vars("p2p_in_did_list");
+        if !p2p_in_did_list.is_empty() {
+            self.shared_data.set_p2p_out_dids(&p2p_in_did_list);
+        }
         let result = rest_service::request_api_sync("p2p_status", None as Option<serde_json::Value>)
                 .unwrap_or_else(|e| {
                     error!("p2p_status error: {}", e);
@@ -490,7 +498,12 @@ impl SimpleAI {
     pub fn set_local_admin_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
         if user_did == self.get_admin_did() {
-            self.global_local_vars.lock().unwrap().set_local_vars(&format!("admin_{}", key), value, &user_did)
+            self.global_local_vars.lock().unwrap().set_local_vars(&format!("admin_{}", key), value, &user_did);
+            if key == "p2p_in_did_list" {
+                self.shared_data.set_p2p_in_dids(&value);
+            } else if key == "p2p_out_did_list"  {
+                self.shared_data.set_p2p_out_dids(&value);
+            }
         }
     }
 
