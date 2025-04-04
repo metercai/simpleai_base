@@ -37,7 +37,7 @@ use crate::p2p::req_resp::*;
 use crate::p2p::config::*;
 use crate::p2p::error::P2pError;
 use crate::p2p::utils::PeerIdExt;
-use crate::dids::token_utils;
+use crate::dids::{DidToken, token_utils};
 use crate::dids::claims::IdClaim;
 use crate::utils::systeminfo::SystemInfo;
 use crate::user::shared;
@@ -61,9 +61,9 @@ pub(crate) struct Client {
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sysinfo: &SystemInfo) -> Result<(Client, Server<E>), Box<dyn Error + Send + Sync>> {
+pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sys_phrase: &str) -> Result<(Client, Server<E>), Box<dyn Error + Send + Sync>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
-    let server = Server::new(config, sys_claim, sysinfo, cmd_receiver).await?;
+    let server = Server::new(config, sys_claim, sys_phrase, cmd_receiver).await?;
     let local_peer_id = server.get_peer_id();
     let client = Client {
         cmd_sender,
@@ -195,6 +195,7 @@ pub(crate) struct Server<E: EventHandler> {
     connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
     /// Flag to control server running state
     stop_flag: bool,
+    shared_data: &'static shared::SharedData,
 }
 
 #[derive(Debug, Clone)]
@@ -223,14 +224,15 @@ impl<E: EventHandler> Server<E> {
     pub(crate) async fn new(
         config: Config,
         sys_claim: &IdClaim,
-        sysinfo: &SystemInfo,
+        sys_phrase: &str,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut metric_registry = Registry::default();
-        let (sys_hash_id, sys_phrase) = token_utils::get_key_hash_id_and_phrase("System", &sys_claim.get_symbol_hash());
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)))?));
         
+        let didtoken = DidToken::instance();
+        let sysinfo = didtoken.lock().unwrap().get_sysinfo();
         let sys_did = sys_claim.gen_did();
         let is_upstream_node = if let Some(v) = config.is_upstream_node { v } else { false };
         let pubsub_topics: Vec<_> = config.pubsub_topics.clone();
@@ -354,7 +356,8 @@ impl<E: EventHandler> Server<E> {
         let interval_secs = config.get_discovery_interval();
         let instant = time::Instant::now() + Duration::from_secs(15);
         let discovery_ticker = time::interval_at(instant, Duration::from_secs(interval_secs));
-
+        let shared_data = shared::get_shared_data();
+        
         Ok(Self {
             sys_did,
             network_service: swarm,
@@ -375,6 +378,7 @@ impl<E: EventHandler> Server<E> {
             connection_failure_counts: Mutex::new(HashMap::new()),
             connection_quality: Mutex::new(HashMap::new()),
             stop_flag: false,
+            shared_data,
         })
     }
 
@@ -572,12 +576,23 @@ impl<E: EventHandler> Server<E> {
                     .. }, connection_id 
             }) => {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
-                    tracing::info!("P2P_node({}) add peer({}, {:?})", self.get_short_id(), peer_id.short_id(), agent_version);
                     self.add_addresses(&peer_id, listen_addrs);
+                    tracing::info!("P2P_node({}) add peer({}, {:?})", self.get_short_id(), peer_id.short_id(), agent_version);
+                    
+                    let mut parts = agent_version.splitn(3, '/');
+                    let agent_name = parts.next().unwrap_or("").trim().to_string();
+                    let agent_did = parts.next().unwrap_or("").trim().to_string();
+                    let agent_ver = parts.next().unwrap_or("").trim().to_string();
+                    self.shared_data.insert_node_did(&peer_id.to_base58(), &agent_did);
+                    let short_did = agent_did.chars().skip(agent_did.len() - 7).collect::<String>();
+                    tracing::info!("P2P_node({}) record id-did mapping({}, {})", self.get_short_id(), peer_id.short_id(), short_did);                                    
                 };
                 self.network_service.add_external_address(observed_addr.clone());
                 tracing::debug!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
-
+                
+                if peer_id == self.local_peer_id {
+                    tracing::info!("❗ P2P_node({}) add local_address({:?})", self.get_short_id(), observed_addr.clone());
+                }
                 if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
                     if let Err(error) = rendezvous.register(
                         rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap(),

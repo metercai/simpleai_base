@@ -274,23 +274,10 @@ impl SimpleAI {
             let didtoken = self.didtoken.lock().unwrap();
             (didtoken.get_claim(&self.get_sys_did()), didtoken.get_sysinfo())
         };
-        let sys_did = self.get_sys_did();
-        let node_id = self.get_node_id();
         let sys_phrase = self.sys_phrase.clone();
         let handle = dids::TOKIO_RUNTIME.spawn(async move {
-            match P2p::start(p2p_config, &local_claim, &sysinfo).await {
+            match P2p::start(p2p_config, &local_claim, &sys_phrase).await {
                 Ok(p2p) => {
-                    let mut message = DidMessage::new(sys_did.clone(), "login".to_string(), 
-                        format!("{}:{}", node_id, sys_did.clone()));
-                    message.signature(&sys_phrase);
-                    match serde_cbor::to_vec(&message) {
-                        Ok(msg_bytes) => p2p.broadcast_user_msg(Bytes::from(msg_bytes)).await,
-                        Err(e) => {
-                            print!("Failed to serialize message in start: {:?}", e);
-                            "Failed to serialize message".to_string()
-                        }
-                    };
-                    
                     let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                     *p2p_instance_guard = Some(p2p);
                 },

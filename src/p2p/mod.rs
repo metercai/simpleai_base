@@ -67,10 +67,10 @@ impl P2p {
     pub async fn start(
         config: String,
         sys_claim: &IdClaim,
-        sysinfo: &SystemInfo,
+        sys_phrase: &str,
     ) -> Result<Arc<P2p>, Box<dyn Error + Send + Sync>> {
         let config = config::Config::from_toml(&config.clone()).expect("无法解析配置字符串");
-        let result = service::new(config.clone(), sys_claim, sysinfo).await;
+        let result = service::new(config.clone(), sys_claim, sys_phrase).await;
         let (client, mut server) = match result {
             Ok((c, s)) => (c, s),
             Err(e) => panic!("无法启动服务: {:?}", e),
@@ -106,6 +106,20 @@ impl P2p {
                 //task_broadcast_online
             );
         });
+
+        let mut message = DidMessage::new(sys_did.clone(), "login".to_string(), 
+                        format!("{}:{}", client.get_peer_id().to_base58(), sys_did.clone()));
+        message.signature(&sys_phrase);
+        match serde_cbor::to_vec(&message) {
+            Ok(msg_bytes) => {
+                let _ = client.broadcast("user".to_string(), Bytes::from(msg_bytes)).await;
+                "ok".to_string()
+            }
+            Err(e) => {
+                println!("Failed to serialize message in start: {:?}", e);
+                "Failed to serialize message".to_string()
+            }
+        };
 
         let p2p = Self {
             sys_did: sys_did.clone(),
@@ -376,7 +390,7 @@ impl P2p {
             .client
             .broadcast(topic.clone(), message)
             .await;
-        tracing::debug!("📣 >>>> Outbound broadcast: {:?}", topic);
+        tracing::info!("📣 >>>> Outbound broadcast: {:?}", topic);
     }
 }
 
@@ -520,7 +534,7 @@ impl EventHandler for Handler {
                 match serde_cbor::from_slice::<DidMessage>(message.as_slice()) {
                     Ok(msg) => {
                         if msg.verify() {
-                            tracing::debug!("📣 <<<< Inbound BROADCAST: {:?} {:?}", topic, msg);
+                            tracing::info!("📣 <<<< Inbound BROADCAST: {:?} {:?}", topic, msg);
                             match msg.msg_type.as_str() {
                                 "login" => {
                                     let mut parts = msg.body.splitn(2, ':');

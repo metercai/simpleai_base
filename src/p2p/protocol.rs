@@ -63,8 +63,8 @@ impl Behaviour {
     ) -> Self {
         let pub_key = local_key.public();
         let identify = identify::Behaviour::new(
-            identify::Config::new("token/0.1.0".to_string(), pub_key.clone())
-                .with_agent_version(format!("p2p_node/{}", env!("CARGO_PKG_VERSION"))),
+            identify::Config::new("tm_id/0.1.0".to_string(), pub_key.clone())
+                .with_agent_version(format!("token/{}/{}", sys_did, env!("CARGO_PKG_VERSION"))),
         );
         let kademlia = {
             // 使用 Default::default() 创建配置，然后设置协议名称
