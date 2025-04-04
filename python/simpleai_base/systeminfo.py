@@ -1,14 +1,37 @@
+import psutil
+import torch
+from enum import Enum
 
+class CPUState(Enum):
+    GPU = 0
+    CPU = 1
+    MPS = 2
+
+cpu_state = CPUState.GPU
+
+try:
+    if torch.backends.mps.is_available():
+        cpu_state = CPUState.MPS
+        import torch.mps
+except:
+    pass
+
+def is_nvidia():
+    global cpu_state
+    if cpu_state == CPUState.GPU:
+        if torch.version.cuda:
+            return True
+    return False
 
 def get_ram_and_gpu_info():
-    import psutil
     ram_memory = psutil.virtual_memory().total
     swap_memory = psutil.swap_memory().total
-    try:
+    if is_nvidia():
         import pynvml
         pynvml_available = True
-    except ImportError:
+    else:
         pynvml_available = False
+    
     gpu_info_list = []
     driver_version = ''
     cuda_version = ''

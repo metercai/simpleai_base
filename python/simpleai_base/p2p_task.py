@@ -1,7 +1,6 @@
 import time
 import cbor2
 from datetime import datetime
-from . import utils
 
 pending_tasks = {}
 TASK_MAX_TIMEOUT = 1800

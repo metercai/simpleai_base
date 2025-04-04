@@ -1,24 +1,20 @@
 use base58::ToBase58;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use bytes::Bytes;
-use chrono::{format, DateTime, Local};
+use chrono::{DateTime, Local};
 use libp2p::PeerId;
-use openssl::sign;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
-use sha2::digest::generic_array::sequence::Shorten;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 
-#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
-#[cfg(feature = "extension-module")]
 use pyo3::types::PyModule;
 
 mod config;
@@ -34,7 +30,7 @@ use once_cell::sync::OnceCell;
 
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::claims::{GlobalClaims, IdClaim};
-use crate::dids::{DidToken, token_utils, TOKIO_RUNTIME};
+use crate::dids::{token_utils, DidToken, TOKIO_RUNTIME};
 use crate::p2p::service::{Client, EventHandler, NodeStatus};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_mgr::{MessageQueue, OnlineUsers};
@@ -112,12 +108,17 @@ impl P2p {
             );
         });
 
-        let mut message = DidMessage::new(sys_did.clone(), "login".to_string(), 
-                        format!("{}:{}", client.get_peer_id().to_base58(), sys_did.clone()));
+        let mut message = DidMessage::new(
+            sys_did.clone(),
+            "login".to_string(),
+            format!("{}:{}", client.get_peer_id().to_base58(), sys_did.clone()),
+        );
         message.signature(&sys_phrase);
         match serde_cbor::to_vec(&message) {
             Ok(msg_bytes) => {
-                let _ = client.broadcast("user".to_string(), Bytes::from(msg_bytes)).await;
+                let _ = client
+                    .broadcast("user".to_string(), Bytes::from(msg_bytes))
+                    .await;
                 "ok".to_string()
             }
             Err(e) => {
@@ -170,7 +171,6 @@ impl P2p {
             .unwrap(),
         );
 
-        
         let short_peer_id = self.client.get_short_id();
 
         if let Some(ref upstream_nodes) = self.config.address.upstream_nodes {
@@ -185,9 +185,7 @@ impl P2p {
                         task_args: vec![b' '],
                     };
                     let request = Bytes::from(serde_cbor::to_vec(&request).unwrap());
-                    let result_str = self
-                        .request(target_did.clone(), request)
-                        .await;
+                    let result_str = self.request(target_did.clone(), request).await;
                     if result_str.is_empty() {
                         tracing::debug!("从上游节点 {} 获取的响应为空", upstream_peer_id);
                         continue;
@@ -391,10 +389,7 @@ impl P2p {
     }
 
     async fn broadcast(&self, topic: String, message: Bytes) {
-        let _ = self
-            .client
-            .broadcast(topic.clone(), message)
-            .await;
+        let _ = self.client.broadcast(topic.clone(), message).await;
         tracing::info!("📣 >>>> Outbound broadcast: {:?}", topic);
     }
 }
@@ -451,79 +446,83 @@ impl EventHandler for Handler {
                         return Ok(response.as_bytes().to_vec());
                     }
                     "generate_image" => {
-                        println!("generate_image: is_p2p_in_dids={}, from_peer={}", self.shared_data.is_p2p_in_dids(&from_peer_did), from_peer_did);
-                        let response = {
-                            if self.shared_data.is_p2p_in_dids(&from_peer_did) {
-                                self.pending_task
-                                    .lock()
-                                    .unwrap()
-                                    .insert(request.task_id.clone(), from_peer_did.clone());
-                                #[cfg(feature = "extension-module")]
-                                {
-                                    println!("{} [P2pNode] generate_image task({}) from {}", token_utils::now_string(), request.task_id.clone(), from_peer_did);
-                                    let results = Python::with_gil(|py| -> PyResult<String> {
-                                        let p2p_task =
-                                            PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                                .expect("No simpleai_base.p2p_task.");
-                                        let result: String = p2p_task
-                                            .getattr("call_request_by_p2p_task")?
-                                            .call1((
-                                                request.task_id,
-                                                request.task_method,
-                                                request.task_args,
-                                            ))?
-                                            .extract()?;
-                                        Ok(result)
-                                    });
-                                    results.unwrap_or_else(|e| {
-                                        tracing::error!("Python调用失败: {:?}", e);
-                                        "调用失败".to_string()
-                                    })
-                                }
-                                #[cfg(not(feature = "extension-module"))]
-                                {
-                                    "调用失败".to_string()
-                                }
-                            } else {
+                        println!(
+                            "generate_image: is_p2p_in_dids={}, from_peer={}",
+                            self.shared_data.is_p2p_in_dids(&from_peer_did),
+                            from_peer_did
+                        );
+
+                        let response = if self.shared_data.is_p2p_in_dids(&from_peer_did) {
+                            self.pending_task
+                                .lock()
+                                .unwrap()
+                                .insert(request.task_id.clone(), from_peer_did.clone());
+
+                            println!(
+                                "{} [P2pNode] generate_image task({}) from {}",
+                                token_utils::now_string(),
+                                request.task_id.clone(),
+                                from_peer_did
+                            );
+
+                            let results = Python::with_gil(|py| -> PyResult<String> {
+                                let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
+                                    .expect("No simpleai_base.p2p_task.");
+                                let result: String = p2p_task
+                                    .getattr("call_request_by_p2p_task")?
+                                    .call1((
+                                        request.task_id,
+                                        request.task_method,
+                                        request.task_args,
+                                    ))?
+                                    .extract()?;
+                                println!("call request_by_p2p_task success: {:?}", result.clone());
+                                Ok(result)
+                            });
+                            results.unwrap_or_else(|e| {
+                                tracing::error!("Python调用失败: {:?}", e);
                                 "调用失败".to_string()
-                            }
+                            })
+                        } else {
+                            "调用失败".to_string()
                         };
                         return Ok(response.as_bytes().to_vec());
                     }
                     "async_response" => {
                         let response = {
-                            #[cfg(feature = "extension-module")]
-                            {
-                                let results = Python::with_gil(|py| -> PyResult<String> {
-                                    let p2p_task =
-                                        PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                            .expect("No simpleai_base.p2p_task.");
-                                    let result: String = p2p_task
-                                        .getattr("call_response_by_p2p_task")?
-                                        .call1((
-                                            request.task_id,
-                                            request.task_method,
-                                            request.task_args,
-                                        ))?
-                                        .extract()?;
-                                    Ok(result)
-                                });
-                                results.unwrap_or_else(|e| {
-                                    tracing::error!("Python调用失败: {:?}", e);
-                                    "1,1,1".to_string()
-                                })
-                            }
-                            #[cfg(not(feature = "extension-module"))]
-                            {
-                                "调用失败".to_string()
-                            }
+                            println!(
+                                "{} [P2pNode] async_response task({}) from {}",
+                                token_utils::now_string(),
+                                request.task_id.clone(),
+                                from_peer_did
+                            );
+
+                            let results = Python::with_gil(|py| -> PyResult<String> {
+                                let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
+                                    .expect("No simpleai_base.p2p_task.");
+                                let result: String = p2p_task
+                                    .getattr("call_response_by_p2p_task")?
+                                    .call1((
+                                        request.task_id,
+                                        request.task_method,
+                                        request.task_args,
+                                    ))?
+                                    .extract()?;
+                                Ok(result)
+                            });
+                            results.unwrap_or_else(|e| {
+                                tracing::error!("Python调用失败: {:?}", e);
+                                "1,1,1".to_string()
+                            })
                         };
                         return Ok(response.as_bytes().to_vec());
                     }
                     // 可以添加更多方法的处理逻辑
                     _ => {
                         tracing::warn!("未知的方法: {}", request.method);
-                        return Ok(format!("未知的方法: {}", request.method).as_bytes().to_vec());
+                        return Ok(format!("未知的方法: {}", request.method)
+                            .as_bytes()
+                            .to_vec());
                     }
                 }
             }
@@ -547,19 +546,33 @@ impl EventHandler for Handler {
                                     let mut parts = msg.body.splitn(2, ':');
                                     let node_id = parts.next().unwrap_or("").trim().to_string();
                                     let node_did = parts.next().unwrap_or("").trim().to_string();
-                                    
-                                    if !node_id.is_empty() 
-                                        && !node_did.is_empty() 
-                                        && IdClaim::validity(&node_did) 
-                                        && PeerId::from_bytes(node_id.as_bytes()).is_ok() {
-                                        
+
+                                    if !node_id.is_empty()
+                                        && !node_did.is_empty()
+                                        && IdClaim::validity(&node_did)
+                                        && PeerId::from_bytes(node_id.as_bytes()).is_ok()
+                                    {
                                         self.shared_data.insert_node_did(&node_id, &node_did);
                                         self.shared_data.insert_did_node(&msg.user_did, &node_id);
-                                        let short_did = node_did.chars().skip(node_did.len() - 7).collect::<String>();
-                                        let short_id = node_id.chars().skip(node_id.len() - 7).collect::<String>();
-                                        tracing::info!("DID({})已记录到节点({})上", short_did, short_id);
+                                        let short_did = node_did
+                                            .chars()
+                                            .skip(node_did.len() - 7)
+                                            .collect::<String>();
+                                        let short_id = node_id
+                                            .chars()
+                                            .skip(node_id.len() - 7)
+                                            .collect::<String>();
+                                        tracing::info!(
+                                            "DID({})已记录到节点({})上",
+                                            short_did,
+                                            short_id
+                                        );
                                     } else {
-                                        tracing::warn!("无效的登录消息格式或ID/DID: node_id={}, node_did={}", node_id, node_did);
+                                        tracing::warn!(
+                                            "无效的登录消息格式或ID/DID: node_id={}, node_did={}",
+                                            node_id,
+                                            node_did
+                                        );
                                     }
                                 }
                                 _ => {
@@ -617,7 +630,9 @@ async fn broadcast(client: Client, interval: u64) {
         let now_time = Local::now();
         let message = format!("From {} at {}!", short_id, now_time);
         tracing::debug!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
-        let _ = client.broadcast(topic, Bytes::from(message.as_bytes().to_vec())).await;
+        let _ = client
+            .broadcast(topic, Bytes::from(message.as_bytes().to_vec()))
+            .await;
     }
 }
 
@@ -683,7 +698,9 @@ async fn broadcast_online_users(client: Client, interval: u64) {
                 users_list
             );
             let message = format!("{}:{}:{}", client.get_sys_did(), unix_timestamp, users_list);
-            let _ = client.broadcast(topic, Bytes::from(message.as_bytes().to_vec())).await;
+            let _ = client
+                .broadcast(topic, Bytes::from(message.as_bytes().to_vec()))
+                .await;
         } else {
             tracing::info!("no users on node ...");
         }
@@ -731,13 +748,19 @@ impl DidMessage {
     pub fn signature(&mut self, phrase: &str) {
         let text = format!("{}|{}|{}", self.user_did, self.msg_type, self.body);
         let didtoken = DidToken::instance();
-        self.sig = didtoken.lock().unwrap().sign_by_did(&text, &self.user_did, phrase);
+        self.sig = didtoken
+            .lock()
+            .unwrap()
+            .sign_by_did(&text, &self.user_did, phrase);
     }
     pub fn verify(&self) -> bool {
         let text = format!("{}|{}|{}", self.user_did, self.msg_type, self.body);
         let signature = URL_SAFE_NO_PAD.encode(self.sig.clone());
         let didtoken = DidToken::instance();
-        let verify = didtoken.lock().unwrap().verify_by_did(&text, &self.user_did, &signature);
+        let verify = didtoken
+            .lock()
+            .unwrap()
+            .verify_by_did(&text, &self.user_did, &signature);
         verify
     }
 }
