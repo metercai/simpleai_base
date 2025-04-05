@@ -716,7 +716,7 @@ pub async fn get_instance() -> Option<Arc<P2p>> {
     p2p_instance_guard.clone()
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pRequest {
     pub target_did: String,
     pub method: String,
@@ -725,7 +725,7 @@ pub struct P2pRequest {
     pub task_args: Vec<u8>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pMessage {
     pub node_did: String,
     pub msg_type: String,
@@ -733,7 +733,7 @@ pub struct P2pMessage {
     pub sig: Vec<u8>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DidMessage {
     pub user_did: String,
     pub msg_type: String,

@@ -402,9 +402,9 @@ impl SimpleAI {
                 task_args: result,
             };
             
-            let result = rest_service::request_api_cbor_sync("p2p_response", Some(response))
+            let result = rest_service::request_api_cbor_sync("p2p_response", Some(response.clone()))
                 .unwrap_or_else(|e| {
-                    error!("request_remote_task({}) error: {}", p2p_in_did_list, e);
+                    error!("response_remote_task({}) error: {}, {:?}", p2p_in_did_list, e, response);
                     "".to_string()
                 });
             result
