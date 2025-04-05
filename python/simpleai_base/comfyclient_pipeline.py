@@ -152,7 +152,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                     elif prompt[current_node]['class_type'] in preview_nodes and callback is not None:
                         if current_step <= current_total_steps:
                             finished_steps += 1
-                            callback(finished_steps, total_steps_known, Image.open(BytesIO(out[8:])))
+                            callback(finished_steps, total_steps_known, np.array(Image.open(BytesIO(out[8:]))))
                 else:
                     pass #if current_node in prompt:
                         #print(f'{utils.now_string()} [ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')

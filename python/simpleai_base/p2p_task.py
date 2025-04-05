@@ -44,7 +44,7 @@ def request_p2p_task(task):
     args = vars(task)["args"]
     #print(f"Sending task args: type={type(args)}, value={args}")
     args_cbor2 = cbor2.dumps(args)
-    print(f"Sending task: {task_id}, args_cbor2 type: {type(args_cbor2)}, length: {len(args_cbor2)}")
+    print(f"Sending task: {task_id}, length: {len(args_cbor2)}")
     return token.request_remote_task(task_id, task_method, args_cbor2)
 
 
@@ -54,9 +54,9 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
 
     if method != 'generate_image':
         return
-    print(f"Received task: {task_id}, args_cbor2 type: {type(args_cbor2)}, length: {len(args_cbor2)}")
+    print(f"Received task: {task_id}, length: {len(args_cbor2)}")
     args = cbor2.loads(args_cbor2)
-    print(f"Received task args: type={type(args)}, value={args}")
+    #print(f"Received task args: type={type(args)}, value={args}")
     
     task = worker.AsyncTask(args=args, task_id=task_id)
     task.remote_task = True
