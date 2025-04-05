@@ -63,50 +63,10 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
     with model_management.interrupt_processing_mutex:
         model_management.interrupt_processing = False
 
-    MAX_WAIT_TIME = 480
-    POLL_INTERVAL = 0.1
-
     worker.add_task(task)
-    MAX_LOOP_NUM = worker.get_task_size()
-    print(f"task was push: qsize={MAX_LOOP_NUM}")
-    
-    last_update_time = time.time()
-    loop_num = 0
-    ready_flag = False
-    while True:
-        current_time = time.time()
-        if (current_time - MAX_WAIT_TIME*loop_num - last_update_time) < MAX_WAIT_TIME:
-            qsize = worker.get_task_size()
-            print(f'远程生图任务排队中({qsize})，请等待...')
-            if worker.get_processing_id() == task.task_id:
-                ready_flag = True
-                break
-        else:
-            loop_num += 1
-            if loop_num > MAX_LOOP_NUM:
-                print(f'ready to restart worker thread...')
-                worker.restart(task)
-                break
-        time.sleep(POLL_INTERVAL)
-
-    execution_start_time = time.perf_counter()
-    finished = False
-    MAX_WAIT_TIME = 480
-    POLL_INTERVAL = 0.08
-
-    last_update_time = time.time()
-    while not finished:
-        current_time = time.time()
-        if current_time - last_update_time > MAX_WAIT_TIME or not ready_flag:
-            call_remote_progress(task, 0, '生图任务已超时!')
-            print(f"Generate task timeout after {MAX_WAIT_TIME} seconds")
-            task.last_stop = 'stop'
-            if (task.processing):
-                print("Send interrupt flag to process and comfyd")
-                worker.interrupt_processing()
-            break
-        time.sleep(POLL_INTERVAL)
-        finished = not task.processing
+    qsize = worker.get_task_size()
+    print(f"generate_image task was push to worker queue and qsize={qsize}")
+    return str(qsize)
 
 
 def call_remote_progress(task, number, text, img=None):
@@ -146,6 +106,7 @@ def call_remote_stop(task, processing_start_time, status='Finished'):
 def call_response_by_p2p_task(task_id, method, result_cbor2):
     global pending_tasks, callback_result, callback_progress, callback_stop, callback_save_and_log
 
+    result = 'ok'
     if task_id in pending_tasks:
         task, start_time = pending_tasks[task_id]
         if method == 'remote_progress':
@@ -165,6 +126,7 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             processing_start_time, status = cbor2.loads(result_cbor2)
             callback_stop(task, processing_start_time, status)
             del pending_tasks[task_id]
+    return result
 
 
 def ndarray_to_webp_bytes(image: np.ndarray, lossless: bool = False) -> bytes:

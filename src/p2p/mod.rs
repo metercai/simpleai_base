@@ -366,7 +366,7 @@ impl P2p {
             .skip(target_peer_id.len() - 7)
             .collect::<String>();
         tracing::info!(
-            "📣 >>>> Outbound request: {} send {}byte to {} with {} at {}",
+            "📣 >>>> Outbound request: {} send {} byte to {} with {} at {}",
             short_id,
             message.len(),
             target_did,
@@ -423,7 +423,7 @@ impl EventHandler for Handler {
                     tracing::warn!("请求的user_did不正确");
                     return Ok("user_did错误".as_bytes().to_vec());
                 }
-                tracing::info!("📣 <<<< Inbound REQUEST: {:?}", request);
+                tracing::info!("📣 <<<< Inbound REQUEST: method={}, task_id={}, task_method={}", request.method, request.task_id, request.task_method);
                 match request.method.as_str() {
                     "get_claim" => {
                         let response =
@@ -484,10 +484,10 @@ impl EventHandler for Handler {
                             });
                             results.unwrap_or_else(|e| {
                                 tracing::error!("Python调用失败: {:?}", e);
-                                "调用失败".to_string()
+                                "error".to_string()
                             })
                         } else {
-                            "调用失败".to_string()
+                            "error".to_string()
                         };
                         return Ok(response.as_bytes().to_vec());
                     }
@@ -517,7 +517,7 @@ impl EventHandler for Handler {
                             });
                             results.unwrap_or_else(|e| {
                                 tracing::error!("Python调用失败: {:?}", e);
-                                "1,1,1".to_string()
+                                "error".to_string()
                             })
                         };
                         return Ok(response.as_bytes().to_vec());
