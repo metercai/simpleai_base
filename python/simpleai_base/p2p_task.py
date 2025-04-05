@@ -37,7 +37,9 @@ def request_p2p_task(task):
     task_id = task.task_id
     pending_tasks[task_id] = (task, datetime.now())
     task_method = 'generate_image'
-    args_cbor2 = cbor2.dumps(vars(task)["args"])
+    args = vars(task)["args"]
+    print(f"Sending task args: type={type(args)}, value={args}")
+    args_cbor2 = cbor2.dumps(args)
     print(f"Sending task: {task_id}, args_cbor2 type: {type(args_cbor2)}, length: {len(args_cbor2)}")
     print(f"Sending args_cbor2 hex: {args_cbor2.hex()}")
     return token.request_remote_task(task_id, task_method, args_cbor2)
@@ -52,6 +54,8 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
     print(f"Received task: {task_id}, args_cbor2 type: {type(args_cbor2)}, length: {len(args_cbor2)}")
     print(f"Received args_cbor2 hex: {args_cbor2.hex()}")
     args = cbor2.loads(args_cbor2)
+    print(f"Received task args: type={type(args)}, value={args}")
+    
     task = worker.AsyncTask(args=args, task_id=task_id)
     task.remote_task = True
     print(f"Received remote task: {task.task_id}, method: {method}, args: {args}")
@@ -73,7 +77,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
         current_time = time.time()
         if (current_time - MAX_WAIT_TIME*loop_num - last_update_time) < MAX_WAIT_TIME:
             qsize = worker.get_task_size()
-            call_remote_progress(1, f'远程生图任务排队中({qsize})，请等待...')
+            call_remote_progress(task, 1, f'远程生图任务排队中({qsize})，请等待...')
             if worker.get_processing_id() == task.task_id:
                 ready_flag = True
                 break
@@ -94,7 +98,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
     while not finished:
         current_time = time.time()
         if current_time - last_update_time > MAX_WAIT_TIME or not ready_flag:
-            call_remote_progress(0, '生图任务已超时!')
+            call_remote_progress(task, 0, '生图任务已超时!')
             print(f"Generate task timeout after {MAX_WAIT_TIME} seconds")
             task.last_stop = 'stop'
             if (task.processing):
@@ -134,7 +138,7 @@ def call_remote_stop(task, processing_start_time, status='Finished'):
     return token.response_remote_task(task_id, task_method, result_cbor2)
 
 def call_response_by_p2p_task(task_id, method, result_cbor2):
-    global pending_tasks, callback_result, callback_progress, callback_stop
+    global pending_tasks, callback_result, callback_progress, callback_stop, callback_save_and_log
 
     if task_id in pending_tasks:
         task, start_time = pending_tasks[task_id]
