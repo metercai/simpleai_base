@@ -469,7 +469,7 @@ impl EventHandler for Handler {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
                                     .expect("No simpleai_base.p2p_task.");
                                 // 将Vec<u8>转换为Python的bytes对象
-                                let py_bytes = pyo3::types::PyBytes::new(py, &request.task_args);
+                                let py_bytes = pyo3::types::PyBytes::new_bound(py, &request.task_args);
                                 let result: String = p2p_task
                                     .getattr("call_request_by_p2p_task")?
                                     .call1((
@@ -503,7 +503,7 @@ impl EventHandler for Handler {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
                                     .expect("No simpleai_base.p2p_task.");
                                 // 将Vec<u8>转换为Python的bytes对象
-                                let py_bytes = pyo3::types::PyBytes::new(py, &request.task_args);
+                                let py_bytes = pyo3::types::PyBytes::new_bound(py, &request.task_args);
                                 let result: String = p2p_task
                                     .getattr("call_response_by_p2p_task")?
                                     .call1((

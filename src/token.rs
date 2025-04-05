@@ -214,7 +214,7 @@ impl SimpleAI {
         if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
             return upstream_did.clone();
         }
-        let timeout = Duration::from_secs(6);
+        let timeout = Duration::from_secs(3);
         let start_time = Instant::now();
         let mut upstream_did = upstream_did.clone();
         while start_time.elapsed() < timeout {
