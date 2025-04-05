@@ -306,7 +306,7 @@ impl P2p {
     }
 
     pub async fn request_task(&self, body: Bytes) -> String {
-        // 解析请求体
+        println!("in request_task");
         match serde_cbor::from_slice::<P2pRequest>(body.to_vec().as_slice()) {
             Ok(request) => self.request(request.target_did, body).await,
             Err(e) => {
@@ -317,6 +317,7 @@ impl P2p {
     }
 
     pub async fn response_task(&self, body: Bytes) -> String {
+        println!("in response_task");
         match serde_cbor::from_slice::<P2pRequest>(body.to_vec().as_slice()) {
             Ok(request) => {
                 let target_did = self

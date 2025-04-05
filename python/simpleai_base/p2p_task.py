@@ -44,7 +44,6 @@ def request_p2p_task(task):
     print(f"Sending task args: type={type(args)}, value={args}")
     args_cbor2 = cbor2.dumps(args)
     print(f"Sending task: {task_id}, args_cbor2 type: {type(args_cbor2)}, length: {len(args_cbor2)}")
-    print(f"Sending args_cbor2 hex: {args_cbor2.hex()}")
     return token.request_remote_task(task_id, task_method, args_cbor2)
 
 
@@ -55,14 +54,12 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
     if method != 'generate_image':
         return
     print(f"Received task: {task_id}, args_cbor2 type: {type(args_cbor2)}, length: {len(args_cbor2)}")
-    print(f"Received args_cbor2 hex: {args_cbor2.hex()}")
     args = cbor2.loads(args_cbor2)
     print(f"Received task args: type={type(args)}, value={args}")
     
     task = worker.AsyncTask(args=args, task_id=task_id)
     task.remote_task = True
-    print(f"Received remote task: {task.task_id}, method: {method}, args: {task.args}")
-
+    
     with model_management.interrupt_processing_mutex:
         model_management.interrupt_processing = False
 
@@ -71,7 +68,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
 
     worker.add_task(task)
     MAX_LOOP_NUM = worker.get_task_size()
-    print(f"task was pushed: qsize={MAX_LOOP_NUM}")
+    print(f"task was push: qsize={MAX_LOOP_NUM}")
     
     last_update_time = time.time()
     loop_num = 0
@@ -115,18 +112,18 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
 def call_remote_progress(task, number, text, img=None):
     task_id = task.task_id
     if img is not None:
-        img = ndarray_to_jpeg_bytes(img)
+        img = ndarray_to_webp_bytes(img)
     result = (number, text, img)
     result_cbor2 = cbor2.dumps(result)
     task_method = 'remote_progress'
     print(f"call_remote_progress: task_id={task_id}, number={number}, text={text}, img={len(img) if img else 0}")
-    print(f"call_remote_progress: result_cbor2 type={type(result_cbor2)}, length={len(result_cbor2)} hex={result_cbor2.hex()}")
+    print(f"call_remote_progress: result_cbor2 type={type(result_cbor2)}, length={len(result_cbor2)}")
     return token.response_remote_task(task_id, task_method, result_cbor2)
 
 def call_remote_result(task, imgs, progressbar_index, black_out_nsfw, censor=True, do_not_show_finished_images=False):
     task_id = task.task_id
     if imgs is not None:
-        imgs = [ndarray_to_jpeg_bytes(img) for img in imgs]
+        imgs = [ndarray_to_webp_bytes(img) for img in imgs]
     result = (imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images)
     result_cbor2 = cbor2.dumps(result)
     task_method = 'remote_result'
@@ -134,8 +131,6 @@ def call_remote_result(task, imgs, progressbar_index, black_out_nsfw, censor=Tru
 
 def call_remote_save_and_log(task, img, log_item):
     task_id = task.task_id
-    if img is not None:
-        img = ndarray_to_jpeg_bytes(img)
     result = (img, log_item)
     result_cbor2 = cbor2.dumps(result)
     task_method = 'remote_save_and_log'
@@ -156,17 +151,15 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
         if method == 'remote_progress':
             percent, text, img = cbor2.loads(result_cbor2)
             if img is not None:
-                img = jpeg_bytes_to_ndarray(img)
+                img = webp_bytes_to_ndarray(img)
             callback_progress(task, percent, text, img)
         elif method =='remote_result':
             imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images = cbor2.loads(result_cbor2)
             if imgs is not None:
-                imgs = [jpeg_bytes_to_ndarray(img) for img in imgs]
+                imgs = [webp_bytes_to_ndarray(img) for img in imgs]
             callback_result(task, imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images)
         elif method =='remote_save_and_log':
             img, log_item = cbor2.loads(result_cbor2)
-            if img is not None:
-                img = jpeg_bytes_to_ndarray(img)
             callback_save_and_log(task, img, log_item)
         elif method =='remote_stop':
             processing_start_time, status = cbor2.loads(result_cbor2)
@@ -174,7 +167,7 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             del pending_tasks[task_id]
 
 
-def ndarray_to_jpeg_bytes(image: np.ndarray, quality: int = 95) -> bytes:
+def ndarray_to_webp_bytes(image: np.ndarray, lossless: bool = False) -> bytes:
     if not isinstance(image, np.ndarray):
         raise TypeError("Input must be a numpy.ndarray.")
     if image.dtype != np.uint8:
@@ -182,11 +175,10 @@ def ndarray_to_jpeg_bytes(image: np.ndarray, quality: int = 95) -> bytes:
 
     pil_image = Image.fromarray(image)
     buffer = io.BytesIO()
-    pil_image.save(buffer, format="JPEG", quality=quality)
-    return buffer.getvalue()  # 返回字节数据
+    pil_image.save(buffer, format="WEBP", quality=95, lossless=lossless)
+    return buffer.getvalue()
 
-def jpeg_bytes_to_ndarray(jpeg_bytes: bytes) -> np.ndarray:
-    if not isinstance(jpeg_bytes, bytes):
+def webp_bytes_to_ndarray(webp_bytes: bytes) -> np.ndarray:
+    if not isinstance(webp_bytes, bytes):
         raise TypeError("Input must be bytes.")
-
-    return np.array(Image.open(io.BytesIO(jpeg_bytes)))  
+    return np.array(Image.open(io.BytesIO(webp_bytes)))  
