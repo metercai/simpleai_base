@@ -477,7 +477,6 @@ impl EventHandler for Handler {
                                         py_bytes,
                                     ))?
                                     .extract()?;
-                                println!("call request_by_p2p_task success: {:?}", result.clone());
                                 Ok(result)
                             });
                             results.unwrap_or_else(|e| {
