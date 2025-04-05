@@ -482,7 +482,6 @@ async fn handle_p2p_request(
 async fn handle_p2p_response(
     body: Bytes,
 ) -> Result<impl Reply, Rejection> {
-    println!("in handle_p2p_response");
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
         let res = p2p.response_task(body).await;

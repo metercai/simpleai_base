@@ -363,7 +363,7 @@ impl P2p {
             .chars()
             .skip(target_peer_id.len() - 7)
             .collect::<String>();
-        tracing::info!(
+        tracing::debug!(
             "📣 >>>> Outbound request: {} send {} byte to {} with {} at {}",
             short_id,
             message.len(),
@@ -421,7 +421,7 @@ impl EventHandler for Handler {
                     tracing::warn!("请求的user_did不正确");
                     return Ok("user_did错误".as_bytes().to_vec());
                 }
-                tracing::info!("📣 <<<< Inbound REQUEST: method={}, task_id={}, task_method={}", request.method, request.task_id, request.task_method);
+                tracing::debug!("📣 <<<< Inbound REQUEST: method={}, task_id={}, task_method={}", request.method, request.task_id, request.task_method);
                 match request.method.as_str() {
                     "get_claim" => {
                         let response =
