@@ -306,7 +306,6 @@ impl P2p {
     }
 
     pub async fn request_task(&self, body: Bytes) -> String {
-        println!("in request_task");
         match serde_cbor::from_slice::<P2pRequest>(body.to_vec().as_slice()) {
             Ok(request) => self.request(request.target_did, body).await,
             Err(e) => {
@@ -317,7 +316,6 @@ impl P2p {
     }
 
     pub async fn response_task(&self, body: Bytes) -> String {
-        println!("in response_task");
         match serde_cbor::from_slice::<P2pRequest>(body.to_vec().as_slice()) {
             Ok(request) => {
                 let target_did = self
@@ -475,7 +473,7 @@ impl EventHandler for Handler {
                                     .getattr("call_request_by_p2p_task")?
                                     .call1((
                                         request.task_id,
-                                        request.task_method,
+                                        request.task_method.clone(),
                                         py_bytes,
                                     ))?
                                     .extract()?;
@@ -483,7 +481,7 @@ impl EventHandler for Handler {
                                 Ok(result)
                             });
                             results.unwrap_or_else(|e| {
-                                tracing::error!("Python调用失败: {:?}", e);
+                                tracing::error!("call_request {} 调用失败: {:?}", request.task_method, e);
                                 "error".to_string()
                             })
                         } else {
@@ -509,14 +507,14 @@ impl EventHandler for Handler {
                                     .getattr("call_response_by_p2p_task")?
                                     .call1((
                                         request.task_id,
-                                        request.task_method,
+                                        request.task_method.clone(),
                                         py_bytes,
                                     ))?
                                     .extract()?;
                                 Ok(result)
                             });
                             results.unwrap_or_else(|e| {
-                                tracing::error!("Python调用失败: {:?}", e);
+                                tracing::error!("call_response {} 调用失败: {:?}", request.task_method, e);
                                 "error".to_string()
                             })
                         };

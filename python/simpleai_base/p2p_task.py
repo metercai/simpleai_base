@@ -29,7 +29,7 @@ def init_p2p_task(_worker, _model_management, _token):
 def gc_p2p_task():
     global pending_tasks, TASK_MAX_TIMEOUT
     for task_id in list(pending_tasks.keys()):
-        task, start_time = pending_tasks[task_id]
+        task, task_method, start_time = pending_tasks[task_id]
         if (datetime.now() - start_time).total_seconds() > TASK_MAX_TIMEOUT:
             del pending_tasks[task_id]
 
@@ -38,10 +38,11 @@ def request_p2p_task(task):
     global pending_tasks, token
     
     task_id = task.task_id
-    pending_tasks[task_id] = (task, datetime.now())
     task_method = 'generate_image'
+    pending_tasks[task_id] = (task, task_method, datetime.now())
+    print(f"generate_image task was push to pending_tasks: {pending_tasks[task_id]}")
     args = vars(task)["args"]
-    print(f"Sending task args: type={type(args)}, value={args}")
+    #print(f"Sending task args: type={type(args)}, value={args}")
     args_cbor2 = cbor2.dumps(args)
     print(f"Sending task: {task_id}, args_cbor2 type: {type(args_cbor2)}, length: {len(args_cbor2)}")
     return token.request_remote_task(task_id, task_method, args_cbor2)
@@ -76,8 +77,6 @@ def call_remote_progress(task, number, text, img=None):
     result = (number, text, img)
     result_cbor2 = cbor2.dumps(result)
     task_method = 'remote_progress'
-    print(f"call_remote_progress: task_id={task_id}, number={number}, text={text}, img={len(img) if img else 0}")
-    print(f"call_remote_progress: result_cbor2 type={type(result_cbor2)}, length={len(result_cbor2)}")
     return token.response_remote_task(task_id, task_method, result_cbor2)
 
 def call_remote_result(task, imgs, progressbar_index, black_out_nsfw, censor=True, do_not_show_finished_images=False):
@@ -108,7 +107,8 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
 
     result = 'ok'
     if task_id in pending_tasks:
-        task, start_time = pending_tasks[task_id]
+        task, task_method, start_time = pending_tasks[task_id]
+        print(f"call_response: method={method}, task_id={task_id}")
         if method == 'remote_progress':
             percent, text, img = cbor2.loads(result_cbor2)
             if img is not None:
