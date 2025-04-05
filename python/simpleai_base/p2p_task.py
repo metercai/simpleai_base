@@ -1,6 +1,9 @@
 import time
 import cbor2
 from datetime import datetime
+import numpy as np
+from PIL import Image
+import io
 
 pending_tasks = {}
 TASK_MAX_TIMEOUT = 1800

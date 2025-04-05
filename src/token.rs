@@ -301,6 +301,7 @@ impl SimpleAI {
                     "".to_string()
                 });
         if !result.is_empty() {
+            println!("{} [P2pNode] p2p_status: node_id={}", token_utils::now_string(), result);
             self.set_node_id(&result);
         } 
         "P2P 服务启动成功".to_string()
