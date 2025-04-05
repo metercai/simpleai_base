@@ -657,7 +657,7 @@ async fn request(client: Client, interval: u64) {
                 "Hello {}, request from {} at {}!",
                 target_id, short_id, now_time
             );
-            tracing::info!("📣 >>>> Outbound request: {:?}", request);
+            tracing::debug!("📣 >>>> Outbound request: {:?}", request);
             let response = match client
                 .request(target, Bytes::from(request.as_bytes().to_vec()))
                 .await
@@ -669,7 +669,7 @@ async fn request(client: Client, interval: u64) {
                 }
             };
             let now_time2: DateTime<Local> = Local::now();
-            tracing::info!(
+            tracing::debug!(
                 "📣 <<<< Inbound response: Time({}) {:?}",
                 now_time2,
                 String::from_utf8_lossy(&response)
