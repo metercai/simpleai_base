@@ -477,7 +477,7 @@ impl EventHandler for Handler {
                         return Ok(response.as_bytes().to_vec());
                     }
                     "async_response" => {
-                        let response = {
+                        let response = if self.shared_data.is_p2p_out_dids(&from_peer_did) {
                             let results = Python::with_gil(|py| -> PyResult<String> {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
                                     .expect("No simpleai_base.p2p_task.");
@@ -497,6 +497,9 @@ impl EventHandler for Handler {
                                 tracing::error!("call_response {} 调用失败: {:?}", request.task_method, e);
                                 "error".to_string()
                             })
+                        } else {
+                            println!("Received async_response task from {}, but not allow.", from_peer_did);
+                            "error".to_string()
                         };
                         return Ok(response.as_bytes().to_vec());
                     }
