@@ -100,7 +100,6 @@ def call_remote_save_and_log(task, img, log_item):
 
 def call_remote_stop(task, processing_start_time, status='Finished'):
     task_id = task.task_id
-    processing_start_time = str(int(processing_start_time*1000))
     result = (processing_start_time, status)
     result_cbor2 = cbor2.dumps(result)
     task_method = 'remote_stop'
@@ -130,10 +129,6 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             callback_save_and_log(task, img, log_item)
         elif method =='remote_stop':
             processing_start_time, status = cbor2.loads(result_cbor2)
-            try:
-                processing_start_time = float(processing_start_time)/1000
-            except ValueError:
-                processing_start_time = 0.0
             logger.info(f"{method}: task_id={task_id}, {processing_start_time}, {status}")
             callback_stop(task, processing_start_time, status)
             del pending_tasks[task_id]
