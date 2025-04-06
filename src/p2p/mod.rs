@@ -445,24 +445,11 @@ impl EventHandler for Handler {
                         return Ok(response.as_bytes().to_vec());
                     }
                     "generate_image" => {
-                        println!(
-                            "generate_image: is_p2p_in_dids={}, from_peer={}",
-                            self.shared_data.is_p2p_in_dids(&from_peer_did),
-                            from_peer_did
-                        );
-
                         let response = if self.shared_data.is_p2p_in_dids(&from_peer_did) {
                             self.pending_task
                                 .lock()
                                 .unwrap()
                                 .insert(request.task_id.clone(), from_peer_did.clone());
-
-                            println!(
-                                "{} [P2pNode] generate_image task({}) from {}",
-                                token_utils::now_string(),
-                                request.task_id.clone(),
-                                from_peer_did
-                            );
 
                             let results = Python::with_gil(|py| -> PyResult<String> {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
@@ -490,13 +477,6 @@ impl EventHandler for Handler {
                     }
                     "async_response" => {
                         let response = {
-                            println!(
-                                "{} [P2pNode] async_response task({}) from {}",
-                                token_utils::now_string(),
-                                request.task_id.clone(),
-                                from_peer_did
-                            );
-
                             let results = Python::with_gil(|py| -> PyResult<String> {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
                                     .expect("No simpleai_base.p2p_task.");
