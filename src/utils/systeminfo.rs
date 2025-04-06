@@ -51,16 +51,18 @@ impl SystemBaseInfo {
         let (mut gpu_brand, mut gpu_name, mut gpu_memory, mut driver, mut cuda) = get_gpu_info();
         if gpu_brand=="Unknown" || gpu_name=="reserve" || gpu_memory==0 {
             let ram_gpu_info = env_utils::get_ram_and_gpu_info();
-            let parts: Vec<&str> = ram_gpu_info.split(',').collect();
-            if parts.len()>=4 {
-                driver = parts[2].to_string();
-                cuda = parts[3].to_string();
-            }
-            if parts.len()>=8 {
-                gpu_brand = parts[4].to_string();
-                gpu_name = parts[5].to_string();
-                gpu_memory = parts[6].parse::<u64>().unwrap_or(0);
-            }
+            if ram_gpu_info!="Unknown" {
+                let parts: Vec<&str> = ram_gpu_info.split(',').collect();
+                if parts.len()>=4 {
+                    driver = parts[2].to_string();
+                    cuda = parts[3].to_string();
+                }
+                if parts.len()>=8 {
+                    gpu_brand = parts[4].to_string();
+                    gpu_name = parts[5].to_string();
+                    gpu_memory = parts[6].parse::<u64>().unwrap_or(0);
+                }
+            } 
         }
 
         let host_type = is_virtual_or_docker_or_physics();

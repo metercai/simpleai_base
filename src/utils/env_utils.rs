@@ -277,7 +277,13 @@ pub(crate) fn get_ram_and_gpu_info() -> String {
                 .call0()?.extract()?;
             Ok(result)
         });
-        let result = results.unwrap();
+        let result = match results {
+            Ok(r) => r,
+            Err(e) => {
+                debug!("Failed to get RAM and GPU info from Python: {:?}", e);
+                "Unknown".to_string()
+            }
+        };
         result
     }
 }
