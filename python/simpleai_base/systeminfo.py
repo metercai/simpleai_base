@@ -27,8 +27,11 @@ def get_ram_and_gpu_info():
     ram_memory = psutil.virtual_memory().total
     swap_memory = psutil.swap_memory().total
     if is_nvidia():
-        import pynvml
-        pynvml_available = True
+        try:
+            import pynvml
+            pynvml_available = True
+        except ImportError:
+            pynvml_available = False
     else:
         pynvml_available = False
     
