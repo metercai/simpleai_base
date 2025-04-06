@@ -5,6 +5,9 @@ import numpy as np
 from PIL import Image
 import io
 
+import logging
+logger = logging.getLogger(__name__)
+
 pending_tasks = {}
 TASK_MAX_TIMEOUT = 1800
 
@@ -40,11 +43,11 @@ def request_p2p_task(task):
     task_id = task.task_id
     task_method = 'generate_image'
     pending_tasks[task_id] = (task, task_method, datetime.now())
-    print(f"generate_image task was push to pending_tasks: {pending_tasks[task_id]}")
+    logger.info(f"Remote generate_image task was push to pending_tasks: {pending_tasks[task_id]}")
     args = vars(task)["args"]
     #print(f"Sending task args: type={type(args)}, value={args}")
     args_cbor2 = cbor2.dumps(args)
-    print(f"Sending task: {task_id}, length: {len(args_cbor2)}")
+    logger.info(f"Sending task to remote: {task_id}, length: {len(args_cbor2)}")
     return token.request_remote_task(task_id, task_method, args_cbor2)
 
 
@@ -54,7 +57,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
 
     if method != 'generate_image':
         return
-    print(f"Received task: {task_id}, length: {len(args_cbor2)}")
+    logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
     args = cbor2.loads(args_cbor2)
     #print(f"Received task args: type={type(args)}, value={args}")
     
@@ -66,7 +69,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
 
     worker.add_task(task)
     qsize = worker.get_task_size()
-    print(f"The generate_image task was push to worker queue and qsize={qsize}")
+    logger.info(f"The {method} task was push to worker queue and qsize={qsize}")
     return str(qsize)
 
 
@@ -112,7 +115,7 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             percent, text, img = cbor2.loads(result_cbor2)
             if img is not None:
                 img = webp_bytes_to_ndarray(img)
-                print(f"{method}: task_id={task_id}, {percent}, {text}")
+                logger.info(f"{method}: task_id={task_id}, {percent}, {text}")
             callback_progress(task, percent, text, img)
         elif method =='remote_result':
             imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images = cbor2.loads(result_cbor2)
@@ -122,13 +125,14 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             #print(f"response: method={method}, task_id={task_id}, image_num={len(imgs)}")
         elif method =='remote_save_and_log':
             img, log_item = cbor2.loads(result_cbor2)
+            logger.info(f"{method}, task_id={task_id}")
             callback_save_and_log(task, img, log_item)
-            print(f"{method}, task_id={task_id}")
         elif method =='remote_stop':
             processing_start_time, status = cbor2.loads(result_cbor2)
+            logger.info(f"{method}: task_id={task_id}, {processing_start_time}, {status}")
             callback_stop(task, processing_start_time, status)
             del pending_tasks[task_id]
-            print(f"{method}: task_id={task_id}, {processing_start_time}, {status}")
+            
     return result
 
 
