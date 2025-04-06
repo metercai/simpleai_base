@@ -348,10 +348,7 @@ impl MessageQueue {
         }
 
         // 内存中没有时从存储加载
-        let data_str =  self.user_vars.lock().unwrap_or_else(|e| {
-            debug!("Failed to lock user_vars: {:?}", e);
-            std::process::abort();
-        }).get_message_list(user_id);
+        let data_str =  self.user_vars.lock().unwrap().get_message_list(user_id);
         if !data_str.is_empty() {
             let mut lock = self.data.write().unwrap();
                 // 双重检查避免重复插入
