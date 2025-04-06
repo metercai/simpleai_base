@@ -43,7 +43,7 @@ def request_p2p_task(task):
     task_id = task.task_id
     task_method = 'generate_image'
     pending_tasks[task_id] = (task, task_method, datetime.now())
-    logger.info(f"Remote generate_image task was push to pending_tasks: {pending_tasks[task_id]}")
+    logger.info(f"Remote generate_image task was push to pending_tasks: {task_id}")
     args = vars(task)["args"]
     #print(f"Sending task args: type={type(args)}, value={args}")
     args_cbor2 = cbor2.dumps(args)
