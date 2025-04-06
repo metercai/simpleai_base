@@ -44,6 +44,7 @@ class AsyncTaskWorker(threading.Thread):
             if task.method == 'minicpm_inference':
                 task.processing = True
                 (image, prompt, max_tokens, temperature, top_p, top_k, repetition_penalty, seed) = task.args
+                image = webp_bytes_to_ndarray(image)
                 result = minicpm.inference_local(image, prompt, max_tokens, temperature, top_p, top_k, repetition_penalty, seed)
                 task.results.append(result)
                 
