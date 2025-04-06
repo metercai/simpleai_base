@@ -66,7 +66,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
 
     worker.add_task(task)
     qsize = worker.get_task_size()
-    print(f"generate_image task was push to worker queue and qsize={qsize}")
+    print(f"The generate_image task was push to worker queue and qsize={qsize}")
     return str(qsize)
 
 
@@ -112,23 +112,23 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             percent, text, img = cbor2.loads(result_cbor2)
             if img is not None:
                 img = webp_bytes_to_ndarray(img)
+                print(f"{method}: task_id={task_id}, {percent}, {text}")
             callback_progress(task, percent, text, img)
-            print(f"response: method={method}, task_id={task_id}, {percent}, {text}")
         elif method =='remote_result':
             imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images = cbor2.loads(result_cbor2)
             if imgs is not None:
                 imgs = [webp_bytes_to_ndarray(img) for img in imgs]
             callback_result(task, imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images)
-            print(f"response: method={method}, task_id={task_id}, image_num={len(imgs)}, fist_image_size={len(imgs[0])}")
+            #print(f"response: method={method}, task_id={task_id}, image_num={len(imgs)}")
         elif method =='remote_save_and_log':
             img, log_item = cbor2.loads(result_cbor2)
             callback_save_and_log(task, img, log_item)
-            print(f"response: method={method}, task_id={task_id}, image_size={len(img)}")
+            print(f"{method}, task_id={task_id}")
         elif method =='remote_stop':
             processing_start_time, status = cbor2.loads(result_cbor2)
             callback_stop(task, processing_start_time, status)
             del pending_tasks[task_id]
-            print(f"response: method={method}, task_id={task_id}")
+            print(f"{method}: task_id={task_id}, {processing_start_time}, {status}")
     return result
 
 

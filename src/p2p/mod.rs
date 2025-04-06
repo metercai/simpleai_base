@@ -471,6 +471,7 @@ impl EventHandler for Handler {
                                 "error".to_string()
                             })
                         } else {
+                            println!("Received generate_image task from {}, but not allow.", from_peer_did);
                             "error".to_string()
                         };
                         return Ok(response.as_bytes().to_vec());
