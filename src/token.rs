@@ -7,11 +7,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::path::{Path, PathBuf};
 use chrono::format;
 use prometheus_client::metrics::info;
+use serde::de;
 use serde_json::{self, json};
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tracing::{error, warn, info, debug, trace};
+use tracing_subscriber::field::debug;
 use tracing_subscriber::EnvFilter;
 use qrcode::{QrCode, Version, EcLevel};
 use qrcode::render::svg;
@@ -1426,6 +1428,10 @@ impl SimpleAI {
     }
     
     pub fn get_claim(&self, for_did: &str) -> IdClaim {
+        if for_did.is_empty() {
+            debug!("get_claim in token, for_did is empty"); 
+            return IdClaim::default()
+        }
         self.didtoken.lock().unwrap().get_claim(for_did)
     }
 
@@ -1464,7 +1470,7 @@ impl SimpleAI {
     }
 }
 
-async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
+pub(crate) async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
     debug!("[Upstream] request: {}{} with params: {}, sys={}, dev={}, ver={}", upstream_url, api_name, encoded_params, sys_did, dev_did, TOKEN_API_VERSION);
     let response = match dids::REQWEST_CLIENT
         .post(format!("{}{}", upstream_url, api_name))
@@ -1552,6 +1558,8 @@ async fn submit_uncompleted_request_files(upstream_url: &str, sys_did: &str, dev
         }
     }
 }
+
+
 fn extract_method_from_filename(file_name: &str) -> Option<String> {
     let re = regex::Regex::new(r"^(.+?)_([a-zA-Z0-9]{29})_uncompleted\.json$").unwrap();
     if let Some(captures) = re.captures(file_name) {

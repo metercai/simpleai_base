@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime};
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
+use serde::de;
 use tokio::runtime::Runtime;
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -376,6 +377,10 @@ impl DidToken {
     }
 
     pub fn get_claim(&self, for_did: &str) -> IdClaim {
+        if for_did.is_empty() {
+            debug!("get_claim in Didtoken: for_did is empty");
+            return IdClaim::default();
+        }
         let mut claims = self.claims.lock().unwrap();
         if self.admin == TOKEN_ENTRYPOINT_DID {
             claims.get_claim_from_local(for_did)
@@ -463,9 +468,9 @@ pub(crate) fn get_system_vars() -> (String, String, String, String, String, Stri
     let host_name = sysinfo.host_name.clone();
     let root_name = sysinfo.root_name.clone();
 
-    let (_, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
+    let (dev_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
     let (sys_hash_id, system_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
-    let guest_name = format!("guest_{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
+    let guest_name = format!("guest_{}", &dev_hash_id[..4]).chars().take(24).collect::<String>();
     let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
     let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
     

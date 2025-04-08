@@ -116,7 +116,7 @@ impl GlobalLocalVars {
                 _ => "Default".to_string()
             }
         };
-        if local_key.starts_with("admin_") && value != "Default"{
+        if local_key.starts_with("admin_") && value != "Default" && !local_did.is_empty(){
             value = self.didtoken.lock().unwrap().decrypt_by_did(&value, &local_did, 0);
         }
         if value == "Default" || value == "Unknown" {

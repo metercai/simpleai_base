@@ -39,6 +39,10 @@ impl GlobalClaims {
     }
 
     pub fn get_claim(&mut self, for_did: &str) -> IdClaim {
+        if for_did.is_empty() {
+            debug!("get_claim for_did is empty");
+            return IdClaim::default();
+        }
         let mut claim = self.local_claims.get_claim_from_local(for_did.clone());
         if claim.is_default() {
             claim = GlobalClaims::get_claim_from_DHT(for_did);
@@ -63,12 +67,12 @@ impl GlobalClaims {
             Ok(claim_json) => match serde_json::from_str::<IdClaim>(&claim_json) {
                 Ok(parsed_claim) => parsed_claim,
                 Err(err) => {
-                    debug!("解析claim JSON失败: {:?}", err);
+                    debug!("解析claim({}) JSON失败: {:?}", for_did, err);
                     IdClaim::default()
                 }
             },
             Err(err) => {
-                debug!("从全局获取claim失败: {:?}", err);
+                debug!("从全局获取 claim({}) 失败: {:?}", for_did, err);
                 IdClaim::default()
             }
         };

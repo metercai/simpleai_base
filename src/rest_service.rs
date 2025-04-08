@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::{debug, info, error};
 use bytes::Bytes;
@@ -15,6 +16,7 @@ use crate::user::TokenUser;
 use crate::user::shared;
 use crate::user::user_vars::GlobalLocalVars;
 use crate::p2p;
+use crate::token;
 
 
 pub const API_HOST: &str = "http://127.0.0.1:4515/api";
@@ -257,6 +259,33 @@ async fn handle_get_claim(
                 info!("get did({}) claim from DHT.", did_clone);
             }
             
+            if !claim.is_default() {
+                let mut claims = claims.lock().unwrap();
+                claims.push_claim_to_local(&claim);
+            }
+        } else {
+            debug!("p2p is not ready");
+            let (sys_did, device_did) = {
+                let claims = claims.lock().unwrap();
+                (claims.local_claims.get_system_did(), claims.local_claims.get_device_did())
+            };
+            let api_name = "get_use_claim";
+            let mut request: serde_json::Value = json!({});
+            request["user_symbol"] = serde_json::to_value("").unwrap();
+            request["user_did"] = serde_json::to_value(req.did).unwrap();
+            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+            let result = {
+                let upstream_did = DidToken::instance().lock().unwrap().get_upstream_did();
+                let entry_point = TokenUser::instance().lock().unwrap().get_did_entry_point( &upstream_did);
+                let encoded_params = DidToken::instance().lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did ,0);
+                debug!("[UpstreamClient] sys({}),dev({}) request {}/api_{} with params: {}", sys_did, device_did, entry_point, api_name, params);
+                token::request_token_api_async(&entry_point, &sys_did, &device_did, api_name, &encoded_params).await    
+            };
+            claim = if result != "Unknown" {
+                serde_json::from_str(&result).unwrap_or(IdClaim::default())
+            } else {
+                IdClaim::default()
+            };
             if !claim.is_default() {
                 let mut claims = claims.lock().unwrap();
                 claims.push_claim_to_local(&claim);
