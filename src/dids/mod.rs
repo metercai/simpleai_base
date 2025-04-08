@@ -473,7 +473,7 @@ pub(crate) fn get_system_vars() -> (String, String, String, String, String, Stri
     if system_name.len() > 18 {
         system_name = system_name[..18].to_string();
     }
-    system_name = token_utils::truncate_nickname(&format!("{}_{}",  system_name, &disk_uuid[..4]));
+    system_name = token_utils::truncate_nickname(&format!("{}_{}",  system_name, &token_utils::calc_sha256(root_dir.as_bytes()).to_base58()[..4]));
     let device_name = token_utils::truncate_nickname(&host_name);
     (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
 }

@@ -469,7 +469,7 @@ pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32])
     if system_name.len() > 18 {
         system_name = system_name[..18].to_string();
     }
-    system_name = truncate_nickname(&format!("{}_{}",  system_name, &sysinfo.disk_uuid[..4]));
+    system_name = truncate_nickname(&format!("{}_{}",  system_name, &calc_sha256(sysinfo.root_dir.as_bytes()).to_base58()[..4]));
     
     let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
     let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
