@@ -34,6 +34,7 @@ use crate::utils::systeminfo::SystemBaseInfo;
 use crate::utils::error::TokenError;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::dids::claims;
+use crate::dids;
 use crate::issue_key;
 use crate::exchange_key;
 
@@ -47,7 +48,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
-    static ref SYSTEM_KEYS: Arc<Mutex<SystemKeys>> = Arc::new(Mutex::new(SystemKeys::new()));
+    static ref SYSTEM_KEYS: Arc<RwLock<SystemKeys>> = Arc::new(RwLock::new(SystemKeys::new()));
 }
 
 
@@ -78,17 +79,17 @@ impl SystemKeys {
             file_crypt_key,
         }
     }
-    pub fn instance() -> Arc<Mutex<SystemKeys>> {
+    pub fn instance() -> Arc<RwLock<SystemKeys>> {
         SYSTEM_KEYS.clone()
     }
 
-    pub fn get_file_crypt_key(&mut self) -> [u8; 32] {
+    pub fn get_file_crypt_key(&self) -> [u8; 32] {
         self.file_crypt_key
     }
-    pub fn get_device_key(&mut self) -> [u8; 32] {
+    pub fn get_device_key(&self) -> [u8; 32] {
         self.device_key
     }
-    pub fn get_system_key(&mut self) -> [u8; 32] {
+    pub fn get_system_key(&self) -> [u8; 32] {
         self.system_key
     }
 }
@@ -266,7 +267,6 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
                                               -> String {
     let token_file = get_path_in_sys_key_dir(&format!("authorized2system_{}.token", sys_did));
     let crypt_key = get_token_crypt_key();
-
     let admin_did = match token_file.exists() {
         true => {
             let token_raw_data = match fs::read(token_file) {
@@ -465,8 +465,14 @@ pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
 
 pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {
     let sysinfo = &SYSTEM_BASE_INFO;
+    let mut system_name = sysinfo.root_name.clone();
+    if system_name.len() > 18 {
+        system_name = system_name[..18].to_string();
+    }
+    system_name = truncate_nickname(&format!("{}_{}",  system_name, &sysinfo.disk_uuid[..4]));
+    
     let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
-    let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.root_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
+    let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
     match key_type {
         "Device" => {
             _get_key_hash_id_and_phrase(&device_symbol_hash.to_vec(), 0)
@@ -786,7 +792,7 @@ pub(crate) fn check_entry_point_of_service(entry_point: &str) -> bool { // å¸¦æœ
 pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str, regen: bool, through: bool) -> [u8; 32] {
     if !through && (key_type == "Device" || key_type == "System"){
         let keys =SystemKeys::instance();
-        let mut keys =keys.lock().unwrap();
+        let mut keys =keys.read().unwrap();
         if key_type == "Device" {
             return keys.get_device_key();
         } else if key_type == "System" {
@@ -800,10 +806,9 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
     let device_phrase = format!("{}/{}/{}/{}/{}/{}/{}/{}", sysinfo.host_name, sysinfo.disk_uuid,
                                 sysinfo.os_name, sysinfo.os_type, sysinfo.cpu_brand, sysinfo.cpu_cores,
                                 sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
-    debug!("read_key_or_generate_key: file={}", device_key_file.display());
     let device_key = if through && (key_type == "Device" || key_type == "System") {
         _read_key_or_generate_key(device_key_file.as_path(), device_phrase.as_str(), regen, through)
-    } else { SystemKeys::instance().lock().unwrap().get_device_key() };
+    } else { SystemKeys::instance().read().unwrap().get_device_key() };
     let system_key = match key_type {
         "System" | "User" => {
             let (sys_hash_id, sys_phrase) = get_key_hash_id_and_phrase("System", symbol_hash);
@@ -816,7 +821,7 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
                                       local_phrase, sys_phrase);
             if through && key_type == "System" {
                 _read_key_or_generate_key(system_key_file.as_path(), phrase_text.as_str(), regen, through)
-            } else { SystemKeys::instance().lock().unwrap().get_system_key() }
+            } else { SystemKeys::instance().read().unwrap().get_system_key() }
         },
         _ => device_key
     };
@@ -853,7 +858,7 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, throug
                 if let Some(file_name) = file_path.file_name() {
                     let file_name_str = file_name.to_string_lossy();
                     let keys =SystemKeys::instance();
-                    let mut keys =keys.lock().unwrap();
+                    let mut keys =keys.read().unwrap();
                     if file_name_str.contains("device") {
                         priv_key = keys.get_device_key()
                     } else if file_name_str.contains("system") {
@@ -992,7 +997,7 @@ pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], Token
 
 fn get_token_crypt_key() -> [u8; 32] {
     let keys =SystemKeys::instance();
-    let mut keys =keys.lock().unwrap();
+    let mut keys =keys.read().unwrap();
     keys.get_file_crypt_key()
 }
 

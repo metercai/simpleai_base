@@ -106,17 +106,18 @@ impl DidToken {
         let seld_db: sled::Db = config.open().expect("Failed to open token database");
         let token_db = Arc::new(Mutex::new(seld_db));
 
-        let systemskeys = token_utils::SystemKeys::instance();
+        let file_crypt_key = {
+            let systemskeys = token_utils::SystemKeys::instance();
+            let mut systemskeys = systemskeys.read().unwrap();
+            systemskeys.get_file_crypt_key()
+        };
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
             let mut claims = claims.lock().unwrap();
             claims.local_claims.get_sys_dev_guest_did()
         };
-
         let mut crypt_secrets = HashMap::new();
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
-
-        debug!("get admin and blacklist: admin={}", admin);
 
         let crypt_secrets_len = crypt_secrets.len();
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
@@ -151,7 +152,7 @@ impl DidToken {
         };
 
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
-        info!("admin_did: {}, upstream_did: {}", admin, upstream_did);
+        debug!("admin_did: {}, upstream_did: {}", admin, upstream_did);
         
         Self {
             did: local_did,
@@ -251,9 +252,9 @@ impl DidToken {
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-                        println!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
+                        debug!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
                             token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo);
-                        println!("cert_secret_key:{}, cert_text:{}, sig:{}", URL_SAFE_NO_PAD.encode(cert_secret), cert_text, sig);
+                        debug!("cert_secret_key:{}, cert_text:{}, sig:{}", URL_SAFE_NO_PAD.encode(cert_secret), cert_text, sig);
                         if for_sys_did == self.did {
                             return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
                         } else {
@@ -444,7 +445,7 @@ impl DidToken {
         let text = format!("{}|{}|{}|{}|{}|{}", self.get_sys_did(), user_did, "Member", encrypt_item_key, memo_base64, timestamp);
         let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
         debug!("did({}), cert_str({}), sign_did({})", user_did, cert_str, claim.gen_did());
-        println!("text_system:{}, signature_str:{}, cert_verify_key:{}", text, signature_str, URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()));
+        debug!("text_system:{}, signature_str:{}, cert_verify_key:{}", text, signature_str, URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()));
         if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
             return true;
         }
@@ -467,7 +468,12 @@ pub(crate) fn get_system_vars() -> (String, String, String, String, String, Stri
     let guest_name = format!("guest_{}", &sys_hash_id[..4]).chars().take(24).collect::<String>();
     let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
     let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
-    let system_name = token_utils::truncate_nickname(&root_name);
+    
+    let mut system_name = root_name.clone();
+    if system_name.len() > 18 {
+        system_name = system_name[..18].to_string();
+    }
+    system_name = token_utils::truncate_nickname(&format!("{}_{}",  system_name, &disk_uuid[..4]));
     let device_name = token_utils::truncate_nickname(&host_name);
     (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
 }

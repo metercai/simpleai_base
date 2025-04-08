@@ -1466,37 +1466,46 @@ impl SimpleAI {
 
 async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
     debug!("[Upstream] request: {}{} with params: {}, sys={}, dev={}, ver={}", upstream_url, api_name, encoded_params, sys_did, dev_did, TOKEN_API_VERSION);
-    match dids::REQWEST_CLIENT.post(format!("{}{}", upstream_url, api_name))
+    let response = match dids::REQWEST_CLIENT
+        .post(format!("{}{}", upstream_url, api_name))
         .header("Sys-Did", sys_did.to_string())
         .header("Dev-Did", dev_did.to_string())
         .header("Version", TOKEN_API_VERSION.to_string())
         .body(encoded_params.to_string())
         .send()
-        .await{
-        Ok(res) => {
-            let status_code = res.status();
-            match res.text().await {
-                Ok(text) => {
-                    debug!("[Upstream] response: {}", text);
-                    if status_code.is_success() {
-                        let result = serde_json::from_str(&text).unwrap_or("".to_string());
-                        debug!("[Upstream] result: {}", result);
-                        result
-                    } else {
-                        debug!("status_code is unsuccessful: {},{}", status_code, text);
-                        format!("Unknown_{}", status_code).to_string()
-                    }
-                },
-                Err(e) => {
-                    debug!("Failed to read response body: {},{}", status_code,e);
-                    "Unknown".to_string()
-                }
-            }
-        },
+        .await
+    {
+        Ok(res) => res,
         Err(e) => {
-            info!("Failed to request token api: {} to {}{}, sys_did={}, dev_did={}", e, upstream_url, api_name, sys_did, dev_did);
-            "Unknown".to_string()
+            info!(
+                "Failed to send request: {} to {}{}, sys_did={}, dev_did={}",
+                e, upstream_url, api_name, sys_did, dev_did
+            );
+            return "Unknown".to_string();
         }
+    };
+
+    // 获取状态码
+    let status_code = response.status();
+
+    // 读取响应体
+    let text = match response.text().await {
+        Ok(text) => text,
+        Err(e) => {
+            info!("Failed to read response body: {},{}", status_code, e);
+            return "Unknown".to_string();
+        }
+    };
+
+    // 处理响应
+    debug!("[Upstream] response: {}", text);
+    if status_code.is_success() {
+        let result = serde_json::from_str(&text).unwrap_or("".to_string());
+        debug!("[Upstream] result: {}", result);
+        result
+    } else {
+        debug!("status_code is unsuccessful: {},{}", status_code, text);
+        format!("Unknown_{}", status_code).to_string()
     }
 }
 
