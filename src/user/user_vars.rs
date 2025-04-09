@@ -132,7 +132,7 @@ impl GlobalLocalVars {
             }
         };
         
-        println!("get_local_vars: did={local_did}, key={local_key}, raw_value={raw_value}");
+        debug!("get_local_vars: did={local_did}, key={local_key}, raw_value={raw_value}");
         // 3. 处理特殊值情况
         if raw_value == "Default" || raw_value == "Unknown" {
             return if is_admin_var {
