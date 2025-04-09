@@ -128,7 +128,7 @@ impl GlobalLocalVars {
             }
         };
         
-        debug!("get_local_vars: key={local_key}, raw_value={raw_value}");
+        println!("get_local_vars: key={local_key}, raw_value={raw_value}, is_admin_var={is_admin_var}");
         // 3. 处理特殊值情况
         if raw_value == "Default" || raw_value == "Unknown" {
             return if is_admin_var {
@@ -145,8 +145,26 @@ impl GlobalLocalVars {
             if local_did.is_empty() {
                 return "Unknown".to_string();
             }
-            return self.didtoken.lock().unwrap()
-                .decrypt_by_did(&raw_value, &local_did, 0);
+            let admin_value = self.didtoken.lock().unwrap().decrypt_by_did(&raw_value, &local_did, 0);
+            println!("admin_value: {}", admin_value);
+            if admin_value.is_empty() || admin_value == "Unknown"{
+                let global_local_vars = self.global_local_vars.write().unwrap();
+                match global_local_vars.remove(&local_key) {
+                    Ok(_) => {
+                        println!("成功删除变量: key={}", local_key);
+                    },
+                    Err(e) => {
+                        println!("删除变量失败: key={}, error={:?}", local_key, e);
+                    }
+                }
+                let admin_default = {
+                    let admin_key_prefix =  format!("admin_{}", self.sys_did);
+                    let default_key_name = key.trim_start_matches(admin_key_prefix.as_str());
+                    AdminDefault::instance().read().unwrap().get(default_key_name)
+                };
+                return admin_default;
+            }
+            return admin_value;
         }
     
         raw_value
