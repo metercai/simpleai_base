@@ -180,7 +180,8 @@ impl GlobalLocalVars {
             // 管理员变量需要加密
             let encrypted_value = self.didtoken.lock().unwrap()
                 .encrypt_for_did(&value.as_bytes(), &admin_did, 0);
-            let admin_key = format!("admin_{}_{}", self.sys_did, key);
+            let admin_key = key.trim_start_matches("admin_");
+            let admin_key = format!("admin_{}_{}", self.sys_did, admin_key);
             (admin_key.to_string(), encrypted_value)
         } else {
             // 普通用户变量
