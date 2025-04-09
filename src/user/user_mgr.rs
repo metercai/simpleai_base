@@ -457,16 +457,33 @@ impl MessageQueue {
     }
 
     pub fn get_messages(&self, user_id: &str, timestamp: u64) -> String {
-        self.load_user_data(user_id); // 确保加载最新数据
-        let lock = self.data.read().unwrap();
-        lock.get(user_id)
-            .map(|user_data| 
-                user_data.range(timestamp..)
-                    .map(|(ts, msg)| format!("({},{})", ts, msg))
-                    .collect::<Vec<_>>()
-                    .join("|")
-            )
-            .unwrap_or_default()
+        // 1. 加载数据并处理可能的错误
+        self.load_user_data(user_id);
+        
+        // 2. 获取数据锁
+        let lock = match self.data.read() {
+            Ok(guard) => guard,
+            Err(_) => return String::new(),
+        };
+    
+        // 3. 获取用户数据
+        let user_data = match lock.get(user_id) {
+            Some(data) => data,
+            None => return String::new(),
+        };
+    
+        // 4. 预分配字符串缓冲区
+        let mut result = String::with_capacity(user_data.len() * 32); // 预估平均每条消息32字节
+        
+        // 5. 构建结果字符串
+        for (i, (ts, msg)) in user_data.range(timestamp..).enumerate() {
+            if i > 0 {
+                result.push('|');
+            }
+            result.push_str(&format!("({},{})", ts, msg));
+        }
+    
+        result
     }
 
     /// 获取最新消息的时间戳（返回Option确保空队列安全）
