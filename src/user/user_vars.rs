@@ -132,7 +132,7 @@ impl GlobalLocalVars {
         // 3. 处理特殊值情况
         if raw_value == "Default" || raw_value == "Unknown" {
             return if is_admin_var {
-                let admin_key_prefix =  format!("admin_{}", self.sys_did);
+                let admin_key_prefix =  format!("admin_{}_", self.sys_did);
                 let default_key_name = key.trim_start_matches(admin_key_prefix.as_str());
                 let admin_default = AdminDefault::instance().read().unwrap().get(default_key_name);
                 println!("default_key_name: {}, admin_default: {}", default_key_name,  admin_default);
@@ -160,7 +160,7 @@ impl GlobalLocalVars {
                     }
                 }
                 let admin_default = {
-                    let admin_key_prefix =  format!("admin_{}", self.sys_did);
+                    let admin_key_prefix =  format!("admin_{}_", self.sys_did);
                     let default_key_name = key.trim_start_matches(admin_key_prefix.as_str());
                     AdminDefault::instance().read().unwrap().get(default_key_name)
                 };
