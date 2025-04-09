@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex, RwLock};
 use std::collections::HashMap;
+use chrono::format;
 use tracing::{error, warn, info, debug, trace};
+use warp::filters::body::form;
 
 use crate::dids::{self, DidToken, token_utils};
 use crate::user::TokenUser;
@@ -103,15 +105,9 @@ impl GlobalLocalVars {
     }
 
     pub(crate) fn get_local_admin_vars(&self, key: &str) -> String {
-        let admin_key = format!("admin_{}", key);
-        let (default, admin) = {
-            let admin_default = AdminDefault::instance();
-            let admin_default = admin_default.read().unwrap();
-            let default = admin_default.get(key);
-            let admin = self.get_admin_did();
-            (default, admin)
-        };
-        self.get_local_vars(&admin_key, &default, &admin)
+        let admin_key = format!("admin_{}_{}", self.sys_did, key);
+        let admin_did = self.get_admin_did();
+        self.get_local_vars(&admin_key, "default", &admin_did)
     }
 
     pub(crate) fn get_local_vars(&self, key: &str, default: &str, user_did: &str) -> String {
@@ -120,7 +116,7 @@ impl GlobalLocalVars {
         let (local_did, local_key) = if is_admin_var {
             (self.get_admin_did(), key.to_string())
         } else {
-            (user_did.to_string(), format!("{}_{}", user_did, key))
+            (user_did.to_string(), format!("{}_{}_{}", user_did, self.sys_did, key))
         };
     
         // 2. 从存储中获取原始值
@@ -132,12 +128,13 @@ impl GlobalLocalVars {
             }
         };
         
-        debug!("get_local_vars: did={local_did}, key={local_key}, raw_value={raw_value}");
+        debug!("get_local_vars: key={local_key}, raw_value={raw_value}");
         // 3. 处理特殊值情况
         if raw_value == "Default" || raw_value == "Unknown" {
             return if is_admin_var {
-                let default_key = key.trim_start_matches("admin_");
-                AdminDefault::instance().read().unwrap().get(default_key)
+                let admin_key_prefix =  format!("admin_{}", self.sys_did);
+                let default_key_name = key.trim_start_matches(admin_key_prefix.as_str());
+                AdminDefault::instance().read().unwrap().get(default_key_name)
             } else {
                 default.to_string()
             };
@@ -156,20 +153,36 @@ impl GlobalLocalVars {
     }
 
     pub(crate) fn set_local_vars(&mut self, key: &str, value: &str, user_did: &str) {
-        let admin = self.didtoken.lock().unwrap().get_admin_did();
-        let (local_key, local_value) = if key.starts_with("admin_") && admin == user_did  {
-            let encrypted_value = self.didtoken.lock().unwrap().encrypt_for_did(&value.as_bytes(), &admin, 0);
-            (key.to_string(), encrypted_value)
+        let is_admin_var = key.starts_with("admin_");
+        let admin_did = self.get_admin_did();
+        if is_admin_var && admin_did != user_did {
+            debug!("非管理员用户 {} 尝试设置管理员变量 {}", user_did, key);
+            return;
+        }
+        let (local_key, local_value) = if is_admin_var {
+            // 管理员变量需要加密
+            let encrypted_value = self.didtoken.lock().unwrap()
+                .encrypt_for_did(&value.as_bytes(), &admin_did, 0);
+            let admin_key = format!("admin_{}_{}", self.sys_did, key);
+            (admin_key.to_string(), encrypted_value)
         } else {
-            if key.starts_with("admin_") {
-                return;
-            }
-            (format!("{}_{}", user_did, key), value.to_string())
+            // 普通用户变量
+            (format!("{}_{}_{}", user_did, self.sys_did, key), value.to_string())
         };
 
-        let global_local_vars = self.global_local_vars.write().unwrap();
-        let ivec_data = sled::IVec::from(local_value.as_bytes());
-        let _ = global_local_vars.insert(&local_key, ivec_data);
+        match self.global_local_vars.write() {
+            Ok(mut global_local_vars) => {
+                let ivec_data = sled::IVec::from(local_value.as_bytes());
+                if let Err(e) = global_local_vars.insert(&local_key, ivec_data) {
+                    error!("插入变量失败: key={}, error={:?}", local_key, e);
+                } else {
+                    debug!("成功设置变量: key={}", local_key);
+                }
+            },
+            Err(e) => {
+                error!("获取global_local_vars写锁失败: {:?}", e);
+            }
+        }
     }
 
     pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_did: &str) {
