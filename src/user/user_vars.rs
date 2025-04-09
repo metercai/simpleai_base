@@ -64,44 +64,84 @@ impl GlobalLocalVars {
 
     pub fn get_global_vars(&self, key: &str, default: &str) -> String {
         let key = format!("global_{}", key);
-        let global_local_vars = self.global_local_vars.read().unwrap();
+        let global_local_vars = match self.global_local_vars.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                error!("获取全局变量读锁失败: key={}, error={:?}", key, e);
+                return default.to_string();
+            }
+        };
         match global_local_vars.get(&key) {
             Ok(Some(context)) => {
-                String::from_utf8(context.to_vec()).unwrap()
+                match String::from_utf8(context.to_vec()) {
+                    Ok(str) => str,
+                    Err(e) => {
+                        error!("全局变量UTF-8转换失败: key={}, error={:?}", key, e);
+                        default.to_string()
+                    }
+                }
             },
-            _ => default.to_string()
+            Ok(None) => {
+                debug!("未找到全局变量: key={}", key);
+                default.to_string()
+            },
+            Err(e) => {
+                error!("读取全局变量失败: key={}, error={:?}", key, e);
+                default.to_string()
+            }
         }
     }
 
     pub fn put_global_var(&mut self, key: &str, value: &str) {
         let key = format!("global_{}", key);
-        let global_local_vars = self.global_local_vars.write().unwrap();
+        let mut global_local_vars = match self.global_local_vars.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                error!("获取全局变量写锁失败: key={}, error={:?}", key, e);
+                return;
+            }
+        };
         let ivec_data = sled::IVec::from(value.as_bytes());
-        let _ = global_local_vars.insert(&key, ivec_data);
+        match global_local_vars.insert(&key, ivec_data) {
+            Ok(_) => debug!("成功设置全局变量: key={}", key),
+            Err(e) => error!("插入全局变量失败: key={}, error={:?}", key, e),
+        }
     }
 
     pub fn get_global_vars_json(&self) -> String {
         let prefix = "global_";
-        let mut global_vars: HashMap<String, String> = HashMap::new();
-        let global_local_vars = self.global_local_vars.write().unwrap();
+        let mut global_vars: HashMap<String, String> = HashMap::with_capacity(32);
+        let global_local_vars = match self.global_local_vars.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                error!("获取全局变量写锁失败: error={:?}", e);
+                return serde_json::to_string(&global_vars).unwrap_or_default();
+            }
+        };
         for result in global_local_vars.scan_prefix(prefix) {
             match result {
                 Ok((key, value)) => {
-                    if let (Ok(key_str), Ok(value_str)) = (
-                        std::str::from_utf8(&key).map(|s| s.to_string()),
-                        std::str::from_utf8(&value).map(|s| s.to_string()),
-                    ) {
-                        global_vars.insert(key_str, value_str);
-                    } else {
-                        eprintln!("Failed to convert key or value to UTF-8");
+                    match (std::str::from_utf8(&key), std::str::from_utf8(&value)) {
+                        (Ok(key_str), Ok(value_str)) => {
+                            global_vars.insert(key_str.to_string(), value_str.to_string());
+                        },
+                        _ => {
+                            error!("全局变量键值UTF-8转换失败");
+                        }
                     }
-                }
+                },
                 Err(e) => {
-                    eprintln!("Error reading key-value pair: {}", e);
+                    error!("读取全局变量键值对失败: error={:?}", e);
                 }
             }
         }
-        serde_json::to_string(&global_vars).unwrap()
+        match serde_json::to_string(&global_vars) {
+            Ok(json) => json,
+            Err(e) => {
+                error!("全局变量JSON序列化失败: error={:?}", e);
+                String::new()
+            }
+        }
     }
 
     pub(crate) fn get_local_admin_vars(&self, key: &str) -> String {
@@ -150,10 +190,10 @@ impl GlobalLocalVars {
                 let global_local_vars = self.global_local_vars.write().unwrap();
                 match global_local_vars.remove(&local_key) {
                     Ok(_) => {
-                        println!("成功删除变量: key={}", local_key);
+                        println!("删除了无法识别的系统变量: key={}", local_key);
                     },
                     Err(e) => {
-                        println!("删除变量失败: key={}, error={:?}", local_key, e);
+                        println!("删除无法识别的系统变量失败: key={}, error={:?}", local_key, e);
                     }
                 }
                 let admin_default = {
@@ -205,30 +245,70 @@ impl GlobalLocalVars {
     pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_did: &str) {
         let admin = self.didtoken.lock().unwrap().get_admin_did();
         let guest = self.guest_did.clone();
-        if admin == user_did {
-            let local_key = format!("{}_{}", guest, key);
-            let local_value = value.to_string();
-            let global_local_vars = self.global_local_vars.write().unwrap();
-            let ivec_data = sled::IVec::from(local_value.as_bytes());
-            let _ = global_local_vars.insert(&local_key, ivec_data);
+        if admin != user_did {
+            return;
+        }
+        let local_key = format!("{}_{}_{}", guest, self.sys_did, key);
+        let local_value = value.to_string();
+        match self.global_local_vars.write() {
+            Ok(mut global_local_vars) => {
+                let ivec_data = sled::IVec::from(local_value.as_bytes());
+                if let Err(e) = global_local_vars.insert(&local_key, ivec_data) {
+                    error!("插入访客变量失败: key={}, error={:?}", local_key, e);
+                } else {
+                    debug!("成功设置访客变量: key={}", local_key);
+                }
+            },
+            Err(e) => {
+                error!("获取global_local_vars写锁失败: {:?}", e);
+            }
         }
     }
 
     pub fn get_message_list(&self, user_did: &str) -> String {
-        let key = format!("msg_list_{}", user_did);
-        if let Ok(Some(data_str)) = self.global_local_vars.read().unwrap().get(&key) {
-            if let Ok(data_str) = String::from_utf8(data_str.to_vec()) {
-                return data_str;
+        let key = format!("msg_list_{}_{}", self.sys_did, user_did);
+        let lock = match self.global_local_vars.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                error!("获取消息列表读锁失败: user_did={}, error={:?}", user_did, e);
+                return String::new();
+            }
+        };
+        match lock.get(&key) {
+            Ok(Some(data_bytes)) => {
+                match String::from_utf8(data_bytes.to_vec()) {
+                    Ok(data_str) => data_str,
+                    Err(e) => {
+                        error!("消息列表UTF-8转换失败: user_did={}, error={:?}", user_did, e);
+                        String::new()
+                    }
+                }
+            },
+            Ok(None) => {
+                debug!("未找到消息列表: user_did={}", user_did);
+                String::new()
+            },
+            Err(e) => {
+                error!("读取消息列表失败: user_did={}, error={:?}", user_did, e);
+                String::new()
             }
         }
-        "".to_string()
     }
 
     pub fn set_message_list(&mut self, user_did: &str, message_list: &str) {
-        let key = format!("msg_list_{}", user_did);
-        let global_local_vars = self.global_local_vars.write().unwrap();
+        let key = format!("msg_list_{}_{}", self.sys_did, user_did);
+        let mut global_local_vars = match self.global_local_vars.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                error!("获取消息列表写锁失败: user_did={}, error={:?}", user_did, e);
+                return;
+            }
+        };
         let ivec_data = sled::IVec::from(message_list.as_bytes());
-        let _ = global_local_vars.insert(&key, ivec_data);
+        match global_local_vars.insert(&key, ivec_data) {
+            Ok(_) => debug!("成功设置消息列表: user_did={}", user_did),
+            Err(e) => error!("插入消息列表失败: user_did={}, error={:?}", user_did, e),
+        }
     }
     
 }
