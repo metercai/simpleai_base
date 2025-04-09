@@ -327,11 +327,11 @@ impl AsyncOnlineUsers {
 #[derive(Clone, Debug)]
 pub(crate) struct MessageQueue {
     data: Arc<std::sync::RwLock<HashMap<String, BTreeMap<u64, String>>>>,
-    user_vars: Arc<std::sync::Mutex<GlobalLocalVars>>,
+    user_vars: Arc<std::sync::RwLock<GlobalLocalVars>>,
 }
 
 impl MessageQueue {
-    pub fn new(user_vars: Arc<std::sync::Mutex<GlobalLocalVars>>) -> Self {
+    pub fn new(user_vars: Arc<std::sync::RwLock<GlobalLocalVars>>) -> Self {
         Self {
             data: Arc::new(std::sync::RwLock::new(HashMap::new())),
             user_vars,
@@ -348,7 +348,7 @@ impl MessageQueue {
         }
 
         // 内存中没有时从存储加载
-        let data_str =  self.user_vars.lock().unwrap().get_message_list(user_id);
+        let data_str =  self.user_vars.read().unwrap().get_message_list(user_id);
         if !data_str.is_empty() {
             let mut lock = self.data.write().unwrap();
                 // 双重检查避免重复插入
@@ -370,7 +370,7 @@ impl MessageQueue {
         };
 
         self.user_vars
-            .lock()
+            .write()
             .unwrap()
             .set_message_list(user_id, &data_str);
     }

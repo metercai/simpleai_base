@@ -56,7 +56,7 @@ pub struct SimpleAI {
     didtoken: Arc<Mutex<DidToken>>,
     tokenuser: Arc<Mutex<TokenUser>>,
     ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
-    global_local_vars: Arc<Mutex<GlobalLocalVars>>, //HashMap<global|admin|{did}_{key}, String>,
+    global_local_vars: Arc<RwLock<GlobalLocalVars>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
     last_timestamp: Arc<RwLock<u64>>,
     sid_did_map: Arc<Mutex<HashMap<String, String>>>,
@@ -151,7 +151,7 @@ impl SimpleAI {
 
     pub fn get_node_mode(&mut self) -> String {
         let system_did = self.get_sys_did();
-        let node_mode = self.global_local_vars.lock().unwrap().get_local_vars("node_mode_type", "online", &system_did);
+        let node_mode = self.global_local_vars.read().unwrap().get_local_vars("node_mode_type", "online", &system_did);
         {
             let mut didtoken = self.didtoken.lock().unwrap();
             didtoken.set_node_mode(&node_mode);
@@ -161,9 +161,9 @@ impl SimpleAI {
 
     pub fn set_node_mode(&mut self, mode: &str) {
         let system_did = self.get_sys_did();
-        let current_mode = self.global_local_vars.lock().unwrap().get_local_vars("node_mode_type", "online", &system_did);
+        let current_mode = self.global_local_vars.read().unwrap().get_local_vars("node_mode_type", "online", &system_did);
         if mode != current_mode.as_str() {
-            self.global_local_vars.lock().unwrap().set_local_vars("node_mode_type", mode, &self.get_sys_did());
+            self.global_local_vars.write().unwrap().set_local_vars("node_mode_type", mode, &self.get_sys_did());
             self.didtoken.lock().unwrap().set_node_mode(&mode);
         }
     }
@@ -176,6 +176,7 @@ impl SimpleAI {
         if !did.is_empty() {
             self.log_register(&did);
             self.didtoken.lock().unwrap().set_admin_did(did);
+            self.global_local_vars.write().unwrap().set_admin_did(did);
         }
     }
 
@@ -471,35 +472,35 @@ impl SimpleAI {
     }
 
     pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
-        self.global_local_vars.lock().unwrap().get_global_vars(key, default)
+        self.global_local_vars.read().unwrap().get_global_vars(key, default)
     }
 
     pub fn put_global_var(&mut self, key: &str, value: &str) {
-        self.global_local_vars.lock().unwrap().put_global_var(key, value)
+        self.global_local_vars.write().unwrap().put_global_var(key, value)
     }
 
     pub fn get_global_vars_json(&mut self) -> String {
-        self.global_local_vars.lock().unwrap().get_global_vars_json()
+        self.global_local_vars.read().unwrap().get_global_vars_json()
     }
 
     pub fn get_local_vars(&mut self, key: &str, default: &str, user_session: &str, ua_hash: &str) -> String {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        self.global_local_vars.lock().unwrap().get_local_vars(key, default, &user_did)
+        self.global_local_vars.read().unwrap().get_local_vars(key, default, &user_did)
     }
 
     pub fn get_local_admin_vars(&mut self, key: &str) -> String {
-        self.global_local_vars.lock().unwrap().get_local_admin_vars(key)
+        self.global_local_vars.read().unwrap().get_local_admin_vars(key)
     }
 
     pub fn set_local_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        self.global_local_vars.lock().unwrap().set_local_vars(key, value, &user_did)
+        self.global_local_vars.write().unwrap().set_local_vars(key, value, &user_did)
     }
 
     pub fn set_local_admin_vars(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
         if user_did == self.get_admin_did() {
-            self.global_local_vars.lock().unwrap().set_local_vars(&format!("admin_{}", key), value, &user_did);
+            self.global_local_vars.write().unwrap().set_local_vars(&format!("admin_{}", key), value, &user_did);
             if key == "p2p_in_did_list" {
                 self.shared_data.set_p2p_in_dids(&value);
             } else if key == "p2p_out_did_list"  {
@@ -510,7 +511,7 @@ impl SimpleAI {
 
     pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_session: &str, ua_hash: &str) {
         let user_did = self.check_sstoken_and_get_did(user_session, ua_hash);
-        self.global_local_vars.lock().unwrap().set_local_vars_for_guest(key, value, &user_did)
+        self.global_local_vars.write().unwrap().set_local_vars_for_guest(key, value, &user_did)
     }
 
 

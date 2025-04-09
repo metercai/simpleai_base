@@ -219,7 +219,7 @@ async fn handle_get_local_vars(
     req: GetLocalVarsRequest,
 ) -> Result<impl Reply, Rejection> {
     let global_local_vars = GlobalLocalVars::instance();
-    let mut global_local_vars = global_local_vars.lock().unwrap();
+    let mut global_local_vars = global_local_vars.read().unwrap();
     let value = global_local_vars.get_local_vars(&req.key, &req.default, &req.user_did);
     Ok(warp::reply::json(&ApiResponse {
         success: !value.is_empty(),
