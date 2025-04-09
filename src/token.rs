@@ -62,6 +62,7 @@ pub struct SimpleAI {
     sid_did_map: Arc<Mutex<HashMap<String, String>>>,
     shared_data: &'static SharedData,
     p2p_config: String,
+    p2p_is_running: bool,
 }
 
 #[pymethods]
@@ -122,6 +123,7 @@ impl SimpleAI {
             sid_did_map: Arc::new(Mutex::new(HashMap::new())),
             shared_data,
             p2p_config: DEFAULT_P2P_CONFIG.to_string(),
+            p2p_is_running: false,
         }
     }
 
@@ -306,7 +308,8 @@ impl SimpleAI {
         if !result.is_empty() {
             println!("{} [P2pNode] p2p_status: node_id={}", token_utils::now_string(), result);
             self.set_node_id(&result);
-        } 
+        }
+        self.p2p_is_running = true; 
         "P2P 服务启动成功".to_string()
     }
     
@@ -329,6 +332,7 @@ impl SimpleAI {
             });
             handle.abort();
             println!("{} [P2pNode] p2p server({}) has stopped.", token_utils::now_string(), self.get_sys_did());
+            self.p2p_is_running = false;
             "P2P 服务已停止".to_string()
         } else {
             "P2P 服务未运行".to_string()
@@ -447,7 +451,11 @@ impl SimpleAI {
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.online_users.log_access(did.to_string());
         self.shared_data.online_all.log_access(did.to_string());
-        let (domain_online_nodes, domain_online_users) = self.online_users.get_nodes_users();
+        let (domain_online_nodes, domain_online_users) = if self.p2p_is_running {
+            self.online_users.get_nodes_users()
+        } else {
+            (0, 0)
+        };
         (self.online_users.get_number(), domain_online_nodes, domain_online_users, self.shared_data.get_message_queue().get_msg_number(&self.get_sys_did()))
     }
 
