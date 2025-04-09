@@ -56,7 +56,7 @@ impl GlobalLocalVars {
     } */
 
     pub fn get_admin_did(&self) -> String {
-        self.sys_did.clone()
+        self.admin_did.clone()
     }
     pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
         self.admin_did = admin_did.to_string();
@@ -173,7 +173,7 @@ impl GlobalLocalVars {
         let is_admin_var = key.starts_with("admin_");
         let admin_did = self.get_admin_did();
         if is_admin_var && admin_did != user_did {
-            debug!("非管理员用户 {} 尝试设置管理员变量 {}", user_did, key);
+            println!("非管理员用户 {} 在尝试设置管理员变量 {}", user_did, key);
             return;
         }
         let (local_key, local_value) = if is_admin_var {
@@ -187,7 +187,6 @@ impl GlobalLocalVars {
             // 普通用户变量
             (format!("{}_{}_{}", user_did, self.sys_did, key), value.to_string())
         };
-
         match self.global_local_vars.write() {
             Ok(mut global_local_vars) => {
                 let ivec_data = sled::IVec::from(local_value.as_bytes());
