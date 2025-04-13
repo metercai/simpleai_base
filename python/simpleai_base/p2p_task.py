@@ -52,16 +52,6 @@ class AsyncTaskWorker(threading.Thread):
                 result_cbor2 = cbor2.dumps(result)
                 task_method = 'remote_minicpm'
                 token.response_remote_task(task_id, task_method, result_cbor2)
-            elif task.method =='remote_ping':
-                task.processing = True
-                message = f'received: {task.args}.'
-                result = message
-                print(f"Pong: message={message}, form={task.from_did}")
-
-                task_id = task.task_id
-                result_cbor2 = cbor2.dumps(result)
-                task_method = 'remote_pong'
-                token.response_remote_task(task_id, task_method, result_cbor2)
 
             task.processing = False
             task.finished = True
@@ -119,8 +109,6 @@ def request_p2p_task(task):
     
     task_id = task.task_id
     task_method = task.method #'generate_image'
-    pending_tasks[task_id] = (task, task_method, datetime.now())
-    logger.info(f"Remote {task_method} task was push to pending_tasks: {task_id}")
     if task_method=='generate_image':
         args = vars(task)["args"]
     else:
@@ -130,7 +118,11 @@ def request_p2p_task(task):
     else:
         target_did = None
     args_cbor2 = cbor2.dumps(args)
-    logger.info(f"Sending task to remote: {task_id}, length: {len(args_cbor2)}")
+    if task_method=='remote_ping':  # sync task 
+        return token.request_remote_task(task_id, task_method, args_cbor2, target_did)
+
+    pending_tasks[task_id] = (task, task_method, datetime.now())
+    logger.info(f"Sending {task_method} task to remote: {task_id}, length: {len(args_cbor2)}")
     return token.request_remote_task(task_id, task_method, args_cbor2, target_did)
 
 
@@ -159,11 +151,8 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
         return "0"
     elif method =='remote_ping':
         args = cbor2.loads(args_cbor2)
-        task = AsyncTask(method=method, args=args, task_id=task_id, from_did=from_did)
-        async_task_queue.put(task)
         logger.info(f"Pong {method} task: message={args}, form={from_did}")
-        return "0"
-
+        return f'received: {task.args}.'
 
 
 def call_remote_progress(task, number, text, img=None):
