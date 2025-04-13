@@ -358,6 +358,7 @@ impl P2p {
             now_time
         );
 
+        println!("request: {}", target_short_id);
         let response = match self.client.request(&target_peer_id, message).await {
             Ok(resp) => resp,
             Err(e) => {
@@ -365,6 +366,7 @@ impl P2p {
                 "Unknown".as_bytes().to_vec()
             }
         };
+        println!("response: {:?}", response);
         String::from_utf8_lossy(&response).to_string()
     }
 

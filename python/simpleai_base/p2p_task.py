@@ -89,7 +89,7 @@ class AsyncTask:
             start_time = time.time()
             while not self.finished:
                 if timeout is not None and time.time() - start_time > timeout:
-                    raise TimeoutError("Task did not finish within the specified({timeout}s) timeout.")
+                    raise TimeoutError(f"Task did not finish within the specified({timeout}s) timeout.")
                 time.sleep(0.1)
         return self.results
 

@@ -436,7 +436,12 @@ impl<E: EventHandler> Server<E> {
                 responder,
             } => self.handle_outbound_request(target, request, responder),
             Command::Broadcast { topic, message } => self.handle_outbound_broadcast(topic, message),
-            Command::GetStatus(responder) => responder.send(self.get_status()).unwrap(),
+            Command::GetStatus(responder) => {
+                let status = self.get_status();
+                if let Err(e) = responder.send(status) {
+                    tracing::error!("{} 无法发送节点状态信息: 接收方可能已关闭", token_utils::now_string());
+                }
+            },
             Command::GetKeyValue(key, responder) => self.handle_kad_get_key(key, responder).unwrap(),
             Command::SetKeyValue(key, value) => self.handle_kad_set_value(key, value),
             Command::Stop => self.stop_flag = true,
