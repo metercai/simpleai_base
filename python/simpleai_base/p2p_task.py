@@ -124,10 +124,13 @@ def request_p2p_task(task):
         args = vars(task)["args"]
     else:
         args = task.args
-    #print(f"Sending task args: type={type(args)}, value={args}")
+    if task_method=='remote_ping':
+        target_did = task.target_did
+    else:
+        target_did = None
     args_cbor2 = cbor2.dumps(args)
     logger.info(f"Sending task to remote: {task_id}, length: {len(args_cbor2)}")
-    return token.request_remote_task(task_id, task_method, args_cbor2, task.target_did)
+    return token.request_remote_task(task_id, task_method, args_cbor2, target_did)
 
 
 

@@ -450,20 +450,19 @@ impl SimpleAI {
 
     pub fn response_remote_task(&mut self, task_id: &str, task_method: &str, result: Vec<u8>) -> String {
         let p2p_in_did_list = self.get_local_admin_vars("p2p_in_did_list");
-        let (target_did, result_send) = if task_method == "remote_pong" {
-            ("".to_string(), result)
-        } else {
-            (p2p_in_did_list.clone(), result)
+        let target_did = match task_method {
+            "remote_pong" => String::new(),
+            _ => p2p_in_did_list.clone(),
         };
-        if task_method == "remote_pong" || self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" 
-            && IdClaim::validity(&p2p_in_did_list) {
+        if task_method == "remote_pong" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" 
+            && IdClaim::validity(&p2p_in_did_list)) {
             
             let response = P2pRequest {
                 target_did: target_did,
                 method: "async_response".to_string(),
                 task_id: task_id.to_string(),
                 task_method: task_method.to_string(),
-                task_args: result_send,
+                task_args: result,
             };
             
             let result = rest_service::request_api_cbor_sync(&format!("p2p_response/{}", task_id), Some(response.clone()))
