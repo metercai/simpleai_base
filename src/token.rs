@@ -414,35 +414,30 @@ impl SimpleAI {
         true
     }
 
-    pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>) -> String {
+    pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>, target_did: Option<String>) -> String {
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
-        let (target_did, args_send) = if task_method == "remote_ping" {
-            match serde_cbor::from_slice::<String>(args.as_slice()) {
-                Ok(msg) => {
-                    let target_did = msg.split(':').next().unwrap().to_string();
-                    let args = msg.split(':').skip(1).collect::<Vec<&str>>().join(":");
-                    let args = serde_cbor::to_vec(&args).unwrap();
-                    (target_did, args)
-                    }
-                Err(e) => {
-                    error!("request_remote_task({}) error: {}", p2p_out_did_list, e);
+        let target_did = if task_method == "remote_ping" {
+            match target_did {
+                Some(did) if !did.is_empty() && IdClaim::validity(&did) => did,
+                _ => {
+                    error!("request_remote_task({}) error: no target_did", task_id);
                     return "".to_string();
                 }
             }
         } else {
-            (p2p_out_did_list.clone(), args)
+            p2p_out_did_list.clone()
         };
         if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out" 
             && IdClaim::validity(&p2p_out_did_list)) {
             let request = P2pRequest {
-                target_did: target_did,
+                target_did: target_did.clone(),
                 method: "remote_process".to_string(),
                 task_id: task_id.to_string(),
                 task_method: task_method.to_string(),
-                task_args: args_send,
+                task_args: args,
             };
 
-            let result = rest_service::request_api_cbor_sync("p2p_request", Some(request))
+            let result = rest_service::request_api_cbor_sync(&format!("p2p_request/{}", target_did), Some(request))
                 .unwrap_or_else(|e| {
                     error!("request_remote_task({}) error: {}", p2p_out_did_list, e);
                     "".to_string()
@@ -455,18 +450,23 @@ impl SimpleAI {
 
     pub fn response_remote_task(&mut self, task_id: &str, task_method: &str, result: Vec<u8>) -> String {
         let p2p_in_did_list = self.get_local_admin_vars("p2p_in_did_list");
-        if self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" 
+        let (target_did, result_send) = if task_method == "remote_pong" {
+            ("".to_string(), result)
+        } else {
+            (p2p_in_did_list.clone(), result)
+        };
+        if task_method == "remote_pong" || self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" 
             && IdClaim::validity(&p2p_in_did_list) {
             
             let response = P2pRequest {
-                target_did: p2p_in_did_list.to_string(),
+                target_did: target_did,
                 method: "async_response".to_string(),
                 task_id: task_id.to_string(),
                 task_method: task_method.to_string(),
-                task_args: result,
+                task_args: result_send,
             };
             
-            let result = rest_service::request_api_cbor_sync("p2p_response", Some(response.clone()))
+            let result = rest_service::request_api_cbor_sync(&format!("p2p_response/{}", task_id), Some(response.clone()))
                 .unwrap_or_else(|e| {
                     error!("response_remote_task({}) error: {}, {}", p2p_in_did_list, e, response.task_method);
                     "".to_string()

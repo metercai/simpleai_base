@@ -113,15 +113,16 @@ pub fn start_rest_server(address: String, port: u16) {
             .and(warp::body::json())
             .and_then(handle_put_global_message);
         
-        let p2p_request = warp::path!("api" / "p2p_request")
+        let p2p_request = warp::path!("api" / "p2p_request" / String)
         .and(warp::post())
         .and(warp::body::bytes())
-        .and_then(handle_p2p_request);
+        .and_then(|target_did: String, body: Bytes| handle_p2p_request(target_did, body));
 
-        let p2p_response = warp::path!("api" / "p2p_response")
+        // 修改后的代码，从路径中捕获一个名为 task_id 的变量
+        let p2p_response = warp::path!("api" / "p2p_response" / String)
         .and(warp::post())
         .and(warp::body::bytes())
-        .and_then(handle_p2p_response);
+        .and_then(|task_id: String, body: Bytes| handle_p2p_response(task_id, body));
 
         let p2p_put_msg = warp::path!("api" / "p2p_put_msg")
         .and(warp::post())
@@ -488,11 +489,12 @@ async fn handle_put_global_message(
 }
 
 async fn handle_p2p_request(
+    target_did: String,
     body: Bytes,
 ) -> Result<impl Reply, Rejection> {
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
-        let res = p2p.request_task(body).await;
+        let res = p2p.request_task(target_did, body).await;
         Ok(warp::reply::json(&ApiResponse {
             success:!res.is_empty(),
             data: res,
@@ -509,11 +511,13 @@ async fn handle_p2p_request(
 
 
 async fn handle_p2p_response(
+    task_id: String,
     body: Bytes,
 ) -> Result<impl Reply, Rejection> {
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
-        let res = p2p.response_task(body).await;
+        // 现在可以使用 task_id 参数
+        let res = p2p.response_task(task_id, body).await;
         Ok(warp::reply::json(&ApiResponse {
             success:!res.is_empty(),
             data: res,

@@ -54,7 +54,7 @@ class AsyncTaskWorker(threading.Thread):
                 token.response_remote_task(task_id, task_method, result_cbor2)
             elif task.method =='remote_ping':
                 task.processing = True
-                message = f'received: {task.args}'
+                message = f'received: {task.args}.'
                 result = message
 
                 task_id = task.task_id
@@ -73,7 +73,9 @@ class AsyncTaskWorker(threading.Thread):
 
 
 class AsyncTask:
-    def __init__(self, method, args, task_id=None):
+    def __init__(self, method, args, task_id=None, from_did=None, target_did=None):
+        self.from_did = from_did
+        self.target_did = target_did
         self.task_id = str(uuid.uuid4()) if task_id is None else task_id
         self.method = method
         self.args = args
@@ -125,11 +127,11 @@ def request_p2p_task(task):
     #print(f"Sending task args: type={type(args)}, value={args}")
     args_cbor2 = cbor2.dumps(args)
     logger.info(f"Sending task to remote: {task_id}, length: {len(args_cbor2)}")
-    return token.request_remote_task(task_id, task_method, args_cbor2)
+    return token.request_remote_task(task_id, task_method, args_cbor2, task.target_did)
 
 
 
-def call_request_by_p2p_task(task_id, method, args_cbor2):
+def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
     global worker
 
     logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
@@ -153,9 +155,9 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
         return "0"
     elif method =='remote_ping':
         args = cbor2.loads(args_cbor2)
-        task = AsyncTask(method=method, args=args, task_id=task_id)
+        task = AsyncTask(method=method, args=args, task_id=task_id, from_did=from_did)
         async_task_queue.put(task)
-        logger.info(f"Received task args: type={type(args)}, value={args}")
+        logger.info(f"Pong {method} task: message={args}, form={from_did}")
         return "0"
 
 

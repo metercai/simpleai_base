@@ -305,37 +305,22 @@ impl P2p {
         }
     }
 
-    pub async fn request_task(&self, body: Bytes) -> String {
-        match serde_cbor::from_slice::<P2pRequest>(body.to_vec().as_slice()) {
-            Ok(request) => self.request(request.target_did, body).await,
-            Err(e) => {
-                tracing::error!("CBOR反序列化P2pRequest失败: {:?}", e);
-                String::new()
-            }
+    pub async fn request_task(&self, target_did: String, body: Bytes) -> String {
+        if target_did.is_empty() {
+            tracing::warn!("target_did is empty");
+            return String::new();
         }
+        self.request(target_did, body).await
     }
 
-    pub async fn response_task(&self, body: Bytes) -> String {
-        match serde_cbor::from_slice::<P2pRequest>(body.to_vec().as_slice()) {
-            Ok(request) => {
-                let target_did = self
-                    .pending_task
-                    .lock()
-                    .unwrap()
-                    .get(&request.task_id)
-                    .unwrap_or(&request.target_did)
-                    .clone();
-                let result = self.request(target_did, body).await;
-                if request.task_method == "remote_stop" {
-                    self.pending_task.lock().unwrap().remove(&request.task_id);
-                }
-                result
-            }
-            Err(e) => {
-                tracing::error!("CBOR反序列化P2pRequest失败: {:?}", e);
-                String::new()
-            }
+    pub async fn response_task(&self, task_id: String, body: Bytes) -> String {
+        let target_did = self.pending_task.lock().unwrap()
+            .get(&task_id).unwrap_or(&String::new()).clone();
+        if target_did.is_empty() {
+            tracing::warn!("target_did is empty");
+            return String::new();
         }
+        self.request(target_did, body).await
     }
 
     async fn request(&self, target_did: String, message: Bytes) -> String {
@@ -458,6 +443,7 @@ impl EventHandler for Handler {
                                 let result: String = p2p_task
                                     .getattr("call_request_by_p2p_task")?
                                     .call1((
+                                        from_peer_did.clone(),
                                         request.task_id,
                                         request.task_method.clone(),
                                         py_bytes,
