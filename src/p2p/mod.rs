@@ -320,7 +320,7 @@ impl P2p {
             tracing::warn!("target_did is empty");
             return String::new();
         }
-        //println!("task_id({}) -> target_did: {}", task_id, target_did);
+        println!("task_id({}) -> target_did: {}", task_id, target_did);
         self.request(target_did, body).await
     }
 
@@ -463,6 +463,7 @@ impl EventHandler for Handler {
                         return Ok(response.as_bytes().to_vec());
                     }
                     "async_response" => {
+                        println!("Received async_response {} task from {}.", request.task_method, from_peer_did);
                         let response = if request.task_method == "remote_pong" || self.shared_data.is_p2p_out_dids(&from_peer_did) {
                             let results = Python::with_gil(|py| -> PyResult<String> {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
