@@ -151,7 +151,7 @@ impl DidToken {
         } else {
             String::new()
         };
-
+        let certificates = GlobalCerts::instance();
         debug!("init context finished: crypt_secrets.len={}", crypt_secrets.len());
         debug!("admin_did: {}, upstream_did: {}", admin, upstream_did);
         
@@ -165,7 +165,7 @@ impl DidToken {
             upstream_did,
             sysinfo,
             claims,
-            certificates: GlobalCerts::instance(),
+            certificates,
             token_db,
             crypt_secrets,
         }

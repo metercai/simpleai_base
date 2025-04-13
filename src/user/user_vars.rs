@@ -20,7 +20,6 @@ pub struct GlobalLocalVars {
     admin_did: String,
     global_local_vars: Arc<RwLock<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
     didtoken: Arc<Mutex<DidToken>>,
-    tokenuser: Arc<Mutex<TokenUser>>,
 }
 
 impl GlobalLocalVars {
@@ -47,7 +46,6 @@ impl GlobalLocalVars {
             admin_did,
             global_local_vars,
             didtoken,
-            tokenuser: TokenUser::instance(),
         }
     }
     
@@ -209,6 +207,12 @@ impl GlobalLocalVars {
         raw_value
     }
 
+    pub(crate) fn set_local_admin_vars(&mut self, key: &str, value: &str) {
+        let admin_key = format!("admin_{}_{}", self.sys_did, key);
+        let admin_did = self.get_admin_did();
+        self.set_local_vars(&admin_key, value, &admin_did);
+    }
+
     pub(crate) fn set_local_vars(&mut self, key: &str, value: &str, user_did: &str) {
         let is_admin_var = key.starts_with("admin_");
         let admin_did = self.get_admin_did();
@@ -311,6 +315,131 @@ impl GlobalLocalVars {
         }
     }
     
+    pub(crate) fn is_allowed_did(&self, did: &str, way: &str) -> bool {
+        if way == "web" || way == "p2p" {
+            self.get_local_admin_vars(&format!("{way}_in_did_list")).contains(did)
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn get_allowed_did_list(&self, way: &str) -> String {
+        if way!= "web" && way!= "p2p" {
+            return String::new();
+        }
+        let list_key = format!("{way}_in_did_list");
+        self.get_local_admin_vars(&list_key)
+    }
+
+    pub(crate) fn add_allowed_did(&mut self, did: &str, way: &str) {
+        if way != "web" && way != "p2p" {
+            return;
+        }
+        let list_key = format!("{way}_in_did_list");
+
+        let mut did_list = self.get_local_admin_vars(&list_key);
+        if did_list.is_empty() {
+            did_list = did.to_string();
+        } else {
+            if did_list.contains(did) {
+                return;
+            } else {
+                did_list.push_str(",");
+                did_list.push_str(did);
+            }
+        }
+        self.set_local_admin_vars(&list_key, &did_list);
+    }
+
+    pub(crate) fn remove_allowed_did(&mut self, did: &str, way: &str) {
+        if way != "web" && way != "p2p" {
+            return;
+        }
+        let list_key = format!("{way}_in_did_list");
+
+        let mut did_list = self.get_local_admin_vars(&list_key);
+        if did_list.is_empty() {
+            return;
+        } else {
+            if !did_list.contains(did) {
+                return;
+            } else {
+                let updated_list: Vec<&str> = did_list
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|&s| s != did && !s.is_empty())
+                    .collect();
+                let new_did_list = updated_list.join(",");
+                self.set_local_admin_vars(&list_key, &new_did_list);
+            }
+        }
+    }
+
+    pub(crate) fn is_pending_did(&self, did: &str, way: &str) -> bool {
+        if way == "web" || way == "p2p" {
+            self.get_local_admin_vars(&format!("{way}_pending_did_list")).contains(did)
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn get_pending_did_list(&self, way: &str) -> String {
+        if way!= "web" && way!= "p2p" {
+            return String::new();
+        }
+        let list_key = format!("{way}_pending_did_list");
+        self.get_local_admin_vars(&list_key)
+    }
+
+    pub(crate) fn add_pending_did(&mut self, did: &str, way: &str) {
+        if way != "web" && way != "p2p" {
+            return;
+        }
+        let list_key = format!("{way}_pending_did_list");
+
+        let mut did_list = self.get_local_admin_vars(&list_key);
+        if did_list.is_empty() {
+            did_list = did.to_string();
+        } else {
+            if did_list.contains(did) {
+                return;
+            } else {
+                did_list.push_str(",");
+                did_list.push_str(did);
+            }
+        }
+        self.set_local_admin_vars(&list_key, &did_list);
+    }
+
+    pub(crate) fn remove_pending_did(&mut self, did: &str, way: &str) {
+        if way != "web" && way != "p2p" {
+            return;
+        }
+        let list_key = format!("{way}_pending_did_list");
+
+        let mut did_list = self.get_local_admin_vars(&list_key);
+        if did_list.is_empty() {
+            return;
+        } else {
+            if !did_list.contains(did) {
+                return;
+            } else {
+                let updated_list: Vec<&str> = did_list
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|&s| s != did && !s.is_empty())
+                    .collect();
+                let new_did_list = updated_list.join(",");
+                self.set_local_admin_vars(&list_key, &new_did_list);
+            }
+        }
+    }
+
+    pub(crate) fn pending_to_allowed_did(&mut self, did: &str, way: &str) {
+        self.remove_pending_did(did, way);
+        self.add_allowed_did(did, way);
+    }
+
 }
 
 

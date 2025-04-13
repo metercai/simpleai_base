@@ -52,6 +52,15 @@ class AsyncTaskWorker(threading.Thread):
                 result_cbor2 = cbor2.dumps(result)
                 task_method = 'remote_minicpm'
                 token.response_remote_task(task_id, task_method, result_cbor2)
+            elif task.method =='remote_ping':
+                task.processing = True
+                (message) = task.args
+                result = message
+
+                task_id = task.task_id
+                result_cbor2 = cbor2.dumps(result)
+                task_method = 'remote_pong'
+                token.response_remote_task(task_id, task_method, result_cbor2)
 
             task.processing = False
             task.finished = True
@@ -144,6 +153,12 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
         async_task_queue.put(task)
         logger.info(f"The {method} task was push to async_task_queue")
         return "0"
+    elif method =='remote_ping':
+        logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
+        args = cbor2.loads(args_cbor2)
+        task = AsyncTask(method=method, args=args, task_id=task_id)
+        async_task_queue.put(task)
+        logger.info(f"Received task args: type={type(args)}, value={args}")
 
 
 
@@ -207,6 +222,13 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             worker.worker.stop_processing(task, processing_start_time, status)
             del pending_tasks[task_id]
         elif method =='remote_minicpm':
+            result = cbor2.loads(result_cbor2)
+            logger.info(f"{method}: task_id={task_id}, {result}")
+            task.results.append(result)
+            task.processing = False
+            task.finished = True
+            del pending_tasks[task_id]
+        elif method =='remote_pong':
             result = cbor2.loads(result_cbor2)
             logger.info(f"{method}: task_id={task_id}, {result}")
             task.results.append(result)

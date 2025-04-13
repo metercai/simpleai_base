@@ -767,6 +767,7 @@ pub struct UserContext {
     private_paths: String,     // 个性化目录
     aes_key_encrypted: String, // 加密后的加密密钥
     sig: String,
+    is_pending: bool,
 }
 
 #[pymethods]
@@ -793,6 +794,7 @@ impl UserContext {
             private_paths: private_paths.to_string(),
             aes_key_encrypted: String::new(),
             sig: String::new(),
+            is_pending: true,
         }
     }
 
@@ -899,6 +901,13 @@ impl UserContext {
     pub(crate) fn to_json_string(&self) -> String {
         serde_json::to_string(self).unwrap_or("Unknown".to_string())
     }
+
+    pub fn is_pending(&self) -> bool {
+        self.is_pending
+    }
+    pub fn set_pending(&mut self, pending: bool) {
+        self.is_pending = pending;
+    }
 }
 
 impl Default for UserContext {
@@ -913,6 +922,7 @@ impl Default for UserContext {
             private_paths: "Default_private_paths".to_string(),
             aes_key_encrypted: "Default_aes_key_encrypted".to_string(),
             sig: "Unknown".to_string(),
+            is_pending: false,
         }
     }
 }

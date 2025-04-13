@@ -375,7 +375,7 @@ impl P2p {
         let response = match self.client.request(&target_peer_id, message).await {
             Ok(resp) => resp,
             Err(e) => {
-                tracing::error!("请求失败: {:?}", e);
+                tracing::error!("Outbound request fails: {:?}", e);
                 "Unknown".as_bytes().to_vec()
             }
         };

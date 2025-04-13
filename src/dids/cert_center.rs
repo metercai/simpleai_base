@@ -37,8 +37,6 @@ impl GlobalCerts {
         let _ = token_utils::load_token_of_user_certificates(&sys_did, &mut user_certs);
         let _ = token_utils::load_token_of_issued_certs(&sys_did, &mut issued_certs);
 
-
-
         Self {
             user_certs,
             issued_certs,

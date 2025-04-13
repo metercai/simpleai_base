@@ -19,7 +19,8 @@ pub(crate) struct Config {
     pub(crate) broadcast_interval: Option<u64>,
     pub(crate) node_status_interval: Option<u64>,
     pub(crate) request_interval: Option<u64>,
-    pub(crate) req_resp: ReqRespConfig
+    pub(crate) req_resp: ReqRespConfig,
+    pub(crate) debug: Option<i32>,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -67,7 +68,8 @@ impl Config {
             broadcast_interval: config.broadcast_interval,
             node_status_interval: config.node_status_interval,
             request_interval: config.request_interval,
-            req_resp: config.req_resp
+            req_resp: config.req_resp,
+            debug: config.debug,
         }
     }
 

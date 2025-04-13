@@ -548,13 +548,24 @@ async fn handle_p2p_put_msg(
     }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub(crate) struct P2pStatus {
+    pub node_id: String,
+    pub is_debug: bool,
+}
+
 async fn handle_p2p_status() -> Result<impl Reply, Rejection> {
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
         let res = p2p.get_node_status().await;
+        let p2p_status = P2pStatus {
+            node_id: res.local_peer_id.clone(),
+            is_debug: res.is_debug,
+        };
+        let p2p_status = serde_json::to_string(&p2p_status).unwrap_or("".to_string());
         Ok(warp::reply::json(&ApiResponse {
             success:!res.local_peer_id.is_empty(),
-            data: res.local_peer_id,
+            data: p2p_status,
             error: None,
         }))
     } else {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use directories_next::BaseDirs;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 
 use once_cell::sync::Lazy;
@@ -15,6 +15,7 @@ use tracing::{error, warn, info, debug, trace};
 use crate::dids::{self, DidToken, TOKEN_ENTRYPOINT_DID, TOKEN_ENTRYPOINT_URL};
 use crate::dids::token_utils;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
+use crate::user::user_vars::GlobalLocalVars;
 use crate::issue_key;
 use crate::exchange_key;
 use crate::rest_service;
@@ -42,6 +43,7 @@ pub struct TokenUser {
     pub entry_point: DidEntryPoint,
 
     didtoken: Arc<Mutex<DidToken>>,
+    global_local_vars: Arc<RwLock<GlobalLocalVars>>,
 }
 
 impl TokenUser {
@@ -67,6 +69,8 @@ impl TokenUser {
             let mut didtoken = didtoken.lock().unwrap();
             (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did())
         };
+        let global_local_vars = GlobalLocalVars::instance();
+
         let toeknuser = Self {
             sys_did,
             device_did,
@@ -77,7 +81,8 @@ impl TokenUser {
             blacklist,
             user_base_dir: "".to_string(),
             entry_point,
-            didtoken: didtoken.clone(),
+            didtoken,
+            global_local_vars,
         };
         toeknuser
     }
@@ -181,7 +186,7 @@ impl TokenUser {
         }
         let key = format!("{}_{}", did, self.get_sys_did());
         if !self.blacklist.contains(&did.to_string()) {
-            let context = {
+            let mut context = {
                 let authorized = self.authorized.lock().unwrap();
                 match authorized.get(&key) {
                     Ok(Some(context)) => {
@@ -196,6 +201,9 @@ impl TokenUser {
                 self.didtoken.lock().unwrap().verify_by_did(&context.get_text(), &context.get_sig(), did) {
                 let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
                 let _ = self.authorized.lock().unwrap().insert(&key, ivec_data);
+                if !self.global_local_vars.read().unwrap().is_allowed_did(did, "web") {
+                    context.set_pending(true);    
+                }
                 context
             } else {
                 if context.is_default() && did == &self.get_guest_did() {
@@ -219,6 +227,10 @@ impl TokenUser {
             did, &self.get_sys_did(), &claim.nickname, &claim.id_type, &claim.get_symbol_hash(), phrase);
         let _ = context.signature(phrase);
 
+        if self.global_local_vars.read().unwrap().is_allowed_did(did, "web") || did == self.get_guest_did() {
+            context.set_pending(false);    
+        }
+
         let mut msg = DidMessage::new(did.to_string(), "login".to_string(), 
         format!("{}:{}", self.get_node_id(), self.get_sys_did()));
         msg.signature(phrase);
@@ -232,11 +244,20 @@ impl TokenUser {
             let admin_did = self.didtoken.lock().unwrap().get_admin_did();
             if admin_did.is_empty() && did != self.get_guest_did() {
                 self.didtoken.lock().unwrap().set_admin_did(did);
+                self.global_local_vars.write().unwrap().set_admin_did(did);
+                context.set_pending(false); 
+                self.global_local_vars.write().unwrap().add_allowed_did(did, "web");
                 println!("{} [UserBase] Set admin_did/设置系统管理 = {}", token_utils::now_string(), admin_did);
             }
             {
                 let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
                 let _ = self.authorized.lock().unwrap().insert(&format!("{}_{}", did, self.get_sys_did()), ivec_data);
+            }
+            if did == self.get_guest_did() {
+                self.global_local_vars.write().unwrap().add_allowed_did(did, "web");
+            }
+            if context.is_pending() {
+                self.global_local_vars.write().unwrap().add_pending_did(did, "web");
             }
             context
         } else {

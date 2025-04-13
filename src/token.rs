@@ -62,7 +62,7 @@ pub struct SimpleAI {
     sid_did_map: Arc<Mutex<HashMap<String, String>>>,
     shared_data: &'static SharedData,
     p2p_config: String,
-    p2p_is_running: bool,
+    p2p_status: Option<rest_service::P2pStatus>,
 }
 
 #[pymethods]
@@ -80,9 +80,9 @@ impl SimpleAI {
         debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
 
         let didtoken = DidToken::instance();
-        let tokenuser = TokenUser::instance();
         let global_local_vars = GlobalLocalVars::instance();
-
+        let tokenuser = TokenUser::instance();
+        
         let (sys_did, device_did, guest_did, token_db) = {
             let didtoken = didtoken.lock().unwrap();
             (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did(), didtoken.get_token_db())
@@ -123,7 +123,7 @@ impl SimpleAI {
             sid_did_map: Arc::new(Mutex::new(HashMap::new())),
             shared_data,
             p2p_config: DEFAULT_P2P_CONFIG.to_string(),
-            p2p_is_running: false,
+            p2p_status: None,
         }
     }
 
@@ -264,8 +264,6 @@ impl SimpleAI {
         upstream_did
     }
 
-
-
     pub(crate) fn p2p_start(&mut self) -> String {
         {
             let mut p2p_handle = P2P_HANDLE.lock().unwrap();
@@ -285,6 +283,7 @@ impl SimpleAI {
                 Ok(p2p) => {
                     let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                     *p2p_instance_guard = Some(p2p);
+                    println!("{} P2P service startup successfully!", token_utils::now_string());
                 },
                 Err(e) => {
                     error!("P2P 服务启动失败: {:?}", e);
@@ -299,17 +298,7 @@ impl SimpleAI {
         
         let p2p_in_did_list = self.get_local_admin_vars("p2p_in_did_list");
         self.shared_data.set_p2p_out_dids(&p2p_in_did_list);
-        
-        let result = rest_service::request_api_sync("p2p_status", None as Option<serde_json::Value>)
-                .unwrap_or_else(|e| {
-                    error!("p2p_status error: {}", e);
-                    "".to_string()
-                });
-        if !result.is_empty() {
-            println!("{} [P2pNode] p2p_status: node_id={}", token_utils::now_string(), result);
-            self.set_node_id(&result);
-        }
-        self.p2p_is_running = true; 
+
         "P2P 服务启动成功".to_string()
     }
     
@@ -320,8 +309,6 @@ impl SimpleAI {
             println!("{} [P2pNode] p2p server({}) not running.", token_utils::now_string(), self.get_sys_did());
             return "P2P 服务未运行".to_string();
         }
-        
-        // 取出并中止 P2P 服务
         if let Some(handle) = p2p_handle.take() {
             dids::TOKIO_RUNTIME.block_on(async {
                 if let Some(p2p) = p2p::get_instance().await {
@@ -332,7 +319,7 @@ impl SimpleAI {
             });
             handle.abort();
             println!("{} [P2pNode] p2p server({}) has stopped.", token_utils::now_string(), self.get_sys_did());
-            self.p2p_is_running = false;
+            self.p2p_status = None;
             "P2P 服务已停止".to_string()
         } else {
             "P2P 服务未运行".to_string()
@@ -341,37 +328,89 @@ impl SimpleAI {
     
     /// 重启 P2P 服务
     pub(crate) fn p2p_restart(&mut self) -> String {
-        // 先停止服务
         let stop_result = self.p2p_stop();
-        
-        // 等待一小段时间确保服务完全停止
         std::thread::sleep(Duration::from_millis(500));
-        
-        // 再启动服务
         let start_result = self.p2p_start();
-        
         format!("P2P 服务重启: {}, {}", stop_result, start_result)
     }
 
     fn get_p2p_config(&mut self) -> String {
-        let mut p2p_config = self.get_local_admin_vars("p2p_config");
-        if !p2p_config.is_empty() && p2p_config != "None" {
-            return p2p_config;
-        } else {
-            let config_path = Path::new("p2pconfig.toml");
-            if config_path.exists() {
-                match fs::read_to_string(config_path) {
-                    Ok(content) => {
-                        debug!("使用本地 p2pconfig.toml 文件配置: {}", content);
-                        return content;
-                    },
-                    Err(e) => {
-                        debug!("读取 p2pconfig.toml 文件失败: {}, 使用默认配置", e);
-                    }
+        let mut default_config = self.p2p_config.clone();
+        let mut final_config = toml::Table::new();
+        
+        if !default_config.is_empty() {
+            match toml::from_str::<toml::Table>(&default_config) {
+                Ok(config) => final_config = config,
+                Err(e) => {
+                    error!("解析默认P2P配置失败: {}", e);
                 }
             }
-        } 
-        return self.p2p_config.clone();
+        }
+        let system_config = self.get_local_admin_vars("p2p_config");
+        if !system_config.is_empty() && system_config != "None" {
+            match toml::from_str::<toml::Table>(&system_config) {
+                Ok(sys_config) => {
+                    for (key, value) in sys_config {
+                        final_config.insert(key, value);
+                    }
+                    debug!("已合并系统P2P配置");
+                },
+                Err(e) => error!("解析系统P2P配置失败: {}", e)
+            }
+        }
+        
+        let config_path = Path::new("p2pconfig.toml");
+        if config_path.exists() {
+            match fs::read_to_string(config_path) {
+                Ok(content) => {
+                    match toml::from_str::<toml::Table>(&content) {
+                        Ok(manual_config) => {
+                            for (key, value) in manual_config {
+                                final_config.insert(key, value);
+                            }
+                            debug!("已合并本地p2pconfig.toml文件配置");
+                        },
+                        Err(e) => error!("解析本地P2P配置文件失败: {}", e)
+                    }
+                },
+                Err(e) => error!("读取p2pconfig.toml文件失败: {}", e)
+            }
+        }
+        
+        match toml::to_string(&final_config) {
+            Ok(merged_config) => {
+                self.p2p_config = merged_config.clone();
+                debug!("合并后的P2P配置: {}", merged_config);
+                merged_config
+            },
+            Err(e) => {
+                error!("序列化合并后的P2P配置失败: {}", e);
+                default_config
+            }
+        }
+    }
+
+    pub fn get_p2p_is_debug(&mut self) -> bool {
+        if self.p2p_status.is_none() {
+            let result = rest_service::request_api_sync("p2p_status", None as Option<serde_json::Value>)
+                .unwrap_or_else(|e| {
+                    error!("p2p_status error: {}", e);
+                    "".to_string()
+                });
+            if !result.is_empty() {
+                let p2p_status: rest_service::P2pStatus = serde_json::from_str(&result).unwrap();
+                self.p2p_status = Some(p2p_status.clone());
+                self.set_node_id(&p2p_status.node_id);
+            }
+        }
+        self.p2p_status.as_ref().map_or(false, |status| status.is_debug)
+    }
+
+    pub fn get_p2p_is_running(&self) -> bool {
+        if self.p2p_status.is_none() {
+            return false;
+        }
+        true
     }
 
     pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>) -> String {
@@ -451,7 +490,7 @@ impl SimpleAI {
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.online_users.log_access(did.to_string());
         self.shared_data.online_all.log_access(did.to_string());
-        let (domain_online_nodes, domain_online_users) = if self.p2p_is_running {
+        let (domain_online_nodes, domain_online_users) = if self.get_p2p_is_running() {
             self.online_users.get_nodes_users()
         } else {
             (0, 0)
@@ -522,7 +561,25 @@ impl SimpleAI {
         self.global_local_vars.write().unwrap().set_local_vars_for_guest(key, value, &user_did)
     }
 
+    pub(crate) fn get_pending_did_list(&self, way: &str) -> String {
+        self.global_local_vars.read().unwrap().get_pending_did_list(way)
+    }
+    pub(crate) fn add_pending_did(&mut self, did: &str, way: &str) {
+        self.global_local_vars.write().unwrap().add_pending_did(did, way)
+    }
+    pub(crate) fn remove_pending_did(&mut self, did: &str, way: &str) {
+        self.global_local_vars.write().unwrap().remove_pending_did(did, way)
+    }
 
+    pub(crate) fn get_allowed_did_list(&self, way: &str) -> String {
+        self.global_local_vars.read().unwrap().get_allowed_did_list(way)
+    }
+    pub(crate) fn add_allowed_did(&mut self, did: &str, way: &str) {
+        self.global_local_vars.write().unwrap().add_allowed_did(did, way)
+    }
+    pub(crate) fn remove_allowed_did(&mut self, did: &str, way: &str) {
+        self.global_local_vars.write().unwrap().remove_allowed_did(did, way)
+    }
 
     pub fn reset_admin(&mut self, admin_did: &str) -> String {
         if IdClaim::validity(admin_did) {

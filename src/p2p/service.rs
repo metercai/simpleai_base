@@ -195,6 +195,7 @@ pub(crate) struct Server<E: EventHandler> {
     connection_quality: Mutex<HashMap<PeerId, ConnectionQuality>>,
     /// Flag to control server running state
     stop_flag: bool,
+    debug: i32,
     shared_data: &'static shared::SharedData,
 }
 
@@ -242,10 +243,11 @@ impl<E: EventHandler> Server<E> {
         let locale_ip = sysinfo.local_ip.parse::<Ipv4Addr>().unwrap();
         let public_ip = sysinfo.public_ip.parse::<Ipv4Addr>().unwrap();
         let is_global = if locale_ip == public_ip || is_upstream_node { true } else { false };
-        tracing::debug!("P2P_node({:?}/{:?}) ready to start up.",
-            locale_ip, 
-            public_ip,
-        );
+        let debug = if let Some(v) = config.debug { v } else { 0 };
+        if (debug & (1 << 0)) != 0 {
+            println!("{} P2P_node({:?}/{:?}) ready to start up.", token_utils::now_string(), locale_ip, public_ip);
+        }
+        
         let mut swarm =
             libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
@@ -284,7 +286,9 @@ impl<E: EventHandler> Server<E> {
                     event = swarm.next() => {
                         match event.unwrap() {
                             SwarmEvent::NewListenAddr { address, .. } => {
-                                tracing::debug!("📣 P2P node listening on address:{}", address.clone());
+                                if (debug & (1 << 0)) != 0 {
+                                    println!("{} 📣 P2P node listening on address:{}", token_utils::now_string(), address.clone());
+                                }
                                 listened_addresses.push(address.clone());
                                 lan_addresses.push(format!("{}/p2p/{}", address.clone(), swarm.local_peer_id().to_base58()).parse().unwrap());
                             }
@@ -378,6 +382,7 @@ impl<E: EventHandler> Server<E> {
             connection_failure_counts: Mutex::new(HashMap::new()),
             connection_quality: Mutex::new(HashMap::new()),
             stop_flag: false,
+            debug,
             shared_data,
         })
     }
@@ -442,7 +447,9 @@ impl<E: EventHandler> Server<E> {
         let behaviour_ev = match event {
             SwarmEvent::Behaviour(ev) => ev,
             SwarmEvent::NewListenAddr { address, .. } => {
-                tracing::info!(%address, "📣 P2P_node listening on address");
+                if (self.debug & (1 << 0)) != 0 {
+                    println!("{} 📣 P2P_node listening on address: {}", token_utils::now_string(), address);
+                }
                 return self.update_listened_addresses(); },
 
             SwarmEvent::ListenerClosed {
@@ -451,14 +458,18 @@ impl<E: EventHandler> Server<E> {
 
             SwarmEvent::ExternalAddrConfirmed { address } 
             => {
-                tracing::info!("External address confirmed from relay node: {address}");
+                if (self.debug & (1 << 0)) != 0 {
+                    println!("{} External address confirmed from relay node: {address}", token_utils::now_string(),);
+                }
                 return;
             }
 
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
-                tracing::info!("Established new connection peer({})={}", peer_id.short_id(), endpoint.get_remote_address());
+                if (self.debug & (1 << 0)) != 0  {
+                    println!("{} Established new connection peer({})={}", token_utils::now_string(), peer_id.short_id(), endpoint.get_remote_address());
+                }
                 let peer_id_clone = peer_id.clone();
                 if self.upstream_nodes.iter().any(|node| node.peer_id() == peer_id) {
                     if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
@@ -467,10 +478,14 @@ impl<E: EventHandler> Server<E> {
                             peer_id_clone,
                             None,
                         ) {
-                            tracing::info!("Failed to register after ConnectionEstablished({}): {error}", peer_id.short_id());
+                            if (self.debug & (1 << 7)) != 0  {
+                                println!("{} Failed to register after ConnectionEstablished({}): {error}", token_utils::now_string(), peer_id.short_id());
+                            }
                             return;
                         }
-                        tracing::debug!("Connection established after ConnectionEstablished with rendezvous point: {}", peer_id.short_id());
+                        if (self.debug & (1 << 7)) != 0  {
+                            println!("{} Connection established after ConnectionEstablished with rendezvous point: {}", token_utils::now_string(), peer_id.short_id());
+                        }
                         rendezvous.discover(
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
                             None,
@@ -490,13 +505,21 @@ impl<E: EventHandler> Server<E> {
                 ..
             } => {
                 if self.record_peer_failure(&remote_peer, "Connection") {
-                    tracing::info!("Connection failures({:?}) has reached the threshold, remove the node: {}", error, remote_peer.short_id());
+                    if (self.debug & (1 << 0)) != 0  {
+                        if self.debug > 0 {
+                            println!("{} Connection failures has reached the threshold, remove the node: {}", token_utils::now_string(), remote_peer.short_id());
+                        } else {
+                            println!("{} Connection failures({:?}) has reached the threshold, remove the node: {}", token_utils::now_string(), error, remote_peer.short_id());
+                        }
+                        
+                    }
                     self.network_service.behaviour_mut().remove_peer(&remote_peer);
 
                     if !self.is_global && self.network_service.local_peer_id().to_base58() != remote_peer.to_base58(){
                         let relay_node = self.upstream_nodes.get_select();
-
-                        tracing::info!("Try to connect to {} with the upstream node: {}", remote_peer.short_id(), relay_node.peer_id().short_id());
+                        if (self.debug & (1 << 0)) != 0  {
+                            println!("{} Try to connect to {} with the upstream node: {}", token_utils::now_string(), remote_peer.short_id(), relay_node.peer_id().short_id());
+                        }
                         let opts = DialOpts::from(
                             relay_node.address()
                                 .with(Protocol::P2pCircuit)
@@ -535,21 +558,27 @@ impl<E: EventHandler> Server<E> {
                 ..
             }) => {
                 if self.record_peer_failure(&peer, "Ping") {
-                    tracing::info!("Ping failures has reached the threshold, remove the node: {:?}", peer.short_id());
+                    if (self.debug & (1 << 8)) != 0  {
+                        println!("{} Ping failures has reached the threshold, remove the node: {:?}", token_utils::now_string(), peer.short_id());
+                    }
                     self.network_service.behaviour_mut().remove_peer(&peer)
                 }
             },
 
             BehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
                 for (peer_id, multiaddr) in list {
-                    tracing::info!("mDNS discovered a new peer: {} at {multiaddr}", peer_id.short_id());
+                    if (self.debug & (1 << 9)) != 0  {
+                        println!("{} mDNS discovered a new peer: {} at {multiaddr}", token_utils::now_string(), peer_id.short_id());
+                    }
                     self.add_addresses(&peer_id, vec![multiaddr]);
                     self.network_service.behaviour_mut().pubsub.add_explicit_peer(&peer_id);
                 }
             }
             BehaviourEvent::Mdns(mdns::Event::Expired(list)) => {
                 for (peer_id, _multiaddr) in list {
-                    tracing::info!("mDNS discover peer has expired: {}", peer_id.short_id());
+                    if (self.debug & (1 << 9)) != 0  {
+                        tracing::info!("{} mDNS discover peer has expired: {}", token_utils::now_string(), peer_id.short_id());
+                    }
                     self.network_service.behaviour_mut().pubsub.remove_explicit_peer(&peer_id);
                 }
             }
@@ -558,8 +587,10 @@ impl<E: EventHandler> Server<E> {
                 message_id: id,
                 message,
             }) => {
-                tracing::debug!("<<==== Got broadcast message with id({id}) from peer({}): '{}'",
-                    peer_id.short_id(), String::from_utf8_lossy(&message.data));
+                if (self.debug & (1 << 0)) != 0  {
+                    println!("{} <<==== Got broadcast message with id({id}) from peer({}): '{}'",
+                    token_utils::now_string(), peer_id.short_id(), String::from_utf8_lossy(&message.data));
+                }
                 self.handle_inbound_broadcast(message)
             },
             // BehaviourEvent::Identify(identify::Event::Sent { peer_id, .. }) => {
@@ -577,7 +608,9 @@ impl<E: EventHandler> Server<E> {
             }) => {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
                     self.add_addresses(&peer_id, listen_addrs);
-                    tracing::info!("P2P_node({}) add peer({}, {:?})", self.get_short_id(), peer_id.short_id(), agent_version);
+                    if (self.debug & (1 << 1)) != 0  {
+                        println!("{} P2P_node({}) add peer({}, {:?})", token_utils::now_string(), self.get_short_id(), peer_id.short_id(), agent_version);
+                    }
                     
                     let mut parts = agent_version.splitn(3, '/');
                     let agent_name = parts.next().unwrap_or("").trim().to_string();
@@ -586,14 +619,18 @@ impl<E: EventHandler> Server<E> {
                     if !agent_did.is_empty() && IdClaim::validity(&agent_did) {
                         self.shared_data.insert_node_did(&peer_id.to_base58(), &agent_did);
                         let short_did = agent_did.chars().skip(agent_did.len() - 7).collect::<String>();
-                        tracing::info!("P2P_node({}) record id-did mapping({}, {})", self.get_short_id(), peer_id.short_id(), short_did);
+                        if (self.debug & (1 << 1)) != 0  {
+                            println!("{} P2P_node({}) record id-did mapping({}, {})", token_utils::now_string(), self.get_short_id(), peer_id.short_id(), short_did);
+                        }
                     }                                    
                 };
                 self.network_service.add_external_address(observed_addr.clone());
-                tracing::debug!("P2P_node({}) add external_address({:?})", self.get_short_id(), observed_addr.clone());
+                if (self.debug & (1 << 1)) != 0  {
+                    println!("{} P2P_node({}) add external_address({:?})", token_utils::now_string(), self.get_short_id(), observed_addr.clone());
+                }
                 
-                if peer_id == self.local_peer_id {
-                    tracing::info!("❗ P2P_node({}) add local_address({:?})", self.get_short_id(), observed_addr.clone());
+                if peer_id == self.local_peer_id && (self.debug & (1 << 1)) != 0  {
+                    println!("{} ❗ P2P_node({}) add local_address({:?})", token_utils::now_string(), self.get_short_id(), observed_addr.clone());
                 }
                 if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
                     if let Err(error) = rendezvous.register(
@@ -601,10 +638,14 @@ impl<E: EventHandler> Server<E> {
                         self.upstream_nodes.get_last().peer_id(),
                         None,
                     ) {
-                        tracing::info!("Failed to register after Identify({}): {error}", peer_id.short_id());
+                        if (self.debug & (1 << 1)) != 0  {
+                            println!("{} Failed to register after Identify({}): {error}", token_utils::now_string(), peer_id.short_id());
+                        }
                         return;
                     }
-                    tracing::debug!("Connection established after Identify with rendezvous point: {}", peer_id.short_id());
+                    if (self.debug & (1 << 1)) != 0  {
+                        println!("{} Connection established after Identify with rendezvous point: {}", token_utils::now_string(), peer_id.short_id());
+                    }
                 }
 
                 if self.upstream_nodes.contains(&peer_id) && !self.is_global {
@@ -614,15 +655,21 @@ impl<E: EventHandler> Server<E> {
                         Ok(node_addr) => {
                             match self.network_service.listen_on(node_addr.clone().with(Protocol::P2pCircuit)) {
                                 Ok(listener_id) => {
-                                    tracing::info!("P2P_node({}) listening on upstream node({})", short_peer_id, node_addr);
+                                    if (self.debug & (1 << 1)) != 0  {
+                                        println!("{} P2P_node({}) listening on upstream node({})", token_utils::now_string(), short_peer_id, node_addr);
+                                    }
                                 },
                                 Err(e) => {
-                                    tracing::info!("Failed to listen on upstream node({}): {}", node_addr, e);
+                                    if (self.debug & (1 << 1)) != 0  {
+                                        println!("{} Failed to listen on upstream node({}): {}", token_utils::now_string(), node_addr, e);
+                                    }
                                 }
                             }
                         },
                         Err(e) => {
-                            tracing::info!("Failed to parse multiaddr for node {}: {}", node.peer_id().short_id(), e);
+                            if (self.debug & (1 << 1)) != 0  {
+                                println!("{} Failed to parse multiaddr for node {}: {}", token_utils::now_string(), node.peer_id().short_id(), e);
+                            }
                         }
                     }
                 }
@@ -655,7 +702,9 @@ impl<E: EventHandler> Server<E> {
                 result: Ok(()),
             }) => {
                 self.network_service.add_external_address(tested_addr.clone());
-                tracing::info!("Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Everything Ok and verified.", server.short_id());
+                if (self.debug & (1 << 3)) != 0  {
+                    println!("{} Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Everything Ok and verified.", token_utils::now_string(), server.short_id());
+                }
             }
             BehaviourEvent::AutonatClient(autonat::v2::client::Event {
                 server,
@@ -663,19 +712,27 @@ impl<E: EventHandler> Server<E> {
                 bytes_sent,
                 result: Err(e),
             }) => {
-                tracing::info!("Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Failed with {e:?}.", server.short_id());
+                if (self.debug & (1 << 3)) != 0  {
+                    println!("{} Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Failed with {e:?}.", token_utils::now_string(), server.short_id());
+                }
             }
 
             BehaviourEvent::Upnp(upnp::Event::NewExternalAddr(addr)) => {
-                tracing::info!("UPnP address: {}", addr);
+                if (self.debug & (1 <<10)) != 0  {
+                    println!("{} UPnP address: {}", token_utils::now_string(), addr);
+                }
                 self.network_service.add_external_address(addr);
                 self.upnp_mapped = true;
             }
             BehaviourEvent::Upnp(upnp::Event::GatewayNotFound) => {
-                tracing::debug!("UPnP gateway not found");
+                if (self.debug & (1 <<10)) != 0  {
+                    println!("{} UPnP gateway not found", token_utils::now_string());
+                }
             }
             BehaviourEvent::Upnp(upnp::Event::NonRoutableGateway) => {
-                tracing::debug!("UPnP gateway unreachable");
+                if (self.debug & (1 <<10)) != 0  {
+                    println!("{} UPnP gateway unreachable",token_utils::now_string());
+                }
             }
 
             BehaviourEvent::RelayClient(
@@ -684,7 +741,9 @@ impl<E: EventHandler> Server<E> {
                     limit,
                     .. },
             ) => {
-                tracing::info!("Relay({}) accepted our reservation request, limit={:?}.", relay_peer_id.short_id(), limit);
+                if (self.debug & (1 << 4)) != 0  {
+                    println!("{} Relay({}) accepted our reservation request, limit={:?}.", token_utils::now_string(), relay_peer_id.short_id(), limit);
+                }
             }
 
             BehaviourEvent::RelayClient(
@@ -693,24 +752,30 @@ impl<E: EventHandler> Server<E> {
                     limit,
                     .. },
             ) => {
-                tracing::info!("Relay({}) accepted our CircuitEstablished limit={:?}.", relay_peer_id.short_id(), limit);
+                if (self.debug & (1 << 4)) != 0  {
+                    println!("{} Relay({}) accepted our CircuitEstablished limit={:?}.", token_utils::now_string(), relay_peer_id.short_id(), limit);
+                }
             }
 
             BehaviourEvent::Dcutr(dcutr::Event {
                 remote_peer_id,
                 result: Ok(connection_id),
             }) => {
-                tracing::info!("DCUTR({}) accepted our reservation request.", remote_peer_id.short_id());
+                if (self.debug & (1 << 5)) != 0  {
+                    println!("{} DCUTR({}) accepted our reservation request.", token_utils::now_string(), remote_peer_id.short_id());
+                }
             }
 
             BehaviourEvent::Rendezvous(
                 rendezvous::server::Event::PeerRegistered { peer, registration },
             ) => {
-                tracing::debug!(
-                    "Peer {} registered for namespace '{}'",
-                    peer,
-                    registration.namespace
-                );
+                if (self.debug & (1 <<6)) != 0  {
+                    println!(
+                        "{} Peer {} registered for namespace '{}'",
+                        token_utils::now_string(), peer,
+                        registration.namespace
+                    );
+                }
             }
             BehaviourEvent::Rendezvous(
                 rendezvous::server::Event::DiscoverServed {
@@ -718,11 +783,13 @@ impl<E: EventHandler> Server<E> {
                     registrations,
                 },
             ) => {
-                tracing::debug!(
-                    "Served peer {} with {} registrations",
-                    enquirer,
-                    registrations.len()
-                );
+                if (self.debug & (1 <<6)) != 0  {
+                    println!(
+                        "{} Served peer {} with {} registrations",
+                        token_utils::now_string(), enquirer,
+                        registrations.len()
+                    );
+                }
             }
 
             BehaviourEvent::RendezvousClient(
@@ -732,12 +799,14 @@ impl<E: EventHandler> Server<E> {
                     rendezvous_node,
                 },
             ) => {
-                tracing::debug!(
-                    "Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
-                    namespace,
-                    rendezvous_node.short_id(),
-                    ttl
-                );
+                if (self.debug & (1 << 7)) != 0  {
+                    println!(
+                        "{} Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
+                        token_utils::now_string(), namespace,
+                        rendezvous_node.short_id(),
+                        ttl
+                    );
+                }
             }
             BehaviourEvent::RendezvousClient(
                 rendezvous::client::Event::RegisterFailed {
@@ -746,12 +815,14 @@ impl<E: EventHandler> Server<E> {
                     error,
                 },
             ) => {
-                tracing::info!(
-                    "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                    rendezvous_node.short_id(),
-                    namespace,
-                    error
-                );
+                if (self.debug & (1 << 7)) != 0  {
+                    println!(
+                        "{} Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                        token_utils::now_string(), rendezvous_node.short_id(),
+                        namespace,
+                        error
+                    );
+                }
                 return;
             }
 
@@ -766,7 +837,9 @@ impl<E: EventHandler> Server<E> {
                 for registration in registrations {
                     for address in registration.record.addresses() {
                         let peer = registration.record.peer_id();
-                        tracing::debug!("Discovered peer with rendezvous: {}, address={}", peer.short_id(), address);
+                        if (self.debug & (1 << 7)) != 0  {
+                            println!("{} Discovered peer with rendezvous: {}, address={}", token_utils::now_string(), peer.short_id(), address);
+                        }
 
                         let p2p_suffix = Protocol::P2p(peer);
                         let address_with_p2p =
@@ -778,10 +851,14 @@ impl<E: EventHandler> Server<E> {
                         
                         match self.network_service.dial(address_with_p2p.clone()) {
                             Ok(_) => {
-                                tracing::debug!("Successfully dialed peer {} at {}", peer.short_id(), address_with_p2p);
+                                if (self.debug & (1 << 7)) != 0  {
+                                    println!("{} Successfully dialed peer {} at {}", token_utils::now_string(), peer.short_id(), address_with_p2p);
+                                }
                             },
                             Err(e) => {
-                                tracing::info!("Failed to dial peer {} at {}: {}", peer.short_id(), address_with_p2p, e);
+                                if (self.debug & (1 << 7)) != 0  {
+                                    println!("{} Failed to dial peer {} at {}: {}", token_utils::now_string(), peer.short_id(), address_with_p2p, e);
+                                }
                             }
                         }
                     }
@@ -801,29 +878,38 @@ impl<E: EventHandler> Server<E> {
                     )) => {
                         match std::str::from_utf8(key.as_ref()) {
                             Ok(key_str) => {
-                                tracing::info!("☕ Got record: {} -> {:?}", key_str, value);
+                                if (self.debug & (1 << 2)) != 0  {
+                                    println!("{} ☕ Got record: {} -> {:?}", token_utils::now_string(), key_str, value);
+                                }
                                 self.handle_kad_result(id, value.clone());
                             },
                             Err(_) => {
-                                tracing::warn!("☕ 获取到记录但无法解析为UTF-8字符串");
+                                if (self.debug & (1 << 2)) != 0  {
+                                    println!("{} ☕ 获取到记录但无法解析为UTF-8字符串",token_utils::now_string());
+                                }
                                 self.handle_kad_result(id, value.clone());
                             }
                         }
                     }
                     kad::QueryResult::GetRecord(Err(err)) => {
-                        tracing::error!("❌ Kad get record failed: {:?}", err);
+                        if (self.debug & (1 << 2)) != 0  {
+                            println!("{} ❌ Kad get record failed: {:?}", token_utils::now_string(), err);
+                        }
                         self.handle_kad_failure(id);
                     } 
                     kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
-                        let key_str = std::str::from_utf8(key.as_ref()).unwrap();
-                        tracing::info!(
-                            "Successfully put record {:?}",
-                            std::str::from_utf8(key.as_ref()).unwrap()
-                        );
+                        if (self.debug & (1 << 2)) != 0  {
+                            println!(
+                                "{} Successfully put record {:?}", token_utils::now_string(),
+                                std::str::from_utf8(key.as_ref()).unwrap()
+                            );
+                        }
                         self.handle_kad_result(id, key.to_vec());
                     }
                     kad::QueryResult::PutRecord(Err(err)) => {
-                        tracing::error!("❌ Kad set record failed: {:?}", err);
+                        if (self.debug & (1 << 2)) != 0  {
+                            println!("{} ❌ Kad set record failed: {:?}", token_utils::now_string(), err);
+                        }
                         self.handle_kad_failure(id);
                     }
                     _ => {}
@@ -925,6 +1011,7 @@ impl<E: EventHandler> Server<E> {
         let external_addresses = self.get_external_address();
         let total_in = 0;
         let total_out = 0;
+        let is_debug = self.debug>0;
         NodeStatus {
             local_peer_id: self.local_peer_id.to_base58(),
             local_sys_did: self.sys_did.clone(),
@@ -936,6 +1023,7 @@ impl<E: EventHandler> Server<E> {
             connection_quality,
             total_inbound_bytes: total_in,
             total_outbound_bytes: total_out,
+            is_debug,
         }
     }
 
@@ -1136,6 +1224,7 @@ pub(crate) struct NodeStatus {
     pub(crate) connection_quality: HashMap<PeerId, ConnectionQuality>,
     pub(crate) total_inbound_bytes: u64,
     pub(crate) total_outbound_bytes: u64,
+    pub(crate) is_debug: bool,
 }
 
 impl NodeStatus {
