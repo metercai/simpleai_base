@@ -132,8 +132,8 @@ def request_p2p_task(task):
 def call_request_by_p2p_task(task_id, method, args_cbor2):
     global worker
 
+    logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
     if method == 'generate_image':
-        logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
         args = cbor2.loads(args_cbor2)
         #print(f"Received task args: type={type(args)}, value={args}")
     
@@ -146,19 +146,17 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
         logger.info(f"The {method} task was push to worker queue and qsize={qsize}")
         return str(qsize)
     elif method == 'minicpm_inference':
-        logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
         args = cbor2.loads(args_cbor2)
-        
         task = AsyncTask(method=method, args=args, task_id=task_id)
         async_task_queue.put(task)
         logger.info(f"The {method} task was push to async_task_queue")
         return "0"
     elif method =='remote_ping':
-        logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
         args = cbor2.loads(args_cbor2)
         task = AsyncTask(method=method, args=args, task_id=task_id)
         async_task_queue.put(task)
         logger.info(f"Received task args: type={type(args)}, value={args}")
+        return "0"
 
 
 

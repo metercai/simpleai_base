@@ -430,7 +430,7 @@ impl SimpleAI {
                 }
             }
         } else {
-            (p2p_out_did_list.to_string(), args)
+            (p2p_out_did_list.clone(), args)
         };
         if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out" 
             && IdClaim::validity(&p2p_out_did_list)) {
