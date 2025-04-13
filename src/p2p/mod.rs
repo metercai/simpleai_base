@@ -444,8 +444,8 @@ impl EventHandler for Handler {
                             };
                         return Ok(response.as_bytes().to_vec());
                     }
-                    "generate_image" => {
-                        let response = if self.shared_data.is_p2p_in_dids(&from_peer_did) {
+                    "remote_process" => {
+                        let response = if request.task_method == "remote_ping" || self.shared_data.is_p2p_in_dids(&from_peer_did) {
                             self.pending_task
                                 .lock()
                                 .unwrap()
@@ -454,7 +454,6 @@ impl EventHandler for Handler {
                             let results = Python::with_gil(|py| -> PyResult<String> {
                                 let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
                                     .expect("No simpleai_base.p2p_task.");
-                                // 将Vec<u8>转换为Python的bytes对象
                                 let py_bytes = pyo3::types::PyBytes::new_bound(py, &request.task_args);
                                 let result: String = p2p_task
                                     .getattr("call_request_by_p2p_task")?

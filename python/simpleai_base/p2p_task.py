@@ -54,7 +54,7 @@ class AsyncTaskWorker(threading.Thread):
                 token.response_remote_task(task_id, task_method, result_cbor2)
             elif task.method =='remote_ping':
                 task.processing = True
-                (message) = task.args
+                message = f'received: {task.args}'
                 result = message
 
                 task_id = task.task_id
