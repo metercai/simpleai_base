@@ -577,6 +577,12 @@ pub(crate) fn convert_base64_to_key(key_str: &str) -> [u8; 32] {
 }
 
 pub(crate) fn verify_signature(text: &str, signature: &str, verify_key: &[u8; 32]) -> bool {
+    if text.is_empty() || signature.is_empty() {
+        return false;
+    }
+    if verify_key == &[0u8; 32] {
+        return false;
+    }
     let verifykey = VerifyingKey::from_bytes(&verify_key.as_slice().try_into().unwrap()).unwrap();
     let signature = Signature::from_bytes(&URL_SAFE_NO_PAD.decode(signature).unwrap().as_slice().try_into().unwrap());
     match verifykey.verify(text.as_bytes(), &signature) {

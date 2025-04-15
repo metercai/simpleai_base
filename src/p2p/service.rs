@@ -269,6 +269,8 @@ impl<E: EventHandler> Server<E> {
                 .build();
 
         let locale_port = if is_global { TOKEN_SERVER_PORT } else { 0 };
+        let locale_port = if let Some(v) = config.address.fixed_port { v } else { locale_port };
+        
         for ip in &netifs_ip {
             if ip == &locale_ip {
                 swarm.listen_on(format!("/ip4/{}/udp/{}/quic-v1", ip, locale_port).parse().unwrap());

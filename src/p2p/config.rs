@@ -28,6 +28,7 @@ pub(crate) struct Address {
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
     pub(crate) upstream_nodes: Option<Vec<PeerIdWithMultiaddr>>,
     pub(crate) dns_ip: Option<String>,
+    pub(crate) fixed_port: Option<u16>,
 }
 
 /// Configuration for the request-response protocol.

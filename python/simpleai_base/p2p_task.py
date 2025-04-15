@@ -57,7 +57,7 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             percent, text, img = cbor2.loads(result_cbor2)
             if img is not None:
                 img = webp_bytes_to_ndarray(img)
-                logger.info(f"response {method}: task_id={task_id}, {percent}, {text}")
+                logger.info(f"response({method}): task_id={task_id}, {percent}, {text}")
             worker.worker.progressbar(task, percent, text, img)
         elif method =='remote_result':
             imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images = cbor2.loads(result_cbor2)
@@ -67,23 +67,23 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             #print(f"response: method={method}, task_id={task_id}, image_num={len(imgs)}")
         elif method =='remote_save_and_log':
             img, log_item = cbor2.loads(result_cbor2)
-            logger.info(f"response {method}, task_id={task_id}")
+            logger.info(f"response({method}), task_id={task_id}")
             worker.worker.p2p_save_and_log(task, img, log_item)
         elif method =='remote_stop':
             processing_start_time, status = cbor2.loads(result_cbor2)
-            logger.info(f"response {method}: task_id={task_id}, {processing_start_time}, {status}")
+            logger.info(f"response({method}): task_id={task_id}, {processing_start_time}, {status}")
             worker.worker.stop_processing(task, processing_start_time, status)
             del pending_tasks[task_id]
         elif method =='remote_minicpm':
             result = cbor2.loads(result_cbor2)
-            logger.info(f"response {method}: task_id={task_id}, {result}")
+            logger.info(f"response({method}): task_id={task_id}, {result}")
             task.results.append(result)
             task.processing = False
             task.finished = True
             del pending_tasks[task_id]
         elif method =='remote_pong':
             result = cbor2.loads(result_cbor2)
-            logger.info(f"response {method}: task_id={task_id}, {result}")
+            logger.info(f"response({method}): task_id={task_id}, {result}")
             task.results.append(result)
             task.processing = False
             task.finished = True
