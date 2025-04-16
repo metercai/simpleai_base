@@ -129,6 +129,8 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
                     mask = args[i]['mask']
                     args[i]['image'] = webp_bytes_to_ndarray(image)
                     args[i]['mask'] = webp_bytes_to_ndarray(mask)
+                    print(f"Received task args[{i}]: type={type(mask)}, value={mask}")
+                    print(f"Received task args[{i}]: type={args[i]['mask']}, value={args[i]['mask']}")
                 else:
                     args[i] = webp_bytes_to_ndarray(args[i])
         if args[67][7] is not None:
@@ -248,7 +250,7 @@ class AsyncTask:
             start_time = time.time()
             while not self.finished:
                 if timeout is not None and time.time() - start_time > timeout:
-                    raise TimeoutError(f"Task did not finish within the specified({timeout}s) timeout.")
+                    raise TimeoutError(f'Task did not finish within the specified({timeout}s) timeout.')
                 time.sleep(0.1)
         return self.results
 
