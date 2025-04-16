@@ -120,7 +120,7 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
     logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
     if method == 'generate_image':
         args = cbor2.loads(args_cbor2)
-        #print(f"Received task args: type={type(args)}, value={args}")
+        print(f"Received task args: type={type(args)}, value={args}")
         images_index = [19, 21, 23, 25, 75]
         for i in images_index:
             if args[i] is not None:
