@@ -1,3 +1,4 @@
+from ast import arg
 import io
 import time
 import cbor2
@@ -35,7 +36,13 @@ def request_p2p_task(task):
         images_index = [19, 21, 23, 25, 75]
         for i in images_index:
             if args[i] is not None:
-                args[i] = ndarray_to_webp_bytes(args[i])
+                if i==21:
+                    image = args[i]['image']
+                    mask = args[i]['mask']
+                    args[i]['image'] = ndarray_to_webp_bytes(image)
+                    args[i]['mask'] = ndarray_to_webp_bytes(mask)
+                else:
+                    args[i] = ndarray_to_webp_bytes(args[i])
         if args[67][7] is not None:
             args[67][7] = ndarray_to_webp_bytes(args[67][7])
         if args[67][8] is not None:
@@ -117,7 +124,13 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
         images_index = [19, 21, 23, 25, 75]
         for i in images_index:
             if args[i] is not None:
-                args[i] = webp_bytes_to_ndarray(args[i])
+                if i==21:
+                    image = args[i]['image']
+                    mask = args[i]['mask']
+                    args[i]['image'] = webp_bytes_to_ndarray(image)
+                    args[i]['mask'] = webp_bytes_to_ndarray(mask)
+                else:
+                    args[i] = webp_bytes_to_ndarray(args[i])
         if args[67][7] is not None:
             args[67][7] = webp_bytes_to_ndarray(args[67][7])
         if args[67][8] is not None:
