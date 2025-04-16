@@ -32,6 +32,19 @@ def request_p2p_task(task):
     task_method = task.method #'generate_image'
     if task_method=='generate_image':
         args = vars(task)["args"]
+        images_index = [19, 21, 23, 25, 75]
+        for i in images_index:
+            if args[i] is not None:
+                args[i] = ndarray_to_webp_bytes(args[i])
+        if args[67][7] is not None:
+            args[67][7] = ndarray_to_webp_bytes(args[67][7])
+        if args[67][8] is not None:
+            args[67][8] = ndarray_to_webp_bytes(args[67][8])
+        if args[67][9] is not None:
+            args[67][9] = ndarray_to_webp_bytes(args[67][9])
+        for i in range(len(args[71])):
+            if args[71][i][0] is not None:
+                args[71][i][0] = ndarray_to_webp_bytes(args[71][i][0])
     else:
         args = task.args
     if task_method=='remote_ping':
@@ -101,6 +114,19 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
     if method == 'generate_image':
         args = cbor2.loads(args_cbor2)
         #print(f"Received task args: type={type(args)}, value={args}")
+        images_index = [19, 21, 23, 25, 75]
+        for i in images_index:
+            if args[i] is not None:
+                args[i] = webp_bytes_to_ndarray(args[i])
+        if args[67][7] is not None:
+            args[67][7] = webp_bytes_to_ndarray(args[67][7])
+        if args[67][8] is not None:
+            args[67][8] = webp_bytes_to_ndarray(args[67][8])
+        if args[67][9] is not None:
+            args[67][9] = webp_bytes_to_ndarray(args[67][9])
+        for i in range(len(args[71])):
+            if args[71][i][0] is not None:
+                args[71][i][0] = webp_bytes_to_ndarray(args[71][i][0])
     
         task = worker.AsyncTask(args=args, task_id=task_id)
         task.remote_task = True
