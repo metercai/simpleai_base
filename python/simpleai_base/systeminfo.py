@@ -27,9 +27,9 @@ def get_ram_and_nvidia_gpu_info():
             gpu_memory_free = gpu_memory_info.free
             gpu_info_list.append(gpu_brand)
             gpu_info_list.append(gpu_name)
-            gpu_info_list.append(str(gpu_memory_total))
-            gpu_info_list.append(str(gpu_memory_free))
+            gpu_info_list.append(str(gpu_memory_total/1024))
+            gpu_info_list.append(str(gpu_memory_free/1024))
         pynvml.nvmlShutdown()
 
-    ram_and_gpu = [str(ram_memory), str(swap_memory), driver_version, cuda_version] + gpu_info_list
+    ram_and_gpu = [str(ram_memory/1024), str(swap_memory/1024), driver_version, cuda_version] + gpu_info_list
     return ','.join(ram_and_gpu)

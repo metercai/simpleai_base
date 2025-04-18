@@ -287,12 +287,13 @@ impl<E: EventHandler> Server<E> {
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut metric_registry = Registry::default();
+        let sys_did = sys_claim.gen_did();
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
-            try_from_bytes(Zeroizing::new(token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)))?));
-        
+            try_from_bytes(Zeroizing::new(
+                token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)
+            ))?));
         let didtoken = DidToken::instance();
         let sysinfo = didtoken.lock().unwrap().get_sysinfo();
-        let sys_did = sys_claim.gen_did();
         let is_upstream_node = if let Some(v) = config.is_upstream_node { v } else { false };
         let pubsub_topics: Vec<_> = config.pubsub_topics.clone();
         let req_resp_config = config.req_resp.clone();

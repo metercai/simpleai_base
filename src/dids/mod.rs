@@ -107,15 +107,15 @@ impl DidToken {
         let seld_db: sled::Db = config.open().expect("Failed to open token database");
         let token_db = Arc::new(Mutex::new(seld_db));
 
-        let file_crypt_key = {
+        let is_regenerate = {
             let systemskeys = token_utils::SystemKeys::instance();
             let mut systemskeys = systemskeys.read().unwrap();
-            systemskeys.get_file_crypt_key()
+            systemskeys.is_regenerate()
         };
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
             let mut claims = claims.lock().unwrap();
-            claims.local_claims.get_sys_dev_guest_did()
+            claims.local_claims.get_sys_dev_guest_did(is_regenerate)
         };
         let mut crypt_secrets = HashMap::new();
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
@@ -474,12 +474,18 @@ pub(crate) fn get_system_vars() -> (String, String, String, String, String, Stri
     let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
     let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
     
-    let mut system_name = root_name.clone();
+    let system_name = get_system_name();
+    let device_name = token_utils::truncate_nickname(&host_name);
+    (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
+}
+
+pub(crate) fn get_system_name() -> String {
+    let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+    
+    let mut system_name = sysinfo.root_name;
     if system_name.len() > 18 {
         system_name = system_name[..18].to_string();
     }
-    system_name = token_utils::truncate_nickname(&format!("{}_{}",  system_name, &token_utils::calc_sha256(root_dir.as_bytes()).to_base58()[..4]));
-    let device_name = token_utils::truncate_nickname(&host_name);
-    (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
+    token_utils::truncate_nickname(&format!("{}_{}",  system_name, &token_utils::calc_sha256(sysinfo.root_dir.as_bytes()).to_base58()[..4]))
 }
 

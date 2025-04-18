@@ -247,6 +247,7 @@ impl TokenUser {
                 self.global_local_vars.write().unwrap().set_admin_did(did);
                 context.set_pending(false); 
                 self.global_local_vars.write().unwrap().add_allowed_did(did, "web");
+                let admin_did = self.didtoken.lock().unwrap().get_admin_did();
                 println!("{} [UserBase] Set admin_did/设置系统管理 = {}", token_utils::now_string(), admin_did);
             }
             {

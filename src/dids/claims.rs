@@ -242,63 +242,10 @@ impl LocalClaims {
             }
         }
 
-        if device_did == "Unknown" {
-            let device_claim = LocalClaims::generate_did_claim(
-                "Device",
-                &device_name,
-                None,
-                Some(disk_uuid.clone()),
-                &device_phrase,
-                None,
-            );
-            device_did = device_claim.gen_did();
-            claims.insert(device_did.clone(), device_claim.clone());
-            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
-                "{}_{}.did",
-                device_claim.id_type.to_lowercase(),
-                device_claim.gen_did()
-            ));
-            fs::write(did_file_path, device_claim.to_json_string()).unwrap()
-        }
-        if sys_did == "Unknown" {
-            let local_claim = LocalClaims::generate_did_claim(
-                "System",
-                &system_name,
-                None,
-                Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
-                &sys_phrase,
-                None,
-            );
-            sys_did = local_claim.gen_did();
-            claims.insert(sys_did.clone(), local_claim.clone());
-            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
-                "{}_{}.did",
-                local_claim.id_type.to_lowercase(),
-                local_claim.gen_did()
-            ));
-            fs::write(did_file_path, local_claim.to_json_string()).unwrap()
-        }
-        if guest == "Unknown" {
-            let guest_claim = LocalClaims::generate_did_claim(
-                "User",
-                &guest_name,
-                None,
-                Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
-                &guest_phrase,
-                None,
-            );
-            guest = guest_claim.gen_did();
-            claims.insert(guest.clone(), guest_claim.clone());
-            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
-                "{}_{}.did",
-                guest_claim.id_type.to_lowercase(),
-                guest_claim.gen_did()
-            ));
-            fs::write(did_file_path, guest_claim.to_json_string()).unwrap()
-        }
+        (device_did, sys_did, guest) = LocalClaims::generate_sys_dev_guest_did(&mut claims, &device_did, &sys_did, &guest);        
 
         println!(
-            "{} [SimpleAI] Loaded claims from local: len={}, sys_did={}, dev_did={}",
+            "{} [SimpAI] Loaded claims from local: len={}, sys_did={}, dev_did={}",
             token_utils::now_string(),
             claims.len(),
             sys_did,
@@ -314,11 +261,18 @@ impl LocalClaims {
     }
 
     pub(crate) fn get_sys_dev_guest_did(
-        &mut self,
+        &mut self, is_regenerate: bool,
     ) -> (String, IdClaim, String, IdClaim, String, IdClaim) {
-        let sys_did = self.sys_did.clone();
-        let device_did = self.device_did.clone();
-        let guest = self.guest.clone();
+        let mut sys_did = self.sys_did.clone();
+        let mut device_did = self.device_did.clone();
+        let mut guest = self.guest.clone();
+        if is_regenerate {
+            (device_did, sys_did, guest) = LocalClaims::generate_sys_dev_guest_did(
+                &mut self.claims, "Unknown", "Unknown", "Unknown");
+            self.sys_did = sys_did.clone();
+            self.device_did = device_did.clone();
+            self.guest = guest.clone();
+        }
         (
             self.sys_did.clone(),
             self.get_claim_from_local(&sys_did),
@@ -394,6 +348,81 @@ impl LocalClaims {
 
         claim
     }
+
+
+    pub(crate) fn generate_sys_dev_guest_did(
+        claims: &mut HashMap<String, IdClaim>, 
+        device_did: &str, 
+        sys_did: &str, 
+        guest_did: &str) -> (String, String, String) { 
+        
+        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+        let root_dir = sysinfo.root_dir.clone();
+        let disk_uuid = sysinfo.disk_uuid.clone();
+
+        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase) =
+            dids::get_system_vars();
+
+        let device_did = if device_did == "Unknown" {
+            let device_claim = LocalClaims::generate_did_claim(
+                "Device", &device_name, None, 
+                Some(disk_uuid.clone()), &device_phrase, None,
+            );
+            let device_did = device_claim.gen_did();
+            claims.insert(device_did.clone(), device_claim.clone());
+            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+                "{}_{}.did", device_claim.id_type.to_lowercase(), device_claim.gen_did()
+            ));
+            fs::write(did_file_path, device_claim.to_json_string()).unwrap();
+            device_did
+        } else {
+            device_did.to_string() 
+        };
+
+        let sys_did = if sys_did == "Unknown" {
+            let local_claim = LocalClaims::generate_did_claim(
+                "System", &system_name, None,
+                Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
+                &sys_phrase, None,
+            );
+            let sys_did = local_claim.gen_did();
+            claims.insert(sys_did.clone(), local_claim.clone());
+            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+                "{}_{}.did",
+                local_claim.id_type.to_lowercase(),
+                local_claim.gen_did()
+            ));
+            fs::write(did_file_path, local_claim.to_json_string()).unwrap();
+            sys_did
+        } else {
+            sys_did.to_string() 
+        };
+        
+        let guest_did = if guest_did == "Unknown" {
+            let guest_claim = LocalClaims::generate_did_claim(
+                "User",
+                &guest_name,
+                None,
+                Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
+                &guest_phrase,
+                None,
+            );
+            let guest_did = guest_claim.gen_did();
+            claims.insert(guest_did.clone(), guest_claim.clone());
+            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+                "{}_{}.did",
+                guest_claim.id_type.to_lowercase(),
+                guest_claim.gen_did()
+            ));
+            fs::write(did_file_path, guest_claim.to_json_string()).unwrap();
+            guest_did
+        } else {
+            guest_did.to_string() 
+        };
+        
+        (device_did, sys_did, guest_did)
+    }
+
 
     pub(crate) fn generate_did_claim(
         id_type: &str,

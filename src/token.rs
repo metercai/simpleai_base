@@ -789,7 +789,7 @@ impl SimpleAI {
     pub fn check_sstoken_and_get_did(&mut self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
         if sstoken_bytes.len() != 32 || sstoken_bytes==[0; 32] {
-            println!("{} [UserBase] The sstoken in browser is incorrect format: {}", token_utils::now_string(), sstoken);
+            println!("{} [UserBase] The sstoken is incorrect format: {}", token_utils::now_string(), sstoken);
             return String::from("Unknown")
         }
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
@@ -818,7 +818,7 @@ impl SimpleAI {
             let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
                 self.sid_did_map.lock().unwrap().remove(sstoken);
-                println!("{} [UserBase] The context of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
+                println!("{} [UserBase] The context of the sstoken is expired: did={}", token_utils::now_string(), user_did);
                 String::from("Unknown")
             } else {
                 self.sid_did_map.lock().unwrap().insert(sstoken.to_string(), user_did.clone());
@@ -844,14 +844,14 @@ impl SimpleAI {
                 let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
                     self.sid_did_map.lock().unwrap().remove(sstoken);
-                println!("{} [UserBase] The context2 of the sstoken in browser is expired: did={}", token_utils::now_string(), user_did);
+                    println!("{} [UserBase] The context2 of the sstoken is expired: did={}", token_utils::now_string(), user_did);
                     String::from("Unknown")
                 } else {
                     self.sid_did_map.lock().unwrap().insert(sstoken.to_string(), user_did.clone());
                     user_did
                 }
             } else {
-                println!("{} [UserBase] The sstoken in browser is not validity: sstoken={}, ua={}", token_utils::now_string(), sstoken, ua_hash);
+                println!("{} [UserBase] The sstoken is not validity: {}/{}", token_utils::now_string(), sstoken, ua_hash);
                 String::from("Unknown")
             }
         }
@@ -957,7 +957,7 @@ impl SimpleAI {
         let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
-                if token_utils::is_original_user_key(&symbol_hash)  {
+                if token_utils::is_original_user_key("User", &symbol_hash)  {
                     let ready_data = {
                         let ready_users = self.ready_users.lock().unwrap();
                         match ready_users.get(&user_hash_id) {
@@ -1183,7 +1183,7 @@ impl SimpleAI {
         }
 
         let (_user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-        if token_utils::is_original_user_key(&symbol_hash)  {
+        if token_utils::is_original_user_key("User", &symbol_hash)  {
             let _ = token_utils::change_phrase_for_pem_and_identity_files(&symbol_hash, &user_phrase, phrase);
         } else {
             println!("{} [UserBase] The user_key phrase has been changed and can not to be set: {}, {}.",

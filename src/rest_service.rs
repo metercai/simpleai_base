@@ -156,7 +156,7 @@ pub fn start_rest_server(address: String, port: u16) {
 
         warp::serve(routes).run((address, port)).await;
     });
-    println!("{} [RestApi] REST server started at http://{}:{}", token_utils::now_string(), address, port);
+    println!("{} [SimpAI] REST server started at http://{}:{}", token_utils::now_string(), address, port);
 }
 
 

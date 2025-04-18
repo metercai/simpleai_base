@@ -57,26 +57,56 @@ pub(crate) struct SystemKeys {
     system_key: [u8; 32],
     device_key: [u8; 32],
     file_crypt_key: [u8; 32],
+    regenerate: bool,
 }
 impl SystemKeys {
     fn new() -> Self {
         debug!("Init SystemKeys");
+        let mut regenerate = false;
         let id_hash = [0u8; 32];
-        let device_key = read_key_or_generate_key("Device", &id_hash, "None", false, true);
+        let device_key = match exists_key_file("Device", &id_hash) {
+            true => {
+                let mut device_key = read_key_or_generate_key("Device", &id_hash, "None", false, true);
+                if device_key == [0u8; 32] {
+                    println!("{} [UserBase] Device key is invalid, it will be regenerate for your device, then the system will restore default.", now_string());
+                    device_key = read_key_or_generate_key("Device", &id_hash, "None", true, true);
+                    regenerate = true;
+                }
+                device_key
+            } 
+            false => {
+                read_key_or_generate_key("Device", &id_hash, "None", true, true)
+            }
+        };
         debug!("Loaded device key");
-        let system_key = read_key_or_generate_key("System", &id_hash, "None", false, true);
+        let mut system_key = match exists_key_file("System", &id_hash) {
+            true => {
+                let mut system_key = read_key_or_generate_key("System", &id_hash, "None", false, true);
+                if system_key == [0u8; 32] {
+                    println!("{} [UserBase] System key is invalid, it will be regenerate for your system, then the system will restore default.", now_string());
+                    system_key = read_key_or_generate_key("System", &id_hash, "None", true, true);
+                    regenerate = true;
+                }
+                system_key
+            } 
+            false => {
+                read_key_or_generate_key("System", &id_hash, "None", true, true)
+            }
+        };
         debug!("Loaded system key");
+        
         let device_key_hash = calc_sha256(&device_key);
         let local_key_hash = calc_sha256(&system_key);
         let mut com_hash = [0u8; 64];
         com_hash[..32].copy_from_slice(&device_key_hash);
         com_hash[32..].copy_from_slice(&local_key_hash);
         let file_crypt_key = calc_sha256(com_hash.as_ref());
-        debug!("Init SystemKeys finished");
+        println!("{} [SimpAI] SystemKeys has loaded.", now_string());
         Self {
             system_key,
             device_key,
             file_crypt_key,
+            regenerate,
         }
     }
     pub fn instance() -> Arc<RwLock<SystemKeys>> {
@@ -91,6 +121,9 @@ impl SystemKeys {
     }
     pub fn get_system_key(&self) -> [u8; 32] {
         self.system_key
+    }
+    pub fn is_regenerate(&self) -> bool {
+        self.regenerate
     }
 }
 
@@ -465,13 +498,9 @@ pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
 
 pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {
     let sysinfo = &SYSTEM_BASE_INFO;
-    let mut system_name = sysinfo.root_name.clone();
-    if system_name.len() > 18 {
-        system_name = system_name[..18].to_string();
-    }
-    system_name = truncate_nickname(&format!("{}_{}",  system_name, &calc_sha256(sysinfo.root_dir.as_bytes()).to_base58()[..4]));
-    
-    let device_symbol_hash = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
+        
+    let system_name = dids::get_system_name();
+    let device_symbol_hash: [u8; 32] = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
     let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
     match key_type {
         "Device" => {
@@ -490,12 +519,6 @@ pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32])
     }
 }
 
-pub(crate) fn exists_key_file(key_type: &str, symbol_hash: &[u8; 32]) -> bool {
-    let (key_hash_id, _phrase) = get_key_hash_id_and_phrase(key_type, symbol_hash);
-    let key_file = get_path_in_sys_key_dir(&format!(".token_{}_{}.pem",
-                                                    key_type.to_lowercase(), key_hash_id));
-    key_file.exists()
-}
 
 pub(crate) fn get_verify_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> [u8; 32] {
     let signing_key = SigningKey::from_bytes(&read_key_or_generate_key(key_type, symbol_hash, phrase, false, false));
@@ -889,7 +912,7 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, throug
                             debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
                             generate_new_key_and_save_pem(file_path, &phrase_bytes)
                         } else {
-                            debug!("[UserBase] Read private key error and return 0 key: {}", file_path.display());
+                            println!("{} [UserBase] Read private key error and return 0 key: {}", now_string(), file_path.display());
                             [0; 32]
                         }
                     },
@@ -908,7 +931,7 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
             fs::create_dir_all(parent_dir).unwrap();
         }
     }
-    debug!("generate new key and save pem file: {}", file_path.display());
+    println!("{} [UserBase] generate new key and save pem file: {}", now_string(), file_path.display());
     let sysinfo = &SYSTEM_BASE_INFO;
 
     let pem_label = "SIMPLE_AI_KEY";
@@ -972,10 +995,17 @@ fn save_key_to_pem(symbol_hash: &[u8; 32], key: &[u8; 32], phrase: &str) -> [u8;
     secret_key
 }
 
-pub(crate) fn is_original_user_key(symbol_hash: &[u8; 32]) -> bool {
-    let (user_hash_id, user_phrase) = get_key_hash_id_and_phrase("User", symbol_hash);
-    debug!("the user key testing : {}", user_hash_id);
-    let key = read_key_or_generate_key("User", symbol_hash, &user_phrase, false, false);
+pub(crate) fn exists_key_file(key_type: &str, symbol_hash: &[u8; 32]) -> bool {
+    let (key_hash_id, _phrase) = get_key_hash_id_and_phrase(key_type, symbol_hash);
+    let key_file = get_path_in_sys_key_dir(&format!(".token_{}_{}.pem",
+                                                    key_type.to_lowercase(), key_hash_id));
+    key_file.exists()
+}
+
+pub(crate) fn is_original_user_key(key_type: &str, symbol_hash: &[u8; 32]) -> bool {
+    let (hash_id, phrase) = get_key_hash_id_and_phrase(key_type, symbol_hash);
+    debug!("the key testing : {}", hash_id);
+    let key = read_key_or_generate_key(key_type, symbol_hash, &phrase, false, false);
     key != [0u8; 32]
 }
 

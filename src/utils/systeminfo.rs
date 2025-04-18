@@ -310,7 +310,7 @@ fn get_disk_info() -> (u64, u64, String) {
                     }
                 }
             }
-            (total/2, free/2, uuid)
+            (total/(2*1024), free/(2*1024), uuid)
         }
         _ => (0, 0, "".to_string())
     };
