@@ -252,12 +252,16 @@ impl LocalClaims {
             device_did
         );
 
-        LocalClaims {
+        let mut local_claims = LocalClaims {
             claims,
             sys_did,
             device_did,
             guest,
-        }
+        };
+        local_claims.device_did = local_claims.reverse_lookup_did_by_symbol(&device_symbol_hash);
+        local_claims.sys_did = local_claims.reverse_lookup_did_by_symbol(&system_symbol_hash);
+        local_claims.guest = local_claims.reverse_lookup_did_by_symbol(&guest_symbol_hash);
+        local_claims
     }
 
     pub(crate) fn get_sys_dev_guest_did(
@@ -267,11 +271,17 @@ impl LocalClaims {
         let mut device_did = self.device_did.clone();
         let mut guest = self.guest.clone();
         if is_regenerate {
-            (device_did, sys_did, guest) = LocalClaims::generate_sys_dev_guest_did(
+            let (device_did_new, sys_did_new, guest_new) = LocalClaims::generate_sys_dev_guest_did(
                 &mut self.claims, "Unknown", "Unknown", "Unknown");
-            self.sys_did = sys_did.clone();
-            self.device_did = device_did.clone();
-            self.guest = guest.clone();
+            self.sys_did = sys_did_new.clone();
+            self.device_did = device_did_new.clone();
+            self.guest = guest_new.clone();
+            self.pop_claim(&device_did_new);
+            self.pop_claim(&sys_did_new);
+            self.pop_claim(&guest_new);
+            sys_did = sys_did_new.clone();
+            device_did = device_did_new.clone();
+            guest = guest_new.clone();
         }
         (
             self.sys_did.clone(),
@@ -495,17 +505,31 @@ impl LocalClaims {
         serde_json::from_str(&file_content).unwrap_or(IdClaim::default())
     }
 
-    pub fn reverse_lookup_did_by_symbol(&self, symbol_hash: &[u8; 32]) -> String {
+    pub fn reverse_lookup_did_by_symbol(&mut self, symbol_hash: &[u8; 32]) -> String {
         let mut latest_did = "Unknown".to_string();
         let mut latest_timestamp: u64 = 0;
+        let mut old_dids = Vec::new();
 
+        // 第一次遍历：找出最新的DID和所有匹配的DID
         for (did, id_claim) in self.claims.iter() {
             if id_claim.get_symbol_hash() == *symbol_hash {
                 if id_claim.timestamp > latest_timestamp {
+                    // 如果找到更新的DID，将当前最新的DID加入到旧DID列表
+                    if latest_did != "Unknown" {
+                        old_dids.push(latest_did);
+                    }
                     latest_timestamp = id_claim.timestamp;
                     latest_did = did.to_string();
+                } else {
+                    // 如果当前DID不是最新的，加入到旧DID列表
+                    old_dids.push(did.to_string());
                 }
             }
+        }
+
+        // 第二次处理：删除所有旧的DID
+        for old_did in old_dids {
+            self.pop_claim(&old_did);
         }
 
         latest_did
