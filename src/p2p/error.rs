@@ -27,6 +27,8 @@ pub enum P2pError {
     SubscribeError(#[from] gossipsub::SubscriptionError),
     #[error(transparent)]
     PublishError(#[from] gossipsub::PublishError),
+    #[error("Request failed")]
+    RequestFailed,
     #[error("Error in Reqwest")]
     ReqwestError(#[from] reqwest::Error),
     #[error("io Error ")]

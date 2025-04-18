@@ -1,17 +1,13 @@
-import os
 import json
 import websocket
 import uuid
-import random
 import httpx
 import time
-import torch
 import numpy as np
 import ldm_patched.modules.model_management as model_management
 from io import BytesIO
 from PIL import Image
 import hashlib
-import shared
 from . import utils
 
 
@@ -102,8 +98,12 @@ def get_history(prompt_id):
 
 
 def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=None):
-    prompt_id = queue_prompt(user_did, prompt, user_cert)['prompt_id']
-    print('{} [ComfyClient] Request and get ComfyTask_id:{}'.format(utils.now_string(), prompt_id))
+    result  = queue_prompt(user_did, prompt, user_cert)
+    if 'prompt_id' not in result:
+        print(f'{utils.now_string()} [ComfyClient] Error in inference prompt: {result["error"]}, {result["node_errors"]}, user_did={user_did}')
+        return None
+    prompt_id = result['prompt_id']
+    print('{} [ComfyClient] Request and get prompt_id:{}'.format(utils.now_string(), prompt_id))
     output_images = {}
     current_node = ''
     current_type = ''

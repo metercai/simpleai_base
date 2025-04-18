@@ -185,7 +185,8 @@ impl P2p {
                         task_args: vec![b' '],
                     };
                     let request = Bytes::from(serde_cbor::to_vec(&request).unwrap());
-                    let result_str = self.request(target_did.clone(), request).await;
+                    let result = self.request(target_did.clone(), request, "sync").await;
+                    let result_str = String::from_utf8(result).unwrap_or("".to_string());   
                     if result_str.is_empty() {
                         tracing::debug!("从上游节点 {} 获取的响应为空", upstream_peer_id);
                         continue;
@@ -305,25 +306,35 @@ impl P2p {
         }
     }
 
-    pub async fn request_task(&self, target_did: String, body: Bytes) -> String {
+    pub async fn request_task(&self, target_did: String, body: Bytes, mode: &str) -> String {
         if target_did.is_empty() {
             tracing::warn!("target_did is empty");
             return String::new();
         }
-        self.request(target_did, body).await
+        let response = self.request(target_did, body, mode).await;
+        if mode == "sync" {
+            String::from_utf8(response).unwrap_or(String::new())
+        } else {
+            "OK".to_string()
+        }
     }
 
-    pub async fn response_task(&self, task_id: String, body: Bytes) -> String {
+    pub async fn response_task(&self, task_id: String, body: Bytes, mode: &str) -> String {
         let target_did = self.pending_task.lock().unwrap()
             .get(&task_id).unwrap_or(&String::new()).clone();
         if target_did.is_empty() {
             tracing::warn!("target_did is empty");
             return String::new();
         }
-        self.request(target_did, body).await
+        let response = self.request(target_did, body, mode).await;
+        if mode == "sync" {
+            String::from_utf8(response).unwrap_or(String::new())
+        } else {
+            "OK".to_string()
+        }
     }
 
-    async fn request(&self, target_did: String, message: Bytes) -> String {
+    async fn request(&self, target_did: String, message: Bytes, mode: &str) -> Vec<u8> {
         let short_id = self.client.get_short_id();
 
         let target_peer_id = {
@@ -331,7 +342,7 @@ impl P2p {
                 peer_id.clone()
             } else {
                 tracing::warn!("user_did({}) does not belong to a node", target_did);
-                return String::new();
+                return String::new().into();
             }
         };
 
@@ -357,14 +368,26 @@ impl P2p {
             now_time
         );
 
-        let response = match self.client.request(&target_peer_id, message).await {
-            Ok(resp) => resp,
-            Err(e) => {
-                tracing::error!("Outbound request fails: {:?}", e);
-                "Unknown".as_bytes().to_vec()
+        match mode {
+            "sync" => {
+                match self.client.request(&target_peer_id, message).await {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        tracing::error!("Outbound request fails: {:?}", e);
+                        "Unknown".into()
+                    }
+                }
             }
-        };
-        String::from_utf8_lossy(&response).to_string()
+            _ => {
+                match self.client.request_async(&target_peer_id, message).await {
+                    Ok(resp) => Vec::new(),
+                    Err(e) => {
+                        tracing::error!("Outbound request fails: {:?}", e);
+                        "Unknown".into()
+                    }
+                }
+            }
+        }
     }
 
     pub async fn broadcast_user_msg(&self, message: Bytes) -> String {

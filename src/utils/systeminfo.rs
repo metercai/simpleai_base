@@ -5,11 +5,8 @@ use std::env;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
-
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 use sysinfo::System;
 use tracing::debug;
 
@@ -49,8 +46,8 @@ impl SystemBaseInfo {
     pub fn generate() -> Self {
         let (disk_total, disk_free, disk_uuid) = get_disk_info();
         let (mut gpu_brand, mut gpu_name, mut gpu_memory, mut driver, mut cuda) = get_gpu_info();
-        if gpu_brand=="Unknown" || gpu_name=="reserve" || gpu_memory==0 {
-            let ram_gpu_info = env_utils::get_ram_and_gpu_info();
+        if gpu_brand=="NVIDIA" {
+            let ram_gpu_info = env_utils::get_ram_and_nvidia_gpu_info();
             if ram_gpu_info!="Unknown" {
                 let parts: Vec<&str> = ram_gpu_info.split(',').collect();
                 if parts.len()>=4 {
@@ -429,7 +426,92 @@ fn get_gpu_info() -> (String, String, u64, String, String){
             (gpu_brand, gpu_name, gpu_memory, driver, cuda)
         }
         "macos" => {
-            ("Apple".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "-".to_string())
+            let mut driver = "reserve".to_string();
+            let mut cuda = "-".to_string();
+            let mut gpu_brand = "Apple".to_string();
+            let mut gpu_name = "reserve".to_string();
+            let mut gpu_memory = 0;
+            
+            // 使用system_profiler获取GPU信息
+            let gpu_info = run_command("system_profiler", &["SPDisplaysDataType", "-json"]);
+            
+            if !gpu_info.is_empty() {
+                // 尝试解析JSON输出
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&gpu_info) {
+                    if let Some(displays) = json.get("SPDisplaysDataType").and_then(|v| v.as_array()) {
+                        if let Some(display) = displays.first() {
+                            // 获取GPU型号
+                            if let Some(model) = display.get("sppci_model").and_then(|v| v.as_str()) {
+                                gpu_name = model.to_string();
+                                
+                                // 判断GPU品牌
+                                if model.contains("AMD") || model.contains("ATI") {
+                                    gpu_brand = "AMD".to_string();
+                                } else if model.contains("NVIDIA") {
+                                    gpu_brand = "NVIDIA".to_string();
+                                } else if model.contains("Intel") {
+                                    gpu_brand = "Intel".to_string();
+                                }
+                            }
+                            
+                            // 获取GPU内存
+                            if let Some(vram) = display.get("spdisplays_vram_shared") {
+                                if let Some(vram_str) = vram.as_str() {
+                                    // 解析如 "1536 MB" 格式的内存大小
+                                    if let Some(mb_str) = vram_str.split_whitespace().next() {
+                                        if let Ok(mb) = mb_str.parse::<u64>() {
+                                            gpu_memory = mb;
+                                        }
+                                    }
+                                } else if let Some(vram_mb) = vram.as_u64() {
+                                    gpu_memory = vram_mb;
+                                }
+                            }
+                            
+                            // 如果没有找到共享内存信息，尝试查找专用内存
+                            if gpu_memory == 0 {
+                                if let Some(vram) = display.get("spdisplays_vram") {
+                                    if let Some(vram_str) = vram.as_str() {
+                                        if let Some(mb_str) = vram_str.split_whitespace().next() {
+                                            if let Ok(mb) = mb_str.parse::<u64>() {
+                                                gpu_memory = mb;
+                                            }
+                                        }
+                                    } else if let Some(vram_mb) = vram.as_u64() {
+                                        gpu_memory = vram_mb;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // 如果JSON解析失败，尝试使用文本解析
+                    let text_info = run_command("system_profiler", &["SPDisplaysDataType"]);
+                    for line in text_info.lines() {
+                        let line = line.trim();
+                        if line.starts_with("Chipset Model:") {
+                            gpu_name = line.split(':').nth(1).unwrap_or("").trim().to_string();
+                            
+                            if gpu_name.contains("AMD") || gpu_name.contains("ATI") {
+                                gpu_brand = "AMD".to_string();
+                            } else if gpu_name.contains("NVIDIA") {
+                                gpu_brand = "NVIDIA".to_string();
+                            } else if gpu_name.contains("Intel") {
+                                gpu_brand = "Intel".to_string();
+                            }
+                        } else if line.contains("VRAM") {
+                            if let Some(vram_part) = line.split(':').nth(1) {
+                                if let Some(mb_str) = vram_part.trim().split_whitespace().next() {
+                                    if let Ok(mb) = mb_str.parse::<u64>() {
+                                        gpu_memory = mb;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            (gpu_brand, gpu_name, gpu_memory, driver, cuda)
         }
         _ => {("Unknown".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "-".to_string())}
     };
@@ -438,24 +520,61 @@ fn get_gpu_info() -> (String, String, u64, String, String){
 }
 
 fn is_virtual_or_docker_or_physics() -> String {
-    let device_type = match env::consts::OS {
+    match env::consts::OS {
         "linux" => {
-            let path = "/.dockerenv";
-            match std::fs::metadata(path) {
-                Ok(_) => {
-                    "docker".to_string()
-                }
-                Err(_) => {
-                    let virt_name = run_command("cat", &["/sys/class/dmi/id/product_name"]);
-                    virt_name.trim().to_string()
+            // 检测Docker
+            if std::fs::metadata("/.dockerenv").is_ok() {
+                return "docker".to_string();
+            }
+            
+            // 检测容器化环境
+            if std::fs::metadata("/proc/1/cgroup").is_ok() {
+                let cgroup_content = run_command("cat", &["/proc/1/cgroup"]);
+                if cgroup_content.contains("docker") || cgroup_content.contains("lxc") {
+                    return "container".to_string();
                 }
             }
-        }
-        _ => {
-            "Unknown".to_string()
-        }
-    };
-    device_type
+            
+            // 检测虚拟机
+            let virt_name = run_command("cat", &["/sys/class/dmi/id/product_name"]);
+            if !virt_name.is_empty() {
+                let virt_name = virt_name.trim();
+                // 检查常见虚拟机产品名称
+                if virt_name.contains("VMware") || 
+                   virt_name.contains("VirtualBox") || 
+                   virt_name.contains("KVM") || 
+                   virt_name.contains("Xen") {
+                    return virt_name.to_string();
+                }
+                return virt_name.to_string();
+            }
+            
+            "physical".to_string()
+        },
+        "macos" => {
+            // macOS检测虚拟化
+            let sysctl_output = run_command("sysctl", &["hw.model"]);
+            if sysctl_output.contains("VMware") || sysctl_output.contains("Virtual") {
+                return "virtual".to_string();
+            }
+            "physical".to_string()
+        },
+        "windows" => {
+            // Windows检测虚拟化
+            let wmi_output = run_command("powershell", &[
+                "-Command", 
+                "Get-WmiObject -Class Win32_ComputerSystem | Select-Object -ExpandProperty Model"
+            ]);
+            
+            if wmi_output.contains("VMware") || 
+               wmi_output.contains("VirtualBox") || 
+               wmi_output.contains("Virtual Machine") {
+                return "virtual".to_string();
+            }
+            "physical".to_string()
+        },
+        _ => "Unknown".to_string()
+    }
 }
 
 fn run_command(command: &str, args: &[&str]) -> String {
@@ -464,7 +583,8 @@ fn run_command(command: &str, args: &[&str]) -> String {
             if output.status.success() {
                 String::from_utf8_lossy(&output.stdout).into_owned()
             } else {
-                debug!("Failed to run command: {} {:?}, output: {:?}", command, args, output);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                debug!("Failed to run command: {} {:?}, output: {:?}, {}", command, args, output.status.code(), stderr);
                 "".to_string()
             }
         }

@@ -9,7 +9,6 @@ use std::str::FromStr;
 use serde_json::Value;
 
 use pyo3::prelude::*;
-use pyo3::types::PyList;
 
 //use pnet::datalink::interfaces;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -19,11 +18,9 @@ use rand::{Rng, rngs::SmallRng};
 use rand::SeedableRng;
 use tokio::time::{self, Duration};
 use tracing::{debug, info};
-use lazy_static::lazy_static;
 
 use crate::utils::error::TokenError;
-use crate::utils::systeminfo::SystemBaseInfo;
-use crate::dids::{token_utils, REQWEST_CLIENT};
+use crate::dids::REQWEST_CLIENT;
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB chunks
 
@@ -269,11 +266,11 @@ pub fn get_file_hash_size(path: &Path) -> io::Result<(String, u64)> {
 }
 
 
-pub(crate) fn get_ram_and_gpu_info() -> String {
+pub(crate) fn get_ram_and_nvidia_gpu_info() -> String {
     {
         let results = Python::with_gil(|py| -> PyResult<String> {
             let systeminfo= PyModule::import_bound(py, "simpleai_base.systeminfo").expect("No simpleai_base.systeminfo.");
-            let result: String = systeminfo.getattr("get_ram_and_gpu_info")?
+            let result: String = systeminfo.getattr("get_ram_and_nvidia_gpu_info")?
                 .call0()?.extract()?;
             Ok(result)
         });

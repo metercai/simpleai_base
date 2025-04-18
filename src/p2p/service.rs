@@ -31,15 +31,14 @@ use rand::Rng;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::p2p::{http_service, utils};
+use crate::p2p::utils;
 use crate::p2p::protocol::*;
 use crate::p2p::req_resp::*;
 use crate::p2p::config::*;
 use crate::p2p::error::P2pError;
 use crate::p2p::utils::PeerIdExt;
-use crate::dids::{DidToken, token_utils};
+use crate::dids::{DidToken, token_utils, TOKIO_RUNTIME};
 use crate::dids::claims::IdClaim;
-use crate::utils::systeminfo::SystemInfo;
 use crate::user::shared;
 
 const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
@@ -108,6 +107,61 @@ impl Client {
         Ok(response?)
     }
 
+    /// 发送异步请求，不等待响应结果
+    pub(crate) async fn request_async(&self, target: &str, request: Bytes) -> Result<Vec<u8>, P2pError> {
+        let target = target.parse().map_err(|_| P2pError::InvalidPeerId)?;
+        
+        let _ = self.cmd_sender.send(Command::SendOneWayRequest {
+            target,
+            request,
+        });
+        
+        Ok("Ok".into())
+    }
+
+    /// 发送异步请求，并在收到响应时执行回调函数
+    /// 
+    /// # Example
+    /// client.request_with_callback("peer_id", request_data, |result| {
+    ///     match result {
+    ///         Ok(response) => {
+    ///             println!("收到响应: {:?}", response);
+    ///             // 处理响应数据...
+    ///         },
+    ///         Err(e) => {
+    ///             println!("请求失败: {:?}", e);
+    ///             // 处理错误...
+    ///         }
+    ///     }
+    /// }).unwrap();
+    pub(crate) async fn request_with_callback<F>(&self, target: &str, request: Bytes, callback: F) -> Result<(), P2pError>
+    where
+        F: FnOnce(Result<Vec<u8>, P2pError>) + Send + 'static,
+    {
+        let target = target.parse().map_err(|_| P2pError::InvalidPeerId)?;
+
+        let (responder, receiver) = oneshot::channel();
+        let _ = self.cmd_sender.send(Command::SendRequest {
+            target,
+            request,
+            responder,
+        });
+
+        // 在新的任务中等待响应并执行回调
+        TOKIO_RUNTIME.spawn(async move {
+            let result = match receiver.await {
+                Ok(response) => match response {
+                    Ok(data) => Ok(data),
+                    Err(_) => Err(P2pError::RequestFailed),
+                },
+                Err(_) => Err(P2pError::RequestRejected),
+            };
+            callback(result);
+        });
+
+        Ok(())
+    }
+
     /// Publish a message to the given topic.
     pub(crate) async fn broadcast(&self, topic: String, message: Bytes) {
         let _ = self.cmd_sender.send(Command::Broadcast {
@@ -154,6 +208,10 @@ pub(crate) enum Command {
         target: PeerId,
         request: Bytes,
         responder: oneshot::Sender<ResponseType>,
+    },
+    SendOneWayRequest {
+        target: PeerId,
+        request: Bytes,
     },
     Broadcast {
         topic: String,
@@ -437,6 +495,10 @@ impl<E: EventHandler> Server<E> {
                 request,
                 responder,
             } => self.handle_outbound_request(target, request, responder),
+            Command::SendOneWayRequest {
+                target,
+                request,
+            } => self.handle_outbound_one_way_request(target, request),
             Command::Broadcast { topic, message } => self.handle_outbound_broadcast(topic, message),
             Command::GetStatus(responder) => {
                 let status = self.get_status();
@@ -930,6 +992,16 @@ impl<E: EventHandler> Server<E> {
     fn handle_inbound_request(&mut self, peer: PeerId, request: Vec<u8>, ch: ResponseChannel<ResponseType>) {
         if let Some(handler) = self.event_handler.get() {
             let response = handler.handle_inbound_request(peer, request).map_err(|_| ());
+            match &response {
+                Ok(data) => {
+                    if let Ok(response_str) = std::str::from_utf8(data) {
+                        if response_str == "no_response" {
+                            return; // 直接返回，不发送响应
+                        }
+                    }
+                },
+                _ => {}
+            }
             self.network_service.behaviour_mut().send_response(ch, response);
         }
     }
@@ -957,6 +1029,10 @@ impl<E: EventHandler> Server<E> {
             tracing::warn!("❗ Received failure for unknown request: {}", request_id);
             debug_assert!(false);
         }
+    }
+
+    fn handle_outbound_one_way_request(&mut self, target: PeerId, request: Bytes) {
+        let req_id = self.network_service.behaviour_mut().send_request(&target, request);
     }
 
     // An inbound response was received, notify the application layer.

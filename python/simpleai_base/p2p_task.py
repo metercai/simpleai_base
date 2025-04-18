@@ -1,6 +1,7 @@
 from ast import arg
 import io
 import time
+from unittest import result
 import cbor2
 import threading
 import queue
@@ -59,12 +60,12 @@ def request_p2p_task(task):
     else:
         target_did = None
     args_cbor2 = cbor2.dumps(args)
+    logger.info(f"Sending {task_method} task to remote: {task_id}, length: {len(args_cbor2)}")
     if task_method=='remote_ping':  # sync task 
-        return token.request_remote_task(task_id, task_method, args_cbor2, target_did)
+        return token.request_remote_task(task_id, task_method, args_cbor2, target_did, 'sync')
 
     pending_tasks[task_id] = (task, task_method, datetime.now())
-    logger.info(f"Sending {task_method} task to remote: {task_id}, length: {len(args_cbor2)}")
-    return token.request_remote_task(task_id, task_method, args_cbor2, target_did)
+    return token.request_remote_task(task_id, task_method, args_cbor2, target_did, 'async')
 
 #任务结果回到本机后的回调， 异步任务的闭环，生命周期结束
 def call_response_by_p2p_task(task_id, method, result_cbor2):
@@ -95,16 +96,16 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             worker.worker.stop_processing(task, processing_start_time, status)
             del pending_tasks[task_id]
         elif method =='remote_minicpm':
-            result = cbor2.loads(result_cbor2)
-            logger.info(f"response({method}): task_id={task_id}, {result}")
-            task.results.append(result)
+            feedback = cbor2.loads(result_cbor2)
+            logger.info(f'response({method}): task_id={task_id}, "{feedback}"')
+            task.results.append(feedback)
             task.processing = False
             task.finished = True
             del pending_tasks[task_id]
         elif method =='remote_pong':
-            result = cbor2.loads(result_cbor2)
-            logger.info(f"response({method}): task_id={task_id}, {result}")
-            task.results.append(result)
+            feedback = cbor2.loads(result_cbor2)
+            logger.info(f'response({method}): task_id={task_id}, "{feedback}"')
+            task.results.append(feedback)
             task.processing = False
             task.finished = True
             del pending_tasks[task_id]
@@ -118,6 +119,7 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
     global worker
 
     logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
+    result_async = 'no_response'
     if method == 'generate_image':
         args = cbor2.loads(args_cbor2)
         #print(f"Received task args: type={type(args)}, value={args}")
@@ -148,13 +150,13 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
         worker.add_task(task)
         qsize = worker.get_task_size()
         logger.info(f"The {method} task was push to worker queue and qsize={qsize}")
-        return str(qsize)
+        return result_async
     elif method == 'minicpm_inference':
         args = cbor2.loads(args_cbor2)
         task = AsyncTask(method=method, args=args, task_id=task_id)
         async_task_queue.put(task)
         logger.info(f"The {method} task was push to async_task_queue")
-        return "0"
+        return result_async
     elif method =='remote_ping': #同步任务直接返回结果，不需要新建任务
         args = cbor2.loads(args_cbor2)
         logger.info(f"Pong {method} task: message={args}, form={from_did}")
