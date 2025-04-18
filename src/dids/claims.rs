@@ -242,6 +242,52 @@ impl LocalClaims {
             }
         }
 
+        // 遍历claims，判断是否有重复的id_claim.get_symbol_hash()，如果有重复的则取id_claim.timestamp 最大的保留，其他的删除
+        let mut symbol_hash_map: HashMap<Vec<u8>, (String, u64)> = HashMap::new();
+        let mut dids_to_remove: Vec<String> = Vec::new();
+        
+        // 第一次遍历：找出每个symbol_hash对应的最新DID
+        for (did, claim) in claims.iter() {
+            let symbol_hash = claim.get_symbol_hash().to_vec();
+            
+            if let Some((existing_did, existing_timestamp)) = symbol_hash_map.get(&symbol_hash) {
+                if claim.timestamp > *existing_timestamp {
+                    // 如果当前声明比已记录的更新，则将旧的DID加入删除列表
+                    dids_to_remove.push(existing_did.clone());
+                    // 更新为当前最新的DID
+                    symbol_hash_map.insert(symbol_hash, (did.clone(), claim.timestamp));
+                } else {
+                    // 如果当前声明比已记录的更旧，则将当前DID加入删除列表
+                    dids_to_remove.push(did.clone());
+                }
+            } else {
+                // 第一次遇到这个symbol_hash，直接记录
+                symbol_hash_map.insert(symbol_hash, (did.clone(), claim.timestamp));
+            }
+        }
+        
+        // 第二次处理：删除所有旧的DID
+        for did_to_remove in dids_to_remove {
+            claims.remove(&did_to_remove);
+            
+            // 同时删除对应的文件
+            let claim = claims.get(&did_to_remove);
+            if let Some(claim) = claim {
+                let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+                    "{}_{}.did",
+                    claim.id_type.to_lowercase(),
+                    did_to_remove
+                ));
+                if did_file_path.exists() {
+                    if let Err(e) = fs::remove_file(did_file_path.clone()) {
+                        debug!("删除重复的DID文件失败: {}, 错误: {}", did_file_path.display(), e);
+                    } else {
+                        debug!("删除了重复的DID文件: {}", did_file_path.display());
+                    }
+                }
+            }
+        }
+        
         (device_did, sys_did, guest) = LocalClaims::generate_sys_dev_guest_did(&mut claims, &device_did, &sys_did, &guest);        
 
         println!(
@@ -249,19 +295,14 @@ impl LocalClaims {
             token_utils::now_string(),
             claims.len(),
             sys_did,
-            device_did
+            device_did, 
         );
-
-        let mut local_claims = LocalClaims {
-            claims,
-            sys_did,
-            device_did,
-            guest,
-        };
-        local_claims.device_did = local_claims.reverse_lookup_did_by_symbol(&device_symbol_hash);
-        local_claims.sys_did = local_claims.reverse_lookup_did_by_symbol(&system_symbol_hash);
-        local_claims.guest = local_claims.reverse_lookup_did_by_symbol(&guest_symbol_hash);
-        local_claims
+        LocalClaims {
+            claims: claims.clone(),
+            sys_did: sys_did.clone(),
+            device_did: device_did.clone(),
+            guest: guest.clone(),
+        }
     }
 
     pub(crate) fn get_sys_dev_guest_did(
@@ -276,9 +317,9 @@ impl LocalClaims {
             self.sys_did = sys_did_new.clone();
             self.device_did = device_did_new.clone();
             self.guest = guest_new.clone();
-            self.pop_claim(&device_did_new);
-            self.pop_claim(&sys_did_new);
-            self.pop_claim(&guest_new);
+            self.pop_claim(&device_did);
+            self.pop_claim(&sys_did);
+            self.pop_claim(&guest);
             sys_did = sys_did_new.clone();
             device_did = device_did_new.clone();
             guest = guest_new.clone();
@@ -513,7 +554,7 @@ impl LocalClaims {
         // 第一次遍历：找出最新的DID和所有匹配的DID
         for (did, id_claim) in self.claims.iter() {
             if id_claim.get_symbol_hash() == *symbol_hash {
-                if id_claim.timestamp > latest_timestamp {
+                if id_claim.timestamp >= latest_timestamp {
                     // 如果找到更新的DID，将当前最新的DID加入到旧DID列表
                     if latest_did != "Unknown" {
                         old_dids.push(latest_did);

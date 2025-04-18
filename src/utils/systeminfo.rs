@@ -99,8 +99,7 @@ impl SystemBaseInfo {
         };
         let os_time = find_oldest_file(os_sys_path);
         let root_time = find_oldest_file(root_dir.to_str().unwrap());
-        debug!("os_time: {}, root_time: {}", os_time, root_time);
-
+        
         Self {
             os_type,
             os_name: os_name,
@@ -604,7 +603,7 @@ fn find_oldest_file(path: &str) -> u64 {
         return 0;
     }
 
-    let mut oldest_time: u64 = 0;
+    let mut oldest_time: u64 = u64::MAX;
 
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries {
