@@ -49,7 +49,6 @@ impl SystemBaseInfo {
         if gpu_brand=="NVIDIA" {
             let ram_gpu_info = env_utils::get_ram_and_nvidia_gpu_info();
             if ram_gpu_info!="Unknown" {
-                println!("ram_gpu_info: {}", ram_gpu_info);
                 let parts: Vec<&str> = ram_gpu_info.split(',').collect();
                 if parts.len()>=4 {
                     driver = parts[2].to_string();
