@@ -391,7 +391,7 @@ impl SimpleAI {
         }
     }
 
-    pub fn get_p2p_is_debug(&mut self) -> bool {
+    pub fn get_p2p_status(&mut self) -> String {
         if self.p2p_status.is_none() {
             let result = rest_service::request_api_sync("p2p_status", None as Option<serde_json::Value>)
                 .unwrap_or_else(|e| {
@@ -403,13 +403,22 @@ impl SimpleAI {
                 self.p2p_status = Some(p2p_status.clone());
                 self.set_node_id(&p2p_status.node_id);
             }
+            return "Off".to_string();
+        }
+        return "On".to_string();
+    }
+    pub fn get_p2p_is_debug(&mut self) -> bool {
+        if self.p2p_status.is_none() {
+            self.get_p2p_status();
         }
         self.p2p_status.as_ref().map_or(false, |status| status.is_debug)
     }
 
-    pub fn get_p2p_is_running(&self) -> bool {
+    pub fn get_p2p_is_running(&mut self) -> bool {
         if self.p2p_status.is_none() {
-            return false;
+            if self.get_p2p_status() == "Off" {
+                return false;
+            }
         }
         true
     }
@@ -501,7 +510,7 @@ impl SimpleAI {
         self.shared_data.online_all.log_register(did.to_string());
     }
 
-    pub fn log_access(&self, sid: &str) -> (usize, usize, usize, usize) {
+    pub fn log_access(&mut self, sid: &str) -> (usize, usize, usize, usize) {
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.online_users.log_access(did.to_string());
         self.shared_data.online_all.log_access(did.to_string());

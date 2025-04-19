@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use once_cell::sync::Lazy;
 use serde::de;
@@ -16,6 +16,8 @@ use crate::dids::claims::{GlobalClaims, LocalClaims, IdClaim};
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::token_utils::SYSTEM_BASE_INFO;
 use crate::utils::systeminfo::SystemInfo;
+use crate::user::user_vars::GlobalLocalVars;
+
 
 pub(crate) mod cert_center;
 pub(crate) mod claims;
@@ -90,7 +92,6 @@ impl DidToken {
             .try_init();
 
         debug!("init DidToken context started");
-        let sysbaseinfo = SYSTEM_BASE_INFO.clone();
         let sysinfo_handle = TOKIO_RUNTIME.spawn(async move {
             SystemInfo::generate().await
         });
@@ -143,7 +144,7 @@ impl DidToken {
         if crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
         }
-        println!("{} [SimpAI] Guest has loaded: guest_name({}), guest_hash({})", token_utils::now_string(), guest_name, guest_hash_id);
+        println!("{} [SimpAI] Guest has loaded: guest_name({}, {})", token_utils::now_string(), guest_name, guest_hash_id);
 
 
         let sysinfo = TOKIO_RUNTIME.block_on(async {
@@ -162,6 +163,8 @@ impl DidToken {
             String::new()
         };
         let certificates = GlobalCerts::instance();
+       
+        
         debug!("DidToken context build finished: {} -> crypt_secrets.len={}", 
             crypt_secrets_len, crypt_secrets.len());
         debug!("admin_did: {}, upstream_did: {}", admin, upstream_did);

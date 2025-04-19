@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use base58::ToBase58;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use tracing::{debug, info, error};
 
 use crate::token::SimpleAI;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
@@ -79,6 +80,18 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     token_utils::verify_signature(&text_root, &signature_str, &claim_root.get_cert_verify_key())
 }
 
+#[pyfunction]
+fn is_registered_did(did: &str) -> bool {
+    if !IdClaim::validity(did) {
+        return false;
+    }
+    rest_service::request_api_sync(&format!("is_registered/{did}"), None::<&serde_json::Value>)
+                .unwrap_or_else(|e| {
+                    error!("is_registered_did({}) error: {}", did, e);
+                    false
+                })
+}
+
 
 #[pyfunction]
 fn export_identity_qrcode_svg(user_did: &str) -> String {
@@ -119,6 +132,7 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_ua_session, m)?)?;
     m.add_function(wrap_pyfunction!(check_entry_point, m)?)?;
     m.add_function(wrap_pyfunction!(validity_did, m)?)?;
+    m.add_function(wrap_pyfunction!(is_registered_did, m)?)?;
     m.add_function(wrap_pyfunction!(export_identity_qrcode_svg, m)?)?;
     m.add_function(wrap_pyfunction!(import_identity_qrcode, m)?)?;
     m.add_class::<SimpleAI>()?;

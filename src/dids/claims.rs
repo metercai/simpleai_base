@@ -60,10 +60,8 @@ impl GlobalClaims {
     }
 
     pub fn get_claim_from_DHT(for_did: &str) -> IdClaim {
-        let params = json!({
-            "did": for_did,
-        });
-        let claim = match rest_service::request_api_sync("get_claim", Some(params)) {
+        
+        let claim = match rest_service::request_api_sync::<String>(&format!("get_claim/{for_did}"), None::<&serde_json::Value>) {
             Ok(claim_json) => match serde_json::from_str::<IdClaim>(&claim_json) {
                 Ok(parsed_claim) => parsed_claim,
                 Err(err) => {

@@ -63,10 +63,9 @@ pub fn start_rest_server(address: String, port: u16) {
             .and(warp::body::json())
             .and_then(handle_get_local_vars);
 
-        let get_claim = warp::path!("api" / "get_claim")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_get_claim);
+        let get_claim = warp::path!("api" / "get_claim" / String)
+            .and(warp::get())
+            .and_then(|user_did: String| handle_get_claim(user_did));
 
         let put_claim = warp::path!("api" / "put_claim")
             .and(warp::post())
@@ -78,10 +77,9 @@ pub fn start_rest_server(address: String, port: u16) {
             .and(warp::body::json())
             .and_then(handle_get_register_cert);
 
-        let is_registered = warp::path!("api" / "is_registered")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_is_registered);
+        let is_registered = warp::path!("api" / "is_registered" / String)
+            .and(warp::get())
+            .and_then(|user_did: String| handle_is_registered(user_did));
 
         let sign_by_did = warp::path!("api" / "sign_by_did")
             .and(warp::post())
@@ -230,28 +228,23 @@ async fn handle_get_local_vars(
 }
 
 // 3. 获取身份声明
-#[derive(Debug, Deserialize)]
-struct GetClaimRequest {
-    did: String,
-}
-
 async fn handle_get_claim(
-    req: GetClaimRequest,
+    user_did: String,
 ) -> Result<impl Reply, Rejection> {
     let claims = GlobalClaims::instance();
     let mut claim = {
         let mut claims = claims.lock().unwrap();
-        claims.get_claim_from_local(&req.did)
+        claims.get_claim_from_local(&user_did)
     };
     
     if claim.is_default() {
         if let Some(p2p) = p2p::get_instance().await {
-            debug!("ready to get claim from DHT networkDID: {}", req.did);
-            let did_clone = req.did.clone();
+            debug!("ready to get claim from DHT networkDID: {}", user_did);
+            let did_clone = user_did.clone();
             claim = p2p.get_claim_from_DHT(&did_clone).await;
             
             if claim.is_default() {
-                debug!("ready to get claim from upstream with p2p channel，DID: {}", did_clone);
+                debug!("ready to get claim from upstream with p2p channel, DID: {}", did_clone);
                 claim = p2p.get_claim_from_upstream(did_clone.to_string()).await;
                 if !claim.is_default() {
                     info!("get did({}) claim from upstream with p2p channel.", did_clone);
@@ -273,7 +266,7 @@ async fn handle_get_claim(
             let api_name = "get_use_claim";
             let mut request: serde_json::Value = json!({});
             request["user_symbol"] = serde_json::to_value("").unwrap();
-            request["user_did"] = serde_json::to_value(req.did).unwrap();
+            request["user_did"] = serde_json::to_value(user_did).unwrap();
             let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
             let result = {
                 let upstream_did = DidToken::instance().lock().unwrap().get_upstream_did();
@@ -345,17 +338,17 @@ async fn handle_get_register_cert(
 }
 
 // 5. 检查是否注册
-#[derive(Debug, Deserialize)]
-struct IsRegisteredRequest {
-    user_did: String,
-}
-
 async fn handle_is_registered(
-    req: IsRegisteredRequest,
+    user_did: String,
 ) -> Result<impl Reply, Rejection> {
     let didtoken = DidToken::instance();
     let mut didtoken = didtoken.lock().unwrap();
-    let is_registered = didtoken.is_registered(&req.user_did);
+    let mut is_registered = didtoken.is_registered(&user_did);
+    if !is_registered {
+        let global_local_vars = GlobalLocalVars::instance();
+        let p2p_in_did_list = global_local_vars.read().unwrap().get_local_admin_vars("p2p_in_did_list");
+        is_registered = p2p_in_did_list.contains(&user_did);
+    }
     Ok(warp::reply::json(&ApiResponse {
         success: true,
         data: is_registered,
@@ -583,33 +576,30 @@ async fn handle_p2p_status() -> Result<impl Reply, Rejection> {
     }
 }
 
-pub async fn request_api<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, reqwest::Error> {
+pub async fn request_api<T: DeserializeOwned>(endpoint: &str, params: Option<impl Serialize>) -> Result<T, reqwest::Error> {
     let url = format!("{}/{}", API_HOST, endpoint);
 
-    if let Some(json_params) = params {
-        let res = REQWEST_CLIENT.post(&url).json(&json_params).send().await?;
-        let data: ApiResponse<String> = res.json().await?;
-        Ok(data.data)
+    let response = if let Some(json_params) = params {
+        REQWEST_CLIENT.post(&url).json(&json_params).send().await?
     } else {
-        let res = REQWEST_CLIENT.get(&url).send().await?;
-        let data: ApiResponse<String> = res.json().await?;
-        Ok(data.data)
-    }
-
+        REQWEST_CLIENT.get(&url).send().await?
+    };
+    
+    let api_response: ApiResponse<T> = response.json().await?;
+    Ok(api_response.data)
 }
 
-pub fn request_api_sync<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
+pub fn request_api_sync<T: DeserializeOwned>(endpoint: &str, params: Option<impl Serialize>) -> Result<T, Box<dyn std::error::Error>> {
     let url = format!("{}/{}", API_HOST, endpoint);
 
-    if let Some(json_params) = params {
-        let res = REQWEST_CLIENT_SYNC.post(&url).json(&json_params).send()?;
-        let data: ApiResponse<String> = res.json()?;
-        Ok(data.data)
+    let response = if let Some(json_params) = params {
+        REQWEST_CLIENT_SYNC.post(&url).json(&json_params).send()?
     } else {
-        let res = REQWEST_CLIENT_SYNC.get(&url).send()?;
-        let data: ApiResponse<String> = res.json()?;
-        Ok(data.data)
-    }
+        REQWEST_CLIENT_SYNC.get(&url).send()?
+    };
+    
+    let api_response: ApiResponse<T> = response.json()?;
+    Ok(api_response.data)
 }
 
 
