@@ -53,6 +53,7 @@ def request_p2p_task(task):
         for i in range(len(args[71])):
             if args[71][i][0] is not None:
                 args[71][i][0] = ndarray_to_webp_bytes(args[71][i][0])
+        task.start_time = int(time.time() * 1000)
     else:
         args = task.args
     if task_method=='remote_ping':
@@ -71,6 +72,7 @@ def request_p2p_task(task):
 def call_response_by_p2p_task(task_id, method, result_cbor2):
     global pending_tasks, worker
 
+    response_length =len(result_cbor2)
     result = 'ok'
     if task_id in pending_tasks:
         task, task_method, start_time = pending_tasks[task_id]
@@ -84,17 +86,34 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
             imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images = cbor2.loads(result_cbor2)
             if imgs is not None:
                 imgs = [webp_bytes_to_ndarray(img) for img in imgs]
-            worker.worker.yield_result(task, imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images)
-            #print(f"response: method={method}, task_id={task_id}, image_num={len(imgs)}")
+                imgs_length = len(imgs)
+            else:
+                imgs_length = 0
+            logger.info(f"response({method}), task_id={task_id}, images len={imgs_length}, response len={response_length}")
+            delayed_task = AsyncTask(
+                method="delayed_result",
+                args=(task, imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images),
+                task_id=f"{task_id}_delayed_result",
+                delay=0.6,
+            )
+            async_task_queue.put(delayed_task)
+        
         elif method =='remote_save_and_log':
             img, log_item = cbor2.loads(result_cbor2)
-            logger.info(f"response({method}), task_id={task_id}")
+            logger.info(f"response({method}), task_id={task_id}, response len={response_length}")
             worker.worker.p2p_save_and_log(task, img, log_item)
         elif method =='remote_stop':
             processing_start_time, status = cbor2.loads(result_cbor2)
-            logger.info(f"response({method}): task_id={task_id}, {processing_start_time}, {status}")
-            worker.worker.stop_processing(task, processing_start_time, status)
-            del pending_tasks[task_id]
+            processing_time1 = (int(time.time() * 1000) - processing_start_time)/1000.0
+            processing_time2 = (int(time.time() * 1000) - task.start_time)/1000.0
+            logger.info(f"response({method}): task_id={task_id}, Processing time (total): {processing_time1:.2f}/{processing_time2:.2f} seconds, {status}")
+            delayed_task = AsyncTask(
+                method="delayed_stop",
+                args=(task, processing_start_time, status),
+                task_id=f"{task_id}_delayed_stop",
+                delay=2.0,
+            )
+            async_task_queue.put(delayed_task)
         elif method =='remote_minicpm':
             feedback = cbor2.loads(result_cbor2)
             logger.info(f'response({method}): task_id={task_id}, "{feedback}"')
@@ -235,7 +254,7 @@ def gc_p2p_task():
 
 
 class AsyncTask:
-    def __init__(self, method, args, task_id=None, from_did=None, target_did=None):
+    def __init__(self, method, args, task_id=None, from_did=None, target_did=None, delay=0):
         self.from_did = from_did
         self.target_did = target_did
         self.task_id = str(uuid.uuid4()) if task_id is None else task_id
@@ -244,6 +263,7 @@ class AsyncTask:
         self.results = []
         self.processing = False
         self.finished = False
+        self.execute_time = time.time() + delay 
 
     def wait(self, timeout=None):
         if not self.finished:
@@ -258,15 +278,35 @@ class AsyncTaskWorker(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.running = True
+        self.delayed_tasks = [] 
 
     def run(self):
         while self.running:
             try:
                 task = async_task_queue.get(timeout=1)
                 if task:
-                    self.process_task(task)
+                    if hasattr(task, 'execute_time') and task.execute_time > time.time():
+                        self.delayed_tasks.append(task)
+                    else:
+                        self.process_task(task)
             except queue.Empty:
-                continue
+                pass
+
+            current_time = time.time()
+            tasks_to_process = []
+            remaining_tasks = []
+                
+            for task in self.delayed_tasks:
+                if current_time >= task.execute_time:
+                    tasks_to_process.append(task)
+                else:
+                    remaining_tasks.append(task)
+            self.delayed_tasks = remaining_tasks
+                
+            for task in tasks_to_process:
+                self.process_task(task)
+               
+            time.sleep(0.1)
 
     def process_task(self, task): #通用的远程任务处理，处理完后回调发起节点
         try:
@@ -282,6 +322,23 @@ class AsyncTaskWorker(threading.Thread):
                 result_cbor2 = cbor2.dumps(result)
                 task_method = 'remote_minicpm'
                 token.response_remote_task(task_id, task_method, result_cbor2)
+            elif task.method == 'delayed_stop':
+                original_task, processing_start_time, status = task.args
+                task_id = original_task.task_id
+                try:
+                    worker.worker.stop_processing(original_task, processing_start_time, status)
+                except Exception as e:
+                    logger.error(f"Error in delayed stop_processing: {e}")
+                finally:
+                    if task_id in pending_tasks:
+                        del pending_tasks[task_id]
+            elif task.method == 'delayed_result':
+                original_task, imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images = task.args
+                task_id = original_task.task_id
+                try:
+                    worker.worker.yield_result(original_task, imgs, progressbar_index, black_out_nsfw, censor, do_not_show_finished_images)
+                except Exception as e:
+                    logger.error(f"Error in delayed yield_result: {e}")
 
             task.processing = False
             task.finished = True
