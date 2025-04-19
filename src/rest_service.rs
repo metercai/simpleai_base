@@ -345,9 +345,8 @@ async fn handle_is_registered(
     let mut didtoken = didtoken.lock().unwrap();
     let mut is_registered = didtoken.is_registered(&user_did);
     if !is_registered {
-        let global_local_vars = GlobalLocalVars::instance();
-        let p2p_in_did_list = global_local_vars.read().unwrap().get_local_admin_vars("p2p_in_did_list");
-        is_registered = p2p_in_did_list.contains(&user_did);
+        let shared_data = shared::get_shared_data();
+        is_registered = shared_data.is_p2p_in_dids(&user_did);
     }
     Ok(warp::reply::json(&ApiResponse {
         success: true,

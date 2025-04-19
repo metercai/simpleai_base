@@ -144,7 +144,7 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
                 args[71][i][0] = webp_bytes_to_ndarray(args[71][i][0])
     
         task = worker.AsyncTask(args=args, task_id=task_id)
-        task.remote_task = True
+        task.remote_task = from_did
         with model_management.interrupt_processing_mutex:
             model_management.interrupt_processing = False
         worker.add_task(task)

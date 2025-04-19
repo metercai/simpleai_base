@@ -10,16 +10,6 @@ use crate::dids::cert_center::GlobalCerts;
 use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 
 
-// 任务队列项
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Task {
-    pub id: String,
-    pub timestamp: u64,
-    pub content: String,
-    pub status: String,
-}
-
-
 #[derive(Debug)]
 pub struct SharedData {
     sys_did: Mutex<String>,
