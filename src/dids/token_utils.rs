@@ -101,7 +101,12 @@ impl SystemKeys {
         com_hash[..32].copy_from_slice(&device_key_hash);
         com_hash[32..].copy_from_slice(&local_key_hash);
         let file_crypt_key = calc_sha256(com_hash.as_ref());
-        println!("{} [SimpAI] SystemKeys has loaded.", now_string());
+
+        let (device_name, system_name, guest_name) = dids::get_system_key_name();
+        let (dev_hash_id, device_phrase) = get_key_hash_id_and_phrase("Device", &id_hash);
+        let (sys_hash_id, system_phrase) = get_key_hash_id_and_phrase("System", &id_hash);
+        
+        println!("{} [SimpAI] SystemKeys has loaded: sys_name({system_name}), sys_hash({sys_hash_id}), dev_name({device_name}), dev_hash({dev_hash_id}).", now_string());
         Self {
             system_key,
             device_key,
@@ -497,11 +502,15 @@ pub fn get_path_in_root_dir(catalog: &str, filename: &str) -> PathBuf {
 
 
 pub(crate) fn get_key_hash_id_and_phrase(key_type: &str, symbol_hash: &[u8; 32]) -> (String, String) {
-    let sysinfo = &SYSTEM_BASE_INFO;
-        
-    let system_name = dids::get_system_name();
-    let device_symbol_hash: [u8; 32] = IdClaim::get_symbol_hash_by_source(&sysinfo.host_name, None, Some(sysinfo.disk_uuid.clone()));
-    let system_symbol_hash = IdClaim::get_symbol_hash_by_source(&system_name, None, Some(format!("{}:{}", sysinfo.root_dir.clone(), sysinfo.disk_uuid.clone())));
+
+    fn _get_key_hash_id_and_phrase(symbol_hash: &Vec<u8>, period: u64 ) -> (String, String) {
+        let key_file_hash_id = sha256_prefix(symbol_hash, 10);
+        let phrase_text = sha256_prefix(&hkdf_key_deadline(symbol_hash, period), 10);
+        (key_file_hash_id, phrase_text)
+    }
+
+    let device_symbol_hash: [u8; 32] = dids::get_key_symbol_hash("Device");
+    let system_symbol_hash = dids::get_key_symbol_hash("System");
     match key_type {
         "Device" => {
             _get_key_hash_id_and_phrase(&device_symbol_hash.to_vec(), 0)
@@ -819,6 +828,55 @@ pub(crate) fn check_entry_point_of_service(entry_point: &str) -> bool { // å¸¦æœ
 }
 
 pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], phrase: &str, regen: bool, through: bool) -> [u8; 32] {
+
+    fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, through: bool) -> [u8; 32] {
+        let phrase_bytes = hkdf_key_deadline(&phrase.as_bytes(), 0);
+        let private_key = match file_path.exists() {
+            false => generate_new_key_and_save_pem(file_path, &phrase_bytes),
+            true => {
+                let mut priv_key: [u8; 32] = [0; 32];
+                if !through {
+                    if let Some(file_name) = file_path.file_name() {
+                        let file_name_str = file_name.to_string_lossy();
+                        let keys =SystemKeys::instance();
+                        let mut keys =keys.read().unwrap();
+                        if file_name_str.contains("device") {
+                            priv_key = keys.get_device_key()
+                        } else if file_name_str.contains("system") {
+                            priv_key = keys.get_system_key()
+                        } else {
+                            priv_key = [0; 32]
+                        }
+                    }
+                }
+                if priv_key == [0; 32] {
+                    let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
+                    //println!("_read_key_or_generate_key, SecretDocument: {}", file_path.display());
+                    priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&phrase_bytes) {
+                        Ok(key) => {
+                            debug!("_read_key_or_generate_key, EncryptedPrivateKeyInfo");
+                            let mut pkey: [u8; 32] = [0; 32];
+                            pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
+                            pkey
+                        },
+                        Err(_e) => {
+                            if regen {
+                                debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
+                                generate_new_key_and_save_pem(file_path, &phrase_bytes)
+                            } else {
+                                println!("{} [UserBase] Read key error and return 0 key: {}", now_string(), file_path.display());
+                                [0; 32]
+                            }
+                        },
+                    };
+                    debug!("read private key: {}", file_path.display());
+                }
+                priv_key
+            }
+        };
+        private_key.try_into().unwrap()
+    }
+
     if !through && (key_type == "Device" || key_type == "System"){
         let keys =SystemKeys::instance();
         let mut keys =keys.read().unwrap();
@@ -867,63 +925,11 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
         },
         _ => device_key
     }
+
 }
 
 
 
-fn _get_key_hash_id_and_phrase(symbol_hash: &Vec<u8>, period: u64 ) -> (String, String) {
-    let key_file_hash_id = sha256_prefix(symbol_hash, 10);
-    let phrase_text = sha256_prefix(&hkdf_key_deadline(symbol_hash, period), 10);
-    (key_file_hash_id, phrase_text)
-}
-
-fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, through: bool) -> [u8; 32] {
-    let phrase_bytes = hkdf_key_deadline(&phrase.as_bytes(), 0);
-    let private_key = match file_path.exists() {
-        false => generate_new_key_and_save_pem(file_path, &phrase_bytes),
-        true => {
-            let mut priv_key: [u8; 32] = [0; 32];
-            if !through {
-                if let Some(file_name) = file_path.file_name() {
-                    let file_name_str = file_name.to_string_lossy();
-                    let keys =SystemKeys::instance();
-                    let mut keys =keys.read().unwrap();
-                    if file_name_str.contains("device") {
-                        priv_key = keys.get_device_key()
-                    } else if file_name_str.contains("system") {
-                        priv_key = keys.get_system_key()
-                    } else {
-                        priv_key = [0; 32]
-                    }
-                }
-            }
-            if priv_key == [0; 32] {
-                let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
-                println!("_read_key_or_generate_key, SecretDocument: {}", file_path.display());
-                priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&phrase_bytes) {
-                    Ok(key) => {
-                        debug!("_read_key_or_generate_key, EncryptedPrivateKeyInfo");
-                        let mut pkey: [u8; 32] = [0; 32];
-                        pkey.copy_from_slice(PrivateKeyInfo::try_from(key.as_bytes()).unwrap().private_key);
-                        pkey
-                    },
-                    Err(_e) => {
-                        if regen {
-                            debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
-                            generate_new_key_and_save_pem(file_path, &phrase_bytes)
-                        } else {
-                            println!("{} [UserBase] Read private key error and return 0 key: {}", now_string(), file_path.display());
-                            [0; 32]
-                        }
-                    },
-                };
-                debug!("read private key: {}", file_path.display());
-            }
-            priv_key
-        }
-    };
-    private_key.try_into().unwrap()
-}
 
 fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32] {
     if let Some(parent_dir) = file_path.parent() {
@@ -931,7 +937,7 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
             fs::create_dir_all(parent_dir).unwrap();
         }
     }
-    println!("{} [UserBase] generate new key and save pem file: {}", now_string(), file_path.display());
+    println!("{} [UserBase] generate new key and save: {}", now_string(), file_path.display());
     let sysinfo = &SYSTEM_BASE_INFO;
 
     let pem_label = "SIMPLE_AI_KEY";

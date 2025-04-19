@@ -97,8 +97,7 @@ impl DidToken {
 
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = get_system_vars();
-        debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
-
+        
         let db_path = token_utils::get_path_in_sys_key_dir("token.db");
         let config = sled::Config::new()
             .path(db_path)
@@ -112,6 +111,21 @@ impl DidToken {
             let mut systemskeys = systemskeys.read().unwrap();
             systemskeys.is_regenerate()
         };
+        let guest_symbol_hash = get_key_symbol_hash("Guest");
+        let mut guest_key = match token_utils::exists_key_file("User", &guest_symbol_hash) {
+            true => {
+                let mut guest_key = token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, false, true);
+                if guest_key == [0u8; 32] {
+                    println!("{} [UserBase] Guest key is invalid, it will be regenerate for your system, then the system will restore default.", token_utils::now_string());
+                    guest_key = token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, true, true);
+                }
+                guest_key
+            } 
+            false => {
+                token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, true, true)
+            }
+        };
+
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
             let mut claims = claims.lock().unwrap();
@@ -124,16 +138,12 @@ impl DidToken {
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
 
-        let root_dir = sysbaseinfo.root_dir.clone();
-        let disk_uuid = sysbaseinfo.disk_uuid.clone();
-        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
-        let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_claim.get_symbol_hash());
-        debug!("guest_name({}): guest_symbol_hash={}, guest_hash_id={}, guest_phrase={}", guest_claim.nickname, URL_SAFE_NO_PAD.encode(guest_claim.get_symbol_hash()), guest_hash_id, guest_phrase);
-
+        let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &guest_claim, &guest_phrase);
         if crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
         }
+        println!("{} [SimpAI] Guest loaded: guest_name({}), guest_hash({})", token_utils::now_string(), guest_name, guest_hash_id);
 
 
         let sysinfo = TOKIO_RUNTIME.block_on(async {
@@ -462,31 +472,42 @@ impl DidToken {
 }
 
 pub(crate) fn get_system_vars() -> (String, String, String, String, String, String) {
-    let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
     let zeroed_key: [u8; 32] = [0; 32];
-    let root_dir = sysinfo.root_dir.clone();
-    let disk_uuid = sysinfo.disk_uuid.clone();
-    let host_name = sysinfo.host_name.clone();
-    let root_name = sysinfo.root_name.clone();
+
+    let (device_name, system_name, guest_name) = get_system_key_name();
 
     let (dev_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
     let (sys_hash_id, system_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
-    let guest_name = format!("guest_{}", &dev_hash_id[..4]).chars().take(24).collect::<String>();
-    let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(&guest_name, None, Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())));
+    let guest_symbol_hash = get_key_symbol_hash("Guest");
     let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
     
-    let system_name = get_system_name();
-    let device_name = token_utils::truncate_nickname(&host_name);
     (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
 }
 
-pub(crate) fn get_system_name() -> String {
+
+pub(crate) fn get_system_key_name() -> (String, String, String)  {
     let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
-    
+    let device_name = token_utils::truncate_nickname(&sysinfo.host_name);
+    let guest_name = format!("guest_{}", &sysinfo.disk_uuid[..4]).chars().take(24).collect::<String>();
     let mut system_name = sysinfo.root_name;
     if system_name.len() > 18 {
         system_name = system_name[..18].to_string();
     }
-    token_utils::truncate_nickname(&format!("{}_{}",  system_name, &token_utils::calc_sha256(sysinfo.root_dir.as_bytes()).to_base58()[..4]))
+    system_name = token_utils::truncate_nickname(&format!("{}_{}",  system_name, &token_utils::calc_sha256(sysinfo.root_dir.as_bytes()).to_base58()[..4]));
+
+    (device_name, system_name, guest_name)
 }
 
+pub(crate) fn get_key_symbol_hash(key_type: &str) -> [u8; 32] {
+    let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+    let (device_name, system_name, guest_name) = get_system_key_name();
+
+    let root_dir = sysinfo.root_dir.clone();
+    let disk_uuid = sysinfo.disk_uuid.clone();
+    match key_type {
+        "Device" => IdClaim::get_symbol_hash_by_source(&device_name, None, Some(disk_uuid.clone())),
+        "System" => IdClaim::get_symbol_hash_by_source(&system_name,None,Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone()))),
+        "Guest" => IdClaim::get_symbol_hash_by_source(&guest_name,None,Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone()))),
+        _ => [0u8; 32],
+    }
+}

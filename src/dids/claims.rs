@@ -113,10 +113,7 @@ impl LocalClaims {
     fn new() -> Self {
         let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
         let root_dir = sysinfo.root_dir.clone();
-        let disk_uuid = sysinfo.disk_uuid.clone();
 
-        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase) =
-            dids::get_system_vars();
 
         let mut sys_did = "Unknown".to_string();
         let mut device_did = "Unknown".to_string();
@@ -179,22 +176,9 @@ impl LocalClaims {
                 )
             ),
         };
-        let device_symbol_hash =
-            IdClaim::get_symbol_hash_by_source(&device_name, None, Some(disk_uuid.clone()));
-        let system_symbol_hash = IdClaim::get_symbol_hash_by_source(
-            &system_name,
-            None,
-            Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
-        );
-        let guest_symbol_hash = IdClaim::get_symbol_hash_by_source(
-            &guest_name,
-            None,
-            Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone())),
-        );
-        debug!(
-            "device_symbol_hash: {}",
-            URL_SAFE_NO_PAD.encode(device_symbol_hash)
-        );
+        let device_symbol_hash = dids::get_key_symbol_hash("Device");
+        let system_symbol_hash = dids::get_key_symbol_hash("System");
+        let guest_symbol_hash = dids::get_key_symbol_hash("Guest");
         match fs::read_dir(root_path) {
             Ok(entries) => {
                 for entry in entries {
@@ -208,12 +192,6 @@ impl LocalClaims {
                                     if !claim.is_default() {
                                         let did = claim.gen_did();
                                         claims.insert(did.clone(), claim.clone());
-                                        debug!(
-                                            "Load did_claim({}): symbol_hash={}, {}",
-                                            did,
-                                            URL_SAFE_NO_PAD.encode(claim.get_symbol_hash()),
-                                            claim.to_json_string()
-                                        );
                                         if claim.id_type == "System"
                                             && claim.get_symbol_hash() == system_symbol_hash
                                         {
@@ -289,14 +267,8 @@ impl LocalClaims {
         }
         
         (device_did, sys_did, guest) = LocalClaims::generate_sys_dev_guest_did(&mut claims, &device_did, &sys_did, &guest);        
-
-        println!(
-            "{} [SimpAI] Loaded claims from local: len={}, sys_did={}, dev_did={}",
-            token_utils::now_string(),
-            claims.len(),
-            sys_did,
-            device_did, 
-        );
+        println!("{} [SimpAI] Loaded claims from local: len={}", token_utils::now_string(), claims.len());
+        
         LocalClaims {
             claims: claims.clone(),
             sys_did: sys_did.clone(),
