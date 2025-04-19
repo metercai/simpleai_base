@@ -143,7 +143,7 @@ impl DidToken {
         if crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
         }
-        println!("{} [SimpAI] Guest loaded: guest_name({}), guest_hash({})", token_utils::now_string(), guest_name, guest_hash_id);
+        println!("{} [SimpAI] Guest has loaded: guest_name({}), guest_hash({})", token_utils::now_string(), guest_name, guest_hash_id);
 
 
         let sysinfo = TOKIO_RUNTIME.block_on(async {

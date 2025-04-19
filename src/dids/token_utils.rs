@@ -106,7 +106,7 @@ impl SystemKeys {
         let (dev_hash_id, device_phrase) = get_key_hash_id_and_phrase("Device", &id_hash);
         let (sys_hash_id, system_phrase) = get_key_hash_id_and_phrase("System", &id_hash);
         
-        println!("{} [SimpAI] SystemKeys has loaded: sys_name({system_name}), sys_hash({sys_hash_id}), dev_name({device_name}), dev_hash({dev_hash_id}).", now_string());
+        println!("{} [SimpAI] SystemKeys has loaded: system({system_name}, {sys_hash_id}), device({device_name}, {dev_hash_id}).", now_string());
         Self {
             system_key,
             device_key,
@@ -864,7 +864,7 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
                                 debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
                                 generate_new_key_and_save_pem(file_path, &phrase_bytes)
                             } else {
-                                println!("{} [UserBase] Read key error and return 0 key: {}", now_string(), file_path.display());
+                                println!("{} [SimpAI] Read key error and return 0 key: {}", now_string(), file_path.display());
                                 [0; 32]
                             }
                         },
@@ -937,7 +937,7 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
             fs::create_dir_all(parent_dir).unwrap();
         }
     }
-    println!("{} [UserBase] generate new key and save: {}", now_string(), file_path.display());
+    println!("{} [SimpAI] generate new key and save: {}", now_string(), file_path.file_name().unwrap_or_default().to_string_lossy());
     let sysinfo = &SYSTEM_BASE_INFO;
 
     let pem_label = "SIMPLE_AI_KEY";
