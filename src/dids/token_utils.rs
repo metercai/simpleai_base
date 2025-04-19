@@ -899,7 +899,7 @@ fn _read_key_or_generate_key(file_path: &Path, phrase: &str, regen: bool, throug
             }
             if priv_key == [0; 32] {
                 let Ok((_, s_doc)) = SecretDocument::read_pem_file(file_path) else { todo!() };
-                debug!("_read_key_or_generate_key, SecretDocument");
+                println!("_read_key_or_generate_key, SecretDocument: {}", file_path.display());
                 priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes()).unwrap().decrypt(&phrase_bytes) {
                     Ok(key) => {
                         debug!("_read_key_or_generate_key, EncryptedPrivateKeyInfo");

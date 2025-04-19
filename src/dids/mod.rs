@@ -310,7 +310,6 @@ impl DidToken {
     }
 
     pub fn encrypt_bytes_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> Vec<u8> {
-        println!("encrypt_bytes_for_did: did={}, for_did={}", self.did, for_did);
         let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let for_did_public = self.get_claim(for_did).get_crypt_key();
         let shared_key = token_utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
