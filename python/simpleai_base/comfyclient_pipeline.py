@@ -150,7 +150,10 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                         (media_type, media_format) = get_media_info(out[:8])
                         media_name = f'{prompt[current_node]["_meta"]["title"]}_{media_type}_{media_format}'
                         images_output = output_images.get(media_name, [])
-                        images_output.append(out[8:])
+                        if media_type=='vedio':
+                            images_output.append(out)
+                        else:
+                            images_output.append(out[8:])
                         output_images[media_name] = images_output
                     elif prompt[current_node]['class_type'] in preview_nodes and callback is not None:
                         if current_step <= current_total_steps:
