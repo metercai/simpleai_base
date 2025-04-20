@@ -145,10 +145,12 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 print(f'{utils.now_string()} [ComfyClient] feedback_stream({len(out)})={out[:length]}...')
             if current_type == 'progress':
                 if current_node and current_node in prompt:
-                    if prompt[current_node]['class_type'] == 'SaveImageWebsocket':
-                        images_output = output_images.get(prompt[current_node]['_meta']['title'], [])
+                    if prompt[current_node]['class_type'] in ['SaveImageWebsocket', 'SaveVideoWebsocket']:
+                        (media_type, media_format) = get_media_info(struct.unpack(">I", out[:4])[0], struct.unpack(">I", out[4:8])[0])
+                        media_name = f'{prompt[current_node]["_meta"]["title"]}_{media_type}_{media_format}'
+                        images_output = output_images.get(media_name, [])
                         images_output.append(out[8:])
-                        output_images[prompt[current_node]['_meta']['title']] = images_output
+                        output_images[media_name] = images_output
                     elif prompt[current_node]['class_type'] in preview_nodes and callback is not None:
                         if current_step <= current_total_steps:
                             finished_steps += 1
@@ -157,9 +159,10 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                     pass #if current_node in prompt:
                         #print(f'{utils.now_string()} [ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
             continue
-
-    output_images = {k: np.array(Image.open(BytesIO(v[-1]))) for k, v in output_images.items()}
-    print(f'{utils.now_string()} [ComfyClient] The ComfyTask:{prompt_id} has finished, get {len(output_images)} images')
+    #从output_images的key里截取第二个下划线之前的字符串组成一个新的列表
+    output_images_type = ['_'.join(k.split('_')[-2:]) for k, v in output_images.items()]
+    output_images = {k: np.array(Image.open(BytesIO(v[-1]))) if 'image' in k else v for k, v in output_images.items()}
+    print(f'{utils.now_string()} [ComfyClient] The ComfyTask:{prompt_id} has finished, get {len(output_images)} result: {output_images_type}')
     return output_images
 
 
@@ -271,6 +274,46 @@ def setvars(vars):
         print(f"{utils.now_string()} httpx.RequestError: {e}")
         return
 
+def get_media_info(out):
+    # 定义事件类型常量
+    PREVIEW_IMAGE = 1
+    UNENCODED_PREVIEW_IMAGE = 2
+    PREVIEW_VIDEO = 3  # 假设你添加了这个类型
+    
+    # 定义格式类型常量
+    JPEG_FORMAT = 1
+    PNG_FORMAT = 2
+    WEBP_FORMAT = 3
+    WEBM_FORMAT = 10
+    MP4_FORMAT = 11
+    
+    event_type = struct.unpack(">I", out[:4])[0]
+    format_type = struct.unpack(">I", out[4:8])[0]
+    # 根据事件类型确定媒体类型
+    if event_type == PREVIEW_IMAGE:
+        media_type = "image"
+    elif event_type == UNENCODED_PREVIEW_IMAGE:
+        media_type = "unencoded_image"
+    elif event_type == PREVIEW_VIDEO:
+        media_type = "video"
+    else:
+        media_type = "unknown"
+    
+    # 根据格式类型确定格式名称
+    if format_type == JPEG_FORMAT:
+        format_name = "jpeg"
+    elif format_type == PNG_FORMAT:
+        format_name = "png"
+    elif format_type == WEBP_FORMAT:
+        format_name = "webp"
+    elif format_type == WEBM_FORMAT:
+        format_name = "webm"
+    elif format_type == MP4_FORMAT:
+        format_name = "mp4"
+    else:
+        format_name = "unknown"
+    
+    return media_type, format_name
 
 WORKFLOW_DIR = 'workflows'
 COMFYUI_ENDPOINT_IP = '127.0.0.1'
