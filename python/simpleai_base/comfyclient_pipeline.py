@@ -3,6 +3,7 @@ import websocket
 import uuid
 import httpx
 import time
+import struct
 import numpy as np
 import ldm_patched.modules.model_management as model_management
 from io import BytesIO
