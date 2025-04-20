@@ -146,7 +146,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
             if current_type == 'progress':
                 if current_node and current_node in prompt:
                     if prompt[current_node]['class_type'] in ['SaveImageWebsocket', 'SaveVideoWebsocket']:
-                        (media_type, media_format) = get_media_info(struct.unpack(">I", out[:4])[0], struct.unpack(">I", out[4:8])[0])
+                        (media_type, media_format) = get_media_info(out[:8])
                         media_name = f'{prompt[current_node]["_meta"]["title"]}_{media_type}_{media_format}'
                         images_output = output_images.get(media_name, [])
                         images_output.append(out[8:])
