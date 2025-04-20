@@ -162,7 +162,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
             continue
     #从output_images的key里截取第二个下划线之前的字符串组成一个新的列表
     output_images_type = ['_'.join(k.split('_')[-2:]) for k, v in output_images.items()]
-    output_images = {k: np.array(Image.open(BytesIO(v[-1]))) if 'image' in k else v for k, v in output_images.items()}
+    output_images = {k: np.array(Image.open(BytesIO(v[-1]))) if 'image' in k else v[-1] for k, v in output_images.items()}
     print(f'{utils.now_string()} [ComfyClient] The ComfyTask:{prompt_id} has finished, get {len(output_images)} result: {output_images_type}')
     return output_images
 
