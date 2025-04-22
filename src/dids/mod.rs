@@ -491,7 +491,15 @@ pub(crate) fn get_system_vars() -> (String, String, String, String, String, Stri
 pub(crate) fn get_system_key_name() -> (String, String, String)  {
     let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
     let device_name = token_utils::truncate_nickname(&sysinfo.host_name);
-    let guest_name = format!("guest_{}", &sysinfo.disk_uuid[..4]).chars().take(24).collect::<String>();
+    let guest_name = if !sysinfo.disk_uuid.is_empty() {
+        let safe_prefix = sysinfo.disk_uuid.chars().take(4).collect::<String>();
+        format!("guest_{}", safe_prefix).chars().take(24).collect::<String>()
+    } else {
+        let random_chars = token_utils::calc_sha256(format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0)).as_nanos()).as_bytes())
+            .to_base58()[..4].to_string();
+        format!("guest_{}", random_chars).chars().take(24).collect::<String>()
+    };
     let mut system_name = sysinfo.root_name;
     if system_name.len() > 18 {
         system_name = system_name[..18].to_string();

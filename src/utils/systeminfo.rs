@@ -336,7 +336,8 @@ fn get_gpu_info() -> (String, String, u64, String, String){
             let mut cuda = "-".to_string();
             let mut gpu_name = "reserve".to_string();
             let mut gpu_memory = 0;
-            let mut gpu_brand = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%NVIDIA%'\").Name"]).trim().to_string();
+            let mut gpu_brand = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%NVIDIA%'\").Name"]);
+            gpu_brand = String::from_utf8_lossy(gpu_brand.trim().as_bytes()).to_string();
             if gpu_brand.is_empty() {
                 gpu_brand = run_command("powershell", &["(Get-CimInstance Win32_VideoController -Filter \"Name like '%AMD%'\").Name"]).trim().to_string();
                 if gpu_brand.is_empty() {
@@ -359,13 +360,13 @@ fn get_gpu_info() -> (String, String, u64, String, String){
 
                 for (key, value) in &parts {
                     if *key == "Driver Version" {
-                        driver = value.parse().unwrap()
+                        driver = value.parse().unwrap_or_else(|_| "Unknown".to_string());
                     }
                     if *key == "CUDA Version" {
-                        cuda = value.parse().unwrap()
+                        cuda = value.parse().unwrap_or_else(|_| "Unknown".to_string());
                     }
                     if *key == "Total" {
-                        gpu_memory = value.split_whitespace().nth(0).unwrap_or("0").parse::<u64>().unwrap_or(0);
+                        gpu_memory = value.split_whitespace().next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
                         break;
                     }
                 }
