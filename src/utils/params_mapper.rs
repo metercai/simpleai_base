@@ -69,6 +69,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("light_source_end_color", "CreateGradientFromCoords:ic_light_source_color:end_color"),
     ("light_editor_path", "SplineEditor:ic_light_editor:points_store"),
     ("wavespeed_strength", "easy float:wavespeed_strength:value"),
+    ("var_number", "easy int:var_number:value"),
     ("i2i_function", "easy int:i2i_function:value"),
     ("i2i_model_type", "easy int:i2i_model_type:value"),
     ("i2i_skip_preprocessors", "easy boolean:i2i_skip_preprocessors:value"),

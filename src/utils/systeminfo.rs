@@ -6,6 +6,7 @@ use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::time::UNIX_EPOCH;
+use base58::ToBase58;
 
 use sysinfo::System;
 use tracing::debug;
@@ -244,7 +245,18 @@ fn get_disk_info() -> (u64, u64, String) {
         "windows" => {
             let total = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size"]).trim().parse::<u64>().unwrap_or(0);
             let free = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace"]).trim().parse::<u64>().unwrap_or(0);
-            let uuid = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").VolumeSerialNumber"]).trim().to_string();
+            let mut uuid = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").VolumeSerialNumber"]).trim().to_string();
+            if uuid.is_empty() {
+                uuid = run_command("cmd", &["/c", "vol", "c:"]).trim().to_string();
+                if uuid.contains("卷的序列号是") || uuid.contains("Volume Serial Number is") {
+                    let parts: Vec<&str> = uuid.split_whitespace().collect();
+                    uuid = parts.last().unwrap_or(&"").to_string()
+                }
+            }
+            if  uuid.is_empty() {
+                let env_uuid_str = run_command("cmd", &["/c", "echo", "%COMPUTERNAME%-%SYSTEMDRIVE%"]).trim().to_string();
+                uuid = token_utils::calc_sha256(&env_uuid_str.as_bytes()).to_base58();
+            }
             //println!("get_disk_info is ok: {}, {}, {}", total, free, uuid);
             (total/(1024*1024), free/(1024*1024), uuid)
         }
