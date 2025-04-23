@@ -243,9 +243,17 @@ impl SystemInfo {
 fn get_disk_info() -> (u64, u64, String) {
     let (total, free, uuid) = match env::consts::OS {
         "windows" => {
-            let total = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size"]).trim().parse::<u64>().unwrap_or(0);
-            let free = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace"]).trim().parse::<u64>().unwrap_or(0);
-            let mut uuid = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").VolumeSerialNumber"]).trim().to_string();
+            let total_str = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size"]);
+            let total_filtered = total_str.chars().filter(|c| c.is_ascii()).collect::<String>();
+            let total = total_filtered.trim().parse::<u64>().unwrap_or(0);
+            
+            let free_str = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace"]);
+            let free_filtered = free_str.chars().filter(|c| c.is_ascii()).collect::<String>();
+            let free = free_filtered.trim().parse::<u64>().unwrap_or(0);
+            
+            let mut uuid = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").VolumeSerialNumber"])
+                .chars().filter(|c| c.is_ascii()).collect::<String>().trim().to_string();
+            println!("get_disk_info is ok: {}:{}, {}:{}, {}", total_str,total, free_str,free, uuid);
             if uuid.is_empty() {
                 uuid = run_command("cmd", &["/c", "vol", "c:"]).trim().to_string();
                 if uuid.contains("卷的序列号是") || uuid.contains("Volume Serial Number is") {
@@ -350,7 +358,9 @@ fn get_gpu_info() -> (String, String, u64, String, String){
             } else {
                 gpu_name = gpu_brand;
                 gpu_brand = "NVIDIA".to_string();
-                let gpu_info = run_command("nvidia-smi", &["-q", "--display=MEMORY"]);
+                let gpu_info0 = run_command("nvidia-smi", &["-q", "--display=MEMORY"]);
+                let gpu_info = gpu_info0.chars().filter(|c| c.is_ascii()).collect::<String>();
+                println!("gpu_info is: {}, {}", gpu_info0, gpu_info);
                 let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
                     .filter_map(|line| {
