@@ -47,7 +47,7 @@ impl SystemBaseInfo {
     pub fn generate() -> Self {
         let (disk_total, disk_free, disk_uuid) = get_disk_info();
         let (mut gpu_brand, mut gpu_name, mut gpu_memory, mut driver, mut cuda) = get_gpu_info();
-        println!("get_disk_info and get_gpu_info: {}, {}, {}, {}, {}, {}, {}, {}", disk_total, disk_free, disk_uuid, gpu_brand, gpu_name, gpu_memory, driver, cuda);
+        //println!("get_disk_info and get_gpu_info: {}, {}, {}, {}, {}, {}, {}, {}", disk_total, disk_free, disk_uuid, gpu_brand, gpu_name, gpu_memory, driver, cuda);
         if gpu_brand=="NVIDIA" {
             let ram_gpu_info = env_utils::get_ram_and_nvidia_gpu_info();
             if ram_gpu_info!="Unknown" {
@@ -254,7 +254,7 @@ fn get_disk_info() -> (u64, u64, String) {
             
             let mut uuid = run_command("powershell", &["(Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").VolumeSerialNumber"])
                 .chars().filter(|c| c.is_ascii()).collect::<String>().trim().to_string();
-            println!("get_disk_info is ok: {}:{}, {}:{}, {}", total_str,total, free_str,free, uuid);
+            //println!("get_disk_info is ok: {}:{}, {}:{}, {}", total_str,total, free_str,free, uuid);
             if uuid.is_empty() {
                 uuid = run_command("cmd", &["/c", "vol", "c:"]).trim().to_string();
                 if uuid.contains("卷的序列号是") || uuid.contains("Volume Serial Number is") {

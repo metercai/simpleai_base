@@ -50,6 +50,8 @@ def request_p2p_task(task):
             args[67][8] = ndarray_to_webp_bytes(args[67][8])
         if args[67][9] is not None:
             args[67][9] = ndarray_to_webp_bytes(args[67][9])
+        if args[67][10] is not None:
+            args[67][10] = ndarray_to_webp_bytes(args[67][10])
         for i in range(len(args[71])):
             if args[71][i][0] is not None:
                 args[71][i][0] = ndarray_to_webp_bytes(args[71][i][0])
@@ -158,6 +160,8 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
             args[67][8] = webp_bytes_to_ndarray(args[67][8])
         if args[67][9] is not None:
             args[67][9] = webp_bytes_to_ndarray(args[67][9])
+        if args[67][10] is not None:
+            args[67][10] = webp_bytes_to_ndarray(args[67][10])
         for i in range(len(args[71])):
             if args[71][i][0] is not None:
                 args[71][i][0] = webp_bytes_to_ndarray(args[71][i][0])

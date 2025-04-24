@@ -75,7 +75,7 @@ impl SimpleAI {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
-        println!("This is test version for some case, not release version!");
+        //println!("This is test version for some case, not release version!");
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = dids::get_system_vars();
         debug!("system_name:{}, device_name:{}, guest_name:{}", system_name, device_name, guest_name);
