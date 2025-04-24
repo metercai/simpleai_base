@@ -47,6 +47,7 @@ impl SystemBaseInfo {
     pub fn generate() -> Self {
         let (disk_total, disk_free, disk_uuid) = get_disk_info();
         let (mut gpu_brand, mut gpu_name, mut gpu_memory, mut driver, mut cuda) = get_gpu_info();
+        println!("get_disk_info and get_gpu_info: {}, {}, {}, {}, {}, {}, {}, {}", disk_total, disk_free, disk_uuid, gpu_brand, gpu_name, gpu_memory, driver, cuda);
         if gpu_brand=="NVIDIA" {
             let ram_gpu_info = env_utils::get_ram_and_nvidia_gpu_info();
             if ram_gpu_info!="Unknown" {
