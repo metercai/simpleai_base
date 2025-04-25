@@ -361,7 +361,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
                 gpu_brand = "NVIDIA".to_string();
                 let gpu_info0 = run_command("nvidia-smi", &["-q", "--display=MEMORY"]);
                 let gpu_info = gpu_info0.chars().filter(|c| c.is_ascii()).collect::<String>();
-                println!("gpu_info is: {}, {}", gpu_info0, gpu_info);
+                //println!("gpu_info is: {}, {}", gpu_info0, gpu_info);
                 let parts: Vec<(&str, &str)> = gpu_info
                     .lines()
                     .filter_map(|line| {
