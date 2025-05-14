@@ -1,9 +1,6 @@
-use crate::dids::{self, token_utils, TOKIO_RUNTIME};
-use crate::rest_service;
 use base58::*;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use rand::Rng;
 use ripemd::Ripemd160;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -18,6 +15,10 @@ use tracing_subscriber::field::debug;
 
 use pyo3::prelude::*;
 use tracing::{debug, info};
+
+use crate::dids;
+use crate::dids::token_utils;
+use crate::api;
 
 lazy_static::lazy_static! {
     static ref GLOBAL_CLAIMS: Arc<Mutex<GlobalClaims>> = Arc::new(Mutex::new(GlobalClaims::new()));
@@ -61,7 +62,7 @@ impl GlobalClaims {
 
     pub fn get_claim_from_DHT(for_did: &str) -> IdClaim {
         
-        let claim = match rest_service::request_api_sync::<String>(&format!("get_claim/{for_did}"), None::<&serde_json::Value>) {
+        let claim = match api::request_api_sync::<String>(&format!("get_claim/{for_did}"), None::<&serde_json::Value>) {
             Ok(claim_json) => match serde_json::from_str::<IdClaim>(&claim_json) {
                 Ok(parsed_claim) => parsed_claim,
                 Err(err) => {
@@ -81,7 +82,7 @@ impl GlobalClaims {
         let params = json!({
             "claim": claim,
         });
-        let _did = match rest_service::request_api_sync("put_claim", Some(params)) {
+        let _did = match api::request_api_sync("put_claim", Some(params)) {
             Ok(did) => did,
             Err(err) => {
                 debug!("get claim from global failures: {:?}", err);

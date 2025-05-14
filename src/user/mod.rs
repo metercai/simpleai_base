@@ -1,24 +1,20 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use directories_next::BaseDirs;
 use std::sync::{Arc, Mutex, RwLock};
 
-
-use once_cell::sync::Lazy;
 use serde::{Serialize, Deserialize};
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tracing::{error, warn, info, debug, trace};
 
-use crate::dids::{self, DidToken, TOKEN_ENTRYPOINT_DID, TOKEN_ENTRYPOINT_URL};
+use crate::dids::{self, DidToken, tokendb::TokenDB, TOKEN_ENTRYPOINT_DID, TOKEN_ENTRYPOINT_URL};
 use crate::dids::token_utils;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::user::user_vars::GlobalLocalVars;
-use crate::issue_key;
-use crate::exchange_key;
-use crate::rest_service;
+use crate::api;
 use crate::p2p::DidMessage;
 
 pub(crate) mod user_mgr;
@@ -36,8 +32,9 @@ pub struct TokenUser {
     guest_did: String,
     guest_phrase: String,
 
-    pub authorized: Arc<Mutex<sled::Tree>>, //HashMap<String, UserContext>,
-    pub user_sessions: Arc<Mutex<sled::Tree>>, //HashMap<sessionid_key, String>,
+    //pub authorized: Arc<Mutex<sled::Tree>>, //HashMap<String, UserContext>,
+    //pub user_sessions: Arc<Mutex<sled::Tree>>, //HashMap<sessionid_key, String>,
+    pub token_db: Arc<RwLock<TokenDB>>,
     pub blacklist: Vec<String>,
     pub user_base_dir: String,
     pub entry_point: DidEntryPoint,
@@ -58,12 +55,7 @@ impl TokenUser {
         let blacklist = token_utils::load_did_blacklist_from_file();
         let didtoken = DidToken::instance();
         let token_db = didtoken.lock().unwrap().get_token_db();
-        let (authorized_tree, user_sessions_tree) = {
-            let token_db = token_db.lock().unwrap();
-            (token_db.open_tree("authorized").unwrap(), token_db.open_tree("user_sessions").unwrap())
-        };
-        let authorized = Arc::new(Mutex::new(authorized_tree));
-        let user_sessions = Arc::new(Mutex::new(user_sessions_tree));
+        
         let entry_point = DidEntryPoint::new();
         let(sys_did, device_did, guest_did) = {
             let mut didtoken = didtoken.lock().unwrap();
@@ -76,8 +68,7 @@ impl TokenUser {
             device_did,
             guest_did,
             guest_phrase,
-            authorized,
-            user_sessions,
+            token_db,
             blacklist,
             user_base_dir: "".to_string(),
             entry_point,
@@ -187,20 +178,17 @@ impl TokenUser {
         let key = format!("{}_{}", did, self.get_sys_did());
         if !self.blacklist.contains(&did.to_string()) {
             let mut context = {
-                let authorized = self.authorized.lock().unwrap();
-                match authorized.get(&key) {
-                    Ok(Some(context)) => {
-                        let context_string = String::from_utf8(context.to_vec()).unwrap();
-                        let user_token: serde_json::Value = serde_json::from_slice(&context_string.as_bytes()).unwrap_or(serde_json::json!({}));
-                        serde_json::from_value(user_token.clone()).unwrap_or_else(|_| UserContext::default())
-                    },
-                    _ => token_utils::get_user_token_from_file(did, &self.get_sys_did())
+                let context_string = self.token_db.read().unwrap().get("authorized", &key);
+                if !context_string.is_empty() && context_string != "Unknown" {
+                    let user_token: serde_json::Value = serde_json::from_slice(&context_string.as_bytes()).unwrap_or(serde_json::json!({}));
+                    serde_json::from_value(user_token.clone()).unwrap_or_else(|_| UserContext::default())
+                } else {
+                    token_utils::get_user_token_from_file(did, &self.get_sys_did())
                 }
             };
             if !context.is_default() && context.get_sys_did() == self.get_sys_did() &&
                 self.didtoken.lock().unwrap().verify_by_did(&context.get_text(), &context.get_sig(), did) {
-                let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
-                let _ = self.authorized.lock().unwrap().insert(&key, ivec_data);
+                self.token_db.write().unwrap().insert("authorized", &key, &context.to_json_string());
                 if !self.global_local_vars.read().unwrap().is_allowed_did(did, "web") {
                     context.set_pending(true);    
                 }
@@ -234,7 +222,7 @@ impl TokenUser {
         let mut msg = DidMessage::new(did.to_string(), "login".to_string(), 
         format!("{}:{}", self.get_node_id(), self.get_sys_did()));
         msg.signature(phrase);
-        let result = rest_service::request_api_cbor_sync("p2p_put_msg", Some(msg))
+        let result = api::request_api_cbor_sync("p2p_put_msg", Some(msg))
             .unwrap_or_else(|e| {
                 error!("p2p_put_msg: login({}) error: {}", did, e);
                 "".to_string()
@@ -250,10 +238,7 @@ impl TokenUser {
                 let admin_did = self.didtoken.lock().unwrap().get_admin_did();
                 println!("{} [UserBase] Set admin_did/设置系统管理 = {}", token_utils::now_string(), admin_did);
             }
-            {
-                let ivec_data = sled::IVec::from(context.to_json_string().as_bytes());
-                let _ = self.authorized.lock().unwrap().insert(&format!("{}_{}", did, self.get_sys_did()), ivec_data);
-            }
+            let _ = self.token_db.write().unwrap().insert("authorized", &format!("{}_{}", did, self.get_sys_did()), &context.to_json_string());
             if did == self.get_guest_did() {
                 self.global_local_vars.write().unwrap().add_allowed_did(did, "web");
             }
@@ -269,14 +254,9 @@ impl TokenUser {
 
     pub(crate) fn remove_context(&mut self, user_did: &str) {
         let context = self.get_user_context(user_did);
-        let mut authorized = self.authorized.lock().unwrap();
+        let mut token_db = self.token_db.write().unwrap();
         let key = format!("{}_{}", user_did, self.get_sys_did());
-        let _ = match authorized.contains_key(&key).unwrap() {
-            false => {},
-            true => {
-                let _ = authorized.remove(&key);
-            }
-        };
+        let _ = token_db.remove("authorized", &key);
         let _ = token_utils::update_user_token_to_file(&context, "remove");
     }
 

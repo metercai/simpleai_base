@@ -4,7 +4,7 @@ use tracing::{error, warn, info, debug, trace};
 
 use crate::dids::claims::{IdClaim, GlobalClaims};
 use crate::dids::{self, TOKIO_RUNTIME, TOKEN_ENTRYPOINT_DID, token_utils};
-use crate::rest_service;
+
 
 lazy_static::lazy_static! {
     static ref GLOBAL_CERTS: Arc<Mutex<GlobalCerts>> = Arc::new(Mutex::new(GlobalCerts::new()));
@@ -25,8 +25,6 @@ pub struct GlobalCerts {
 
 impl GlobalCerts {
     pub fn new() -> Self {
-        let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
-            = dids::get_system_vars();
         let claims = GlobalClaims::instance();
         let sys_did = {
             let claims = claims.lock().unwrap();

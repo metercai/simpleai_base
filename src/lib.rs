@@ -10,24 +10,22 @@ use crate::utils::systeminfo::SystemInfo;
 use crate::utils::params_mapper::ComfyTaskParams;
 use crate::dids::token_utils::calc_sha256;
 use crate::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
-use crate::rest_service::{ApiResponse, API_HOST};
 
 
 use pyo3::prelude::*;
 
 mod token;
-mod rest_service;
 mod dids;
 mod utils;
 mod user;
 mod p2p;
+mod api;
 
 
 
 #[pyfunction]
 fn init_local(nickname: String) -> PyResult<SimpleAI> {
     let token = SimpleAI::new(nickname);
-    let _rest_server = rest_service::start_rest_server("127.0.0.1".to_string(), 4515);
     Ok(token)
 }
 
@@ -48,8 +46,8 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let text = format!("{}|{}|{}|{}|{}", did, "Member", encrypt_item_key, memo_base64, timestamp);
     
     let (system_did, upstream_did) = TOKIO_RUNTIME.block_on(async {
-        let sys_fut = rest_service::request_api("sys_did", None::<&serde_json::Value>);
-        let up_fut = rest_service::request_api("upstream_did", None::<&serde_json::Value>);
+        let sys_fut = api::request_api("sys_did", None::<&serde_json::Value>);
+        let up_fut = api::request_api("upstream_did", None::<&serde_json::Value>);
         match tokio::join!(sys_fut, up_fut) {
             (Ok(sys), Ok(up)) => (sys, up),
             _ =>  ("".to_string(), "".to_string()), 
@@ -85,7 +83,7 @@ fn is_registered_did(did: &str) -> bool {
     if !IdClaim::validity(did) {
         return false;
     }
-    rest_service::request_api_sync(&format!("is_registered/{did}"), None::<&serde_json::Value>)
+    api::request_api_sync(&format!("is_registered/{did}"), None::<&serde_json::Value>)
                 .unwrap_or_else(|e| {
                     error!("is_registered_did({}) error: {}", did, e);
                     false

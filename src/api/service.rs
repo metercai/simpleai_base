@@ -1,25 +1,52 @@
 use warp::{Filter, Rejection, Reply};
-use std::sync::{Arc, Mutex};
-use std::net::IpAddr;
+use std::sync::{Arc, Mutex, LazyLock};
+use std::net::Ipv4Addr;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tracing::{debug, info, error};
 use bytes::Bytes;
+use tokio::task::JoinHandle;
 
 
 use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
 use crate::dids::claims::{IdClaim, GlobalClaims};
 use crate::dids::cert_center::GlobalCerts;
+use crate::dids::tokendb::TokenDB;
 use crate::user::TokenUser;
 use crate::user::shared;
 use crate::user::user_vars::GlobalLocalVars;
 use crate::p2p;
 use crate::token;
+use crate::utils::env_utils;
+use crate::api::{ApiResponse, P2pStatus};
 
 
-pub const API_HOST: &str = "http://127.0.0.1:4515/api";
+static API_PORT: LazyLock<Mutex<u16>> = LazyLock::new(|| Mutex::new(init_api_port()));
+static SERVER_HANDLE: LazyLock<Mutex<Option<JoinHandle<()>>>> = LazyLock::new(|| Mutex::new(None));
+
+fn init_api_port() -> u16 {
+    let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+    if !port_file_path.exists() {
+        return 0;
+    }
+    let port_str = std::fs::read_to_string(&port_file_path).unwrap_or("0".to_string());
+    let port = port_str.parse::<u16>().unwrap_or(0);
+    if port != 0 {
+        match REQWEST_CLIENT_SYNC.get(format!("http://127.0.0.1:{}/api/check_sys", port)).send() {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    return port
+                }
+            }
+            Err(_) => { }
+        }
+    } 
+    std::fs::remove_file(&port_file_path).unwrap();
+    return 0;
+}
+
 
 // 自定义错误类型，用于序列化/反序列化错误
 #[derive(Debug)]
@@ -27,25 +54,34 @@ struct InvalidSerializationError;
 
 impl warp::reject::Reject for InvalidSerializationError {}
 
-// 统一响应格式
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ApiResponse<T> {
-    success: bool,
-    pub data: T,
-    error: Option<String>,
+
+pub fn get_api_host() -> String {
+    let port = *API_PORT.lock().unwrap(); 
+    return format!("http://127.0.0.1:{}/api", port);
 }
 
-// 初始化所有路由
-pub fn start_rest_server(address: String, port: u16) {
-    let address: IpAddr = match address.parse() {
-        Ok(addr) => addr,
-        Err(_) => {
-            error!("Invalid address: {}", address);
-            std::process::exit(1);
-        }
-    };
+pub fn is_self_service() -> bool {
+    let port = *API_PORT.lock().unwrap(); 
+    let server_handle = SERVER_HANDLE.lock().unwrap();
+    port == 0 || server_handle.is_some()
+}
 
-    let _server = TOKIO_RUNTIME.spawn(async move {
+pub fn start_rest_server() {
+    let address = Ipv4Addr::LOCALHOST;
+    let mut port = *API_PORT.lock().unwrap();
+    if port != 0 {
+        println!("{} [SimpAI] REST service is already running at: http://{}:{}", token_utils::now_string(), address, port);
+        return;
+    }
+    port =  TOKIO_RUNTIME.block_on(async move {
+        env_utils::get_port_availability(address, 4515).await
+    });
+
+    let server = TOKIO_RUNTIME.spawn(async move {
+        let check_sys = warp::path!("api" / "check_sys")
+            .and(warp::get())
+            .and_then(handle_check_sys);
+
         let get_sys_did = warp::path!("api" / "sys_did")
             .and(warp::get())
             .and_then(handle_get_sys_did);
@@ -116,7 +152,6 @@ pub fn start_rest_server(address: String, port: u16) {
         .and(warp::body::bytes())
         .and_then(|mode: String, target_did: String, body: Bytes| handle_p2p_request(mode, target_did, body));
 
-        // 修改后的代码，从路径中捕获一个名为 task_id 的变量
         let p2p_response = warp::path!("api" / "p2p_response" / String / String)
         .and(warp::post())
         .and(warp::body::bytes())
@@ -131,8 +166,28 @@ pub fn start_rest_server(address: String, port: u16) {
         .and(warp::get())
         .and_then(handle_p2p_status);
 
+        let db_get = warp::path!("api" / "db_get")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(handle_db_get);
 
-        let routes = get_sys_did
+        let db_insert = warp::path!("api" / "db_insert")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then( handle_db_insert);
+
+        let db_remove = warp::path!("api" / "db_remove")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(handle_db_remove);
+
+        let db_scan_prefix = warp::path!("api" / "db_scan_prefix")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then( handle_db_scan_prefix);
+
+        let routes = check_sys
+            .or(get_sys_did)
             .or(get_device_did)
             .or(get_upstream_did)
             .or(get_local_vars)
@@ -150,30 +205,81 @@ pub fn start_rest_server(address: String, port: u16) {
             .or(p2p_response)
             .or(p2p_put_msg)
             .or(p2p_status)
+            .or(db_get)
+            .or(db_insert)
+            .or(db_remove)
+            .or(db_scan_prefix)
             ;
 
         warp::serve(routes).run((address, port)).await;
+
+        println!("{} [SimpAI] REST server at http://{}:{} has shut down.", 
+                 token_utils::now_string(), address, port);
+        *API_PORT.lock().unwrap() = 0;
+        let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+        if let Err(e) = std::fs::remove_file(&port_file_path) {
+            eprintln!("{} [SimpAI] INFO: Could not remove port file {}: {}", 
+                      token_utils::now_string(), port_file_path.display(), e);
+        }
+        if let Ok(mut server_handle) = SERVER_HANDLE.try_lock() {
+            *server_handle = None;
+        }
     });
-    println!("{} [SimpAI] REST server started at http://{}:{}", token_utils::now_string(), address, port);
+    *SERVER_HANDLE.lock().unwrap() = Some(server);
+    let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+    if let Err(e) = std::fs::write(&port_file_path, port.to_string()) {
+        eprintln!("{} [SimpAI] ERROR: Failed to write port {} to {}: {}. Server will run, but other instances might not find it via file.", 
+                    token_utils::now_string(), port, port_file_path.display(), e);
+    }
+    *API_PORT.lock().unwrap() = port;
+    println!("{} [SimpAI] REST server started at: http://{}:{}", token_utils::now_string(), address, port);
+
+
 }
 
-
-// 创建一个自定义的CBOR请求体处理过滤器
-fn body<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T, ), Error = warp::Rejection> + Clone {
-    warp::body::bytes().and_then(|body: Bytes| async move {
-        match serde_cbor::from_slice(&body) {
-            Ok(resp) => Ok(resp),
-            Err(e) => {
-                error!("Failed to deserialize CBOR body: {}", e);
-                Err(warp::reject::custom(InvalidSerializationError))
+pub fn stop_rest_server() {
+    let mut server_handle = SERVER_HANDLE.lock().unwrap();
+    if let Some(handle) = server_handle.take() {
+        println!("{} [SimpAI] 正在停止REST服务器...", token_utils::now_string());
+        // 中止任务
+        handle.abort();
+        
+        // 可选：等待任务完成（在某些情况下可能需要）
+        TOKIO_RUNTIME.block_on(async {
+            match handle.await {
+                Ok(_) => println!("{} [SimpAI] REST服务器已正常停止", token_utils::now_string()),
+                Err(e) if e.is_cancelled() => println!("{} [SimpAI] REST服务器已被中止", token_utils::now_string()),
+                Err(e) => eprintln!("{} [SimpAI] 停止REST服务器时发生错误: {}", token_utils::now_string(), e),
+            }
+        });
+        
+        // 清理端口文件
+        let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+        if port_file_path.exists() {
+            if let Err(e) = std::fs::remove_file(&port_file_path) {
+                eprintln!("{} [SimpAI] 无法删除端口文件 {}: {}", 
+                          token_utils::now_string(), port_file_path.display(), e);
             }
         }
-    })
+        
+        // 重置端口
+        *API_PORT.lock().unwrap() = 0;
+    } else {
+        println!("{} [SimpAI] REST服务器未运行", token_utils::now_string());
+    }
 }
-
 
 
 // --- 具体路由处理函数 ---
+async fn handle_check_sys() -> Result<impl Reply, Rejection> {
+    let claims = GlobalClaims::instance();
+    let claims = claims.lock().unwrap();
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: claims.local_claims.get_system_did(),
+        error: None,
+    }))
+}
 
 // 1. 获取系统DID
 async fn handle_get_sys_did() -> Result<impl Reply, Rejection> {
@@ -546,12 +652,6 @@ async fn handle_p2p_put_msg(
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub(crate) struct P2pStatus {
-    pub node_id: String,
-    pub is_debug: bool,
-}
-
 async fn handle_p2p_status() -> Result<impl Reply, Rejection> {
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
@@ -575,74 +675,79 @@ async fn handle_p2p_status() -> Result<impl Reply, Rejection> {
     }
 }
 
-pub async fn request_api<T: DeserializeOwned>(endpoint: &str, params: Option<impl Serialize>) -> Result<T, reqwest::Error> {
-    let url = format!("{}/{}", API_HOST, endpoint);
-
-    let response = if let Some(json_params) = params {
-        REQWEST_CLIENT.post(&url).json(&json_params).send().await?
-    } else {
-        REQWEST_CLIENT.get(&url).send().await?
-    };
-    
-    let api_response: ApiResponse<T> = response.json().await?;
-    Ok(api_response.data)
+#[derive(Debug, Deserialize)]
+struct DbGetRequest {
+    tree: String,
+    key: String,
 }
 
-pub fn request_api_sync<T: DeserializeOwned>(endpoint: &str, params: Option<impl Serialize>) -> Result<T, Box<dyn std::error::Error>> {
-    let url = format!("{}/{}", API_HOST, endpoint);
-
-    let response = if let Some(json_params) = params {
-        REQWEST_CLIENT_SYNC.post(&url).json(&json_params).send()?
-    } else {
-        REQWEST_CLIENT_SYNC.get(&url).send()?
-    };
-    
-    let api_response: ApiResponse<T> = response.json()?;
-    Ok(api_response.data)
+async fn handle_db_get(
+    req: DbGetRequest,
+) -> Result<impl Reply, Rejection> {
+    let token_db = TokenDB::instance();
+    let token_db = token_db.read().unwrap();
+    let value = token_db.get(&req.tree, &req.key);
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: value,
+        error: None,
+    }))
 }
 
-
-pub async fn request_api_cbor<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
-    let url = format!("{}/{}", API_HOST, endpoint);
-    
-    if let Some(cbor_params) = params {
-        let cbor_data = serde_cbor::to_vec(&cbor_params)
-            .map_err(|e| {
-                error!("Failed to serialize CBOR params: {}", e);
-                e
-            })?;
-        let res = REQWEST_CLIENT
-            .post(&url)
-            .header("Content-Type", "application/cbor")
-            .body(cbor_data)
-            .send()
-            .await?;
-        let data: ApiResponse<String> = res.json().await?;
-        Ok(data.data)
-    } else {
-        let res = REQWEST_CLIENT.get(&url).send().await?;
-        let data: ApiResponse<String> = res.json().await?;
-        Ok(data.data)
-    }
+#[derive(Debug, Deserialize)]
+struct DbInsertRequest {
+    tree: String,
+    key: String,
+    value: String,
 }
 
-
-pub fn request_api_cbor_sync<T: Serialize>(endpoint: &str, params: Option<T>) -> Result<String, Box<dyn std::error::Error>> {
-    let url = format!("{}/{}", API_HOST, endpoint);
-
-    if let Some(cbor_params) = params {
-        let cbor_data = serde_cbor::to_vec(&cbor_params)?;
-        let res = REQWEST_CLIENT_SYNC
-            .post(&url)
-            .header("Content-Type", "application/cbor")
-            .body(cbor_data)
-            .send()?;
-        let data: ApiResponse<String> = res.json()?;
-        Ok(data.data)
-    } else {
-        let res = REQWEST_CLIENT_SYNC.get(&url).send()?;
-        let data: ApiResponse<String> = res.json()?;
-        Ok(data.data)
-    }
+async fn handle_db_insert(
+    req: DbInsertRequest,
+) -> Result<impl Reply, Rejection> {
+    let token_db = TokenDB::instance();
+    let token_db = token_db.write().unwrap();
+    let value = token_db.insert(&req.tree, &req.key, &req.value);
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: value,
+        error: None,
+    }))
 }
 
+#[derive(Debug, Deserialize)]
+struct DbRemoveRequest {
+    tree: String,
+    key: String,
+}
+
+async fn handle_db_remove(
+    req: DbRemoveRequest,
+) -> Result<impl Reply, Rejection> {
+    let token_db = TokenDB::instance();
+    let token_db = token_db.write().unwrap();
+    let value = token_db.remove(&req.tree, &req.key);
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: value,
+        error: None,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct DbScanRequest {
+    tree: String,
+    prefix: String,
+}
+
+async fn handle_db_scan_prefix(
+    req: DbScanRequest,
+) -> Result<impl Reply, Rejection> {
+    let token_db = TokenDB::instance();
+    let token_db = token_db.write().unwrap();
+    let value = token_db.scan_prefix(&req.tree, &req.prefix);
+    Ok(warp::reply::json(&ApiResponse {
+        success: true,
+        data: value,
+        error: None,
+    }))
+}

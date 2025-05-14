@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='simpleai_base',
-    version='0.3.0',
+    version='0.3.23',
     packages=['simpleai_base'],
     install_requires=[
         'maturin @ git+https://github.com/PyO3/maturin.git@v0.14.0',

@@ -22,7 +22,7 @@ use bytes::Bytes;
 
 use pyo3::prelude::*;
 
-use crate::dids::{self, DidToken, token_utils};
+use crate::dids::{self, DidToken, token_utils, tokendb::TokenDB};
 use crate::{exchange_key, issue_key};
 use crate::utils::error::TokenError;
 use crate::utils::env_data::EnvData;
@@ -35,7 +35,7 @@ use crate::user::{TokenUser, DidEntryPoint};
 use crate::p2p::{self, P2p, P2pRequest, DidMessage, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::{AdminDefault, GlobalLocalVars};
-use crate::rest_service;
+use crate::api;
 
 pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";
 
@@ -56,14 +56,14 @@ pub struct SimpleAI {
     guest_phrase: String,
     didtoken: Arc<Mutex<DidToken>>,
     tokenuser: Arc<Mutex<TokenUser>>,
-    ready_users: Arc<Mutex<sled::Tree>>, //HashMap<String, serde_json::Value>,
+    token_db: Arc<RwLock<TokenDB>>, //HashMap<String, serde_json::Value>,
     global_local_vars: Arc<RwLock<GlobalLocalVars>>, //HashMap<global|admin|{did}_{key}, String>,
     online_users: OnlineUsers,
     last_timestamp: Arc<RwLock<u64>>,
     sid_did_map: Arc<Mutex<HashMap<String, String>>>,
     shared_data: &'static SharedData,
     p2p_config: String,
-    p2p_status: Option<rest_service::P2pStatus>,
+    p2p_status: Option<api::P2pStatus>,
 }
 
 #[pymethods]
@@ -88,11 +88,6 @@ impl SimpleAI {
             let didtoken = didtoken.lock().unwrap();
             (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did(), didtoken.get_token_db())
         };
-        let ready_users_tree = {
-            let token_db = token_db.lock().unwrap();
-            token_db.open_tree("ready_users").unwrap()
-        };
-        let ready_users = Arc::new(Mutex::new(ready_users_tree));
     
         let online_users = OnlineUsers::new(60, 2);
         let message_queue = MessageQueue::new(global_local_vars.clone());
@@ -117,7 +112,7 @@ impl SimpleAI {
             guest_phrase,
             didtoken,
             tokenuser,
-            ready_users,
+            token_db,
             global_local_vars,
             online_users,
             last_timestamp: Arc::new(RwLock::new(0u64)),
@@ -393,13 +388,13 @@ impl SimpleAI {
 
     pub fn get_p2p_status(&mut self) -> String {
         if self.p2p_status.is_none() {
-            let result = rest_service::request_api_sync("p2p_status", None as Option<serde_json::Value>)
+            let result = api::request_api_sync("p2p_status", None as Option<serde_json::Value>)
                 .unwrap_or_else(|e| {
                     error!("p2p_status error: {}", e);
                     "".to_string()
                 });
             if !result.is_empty() {
-                let p2p_status: rest_service::P2pStatus = serde_json::from_str(&result).unwrap();
+                let p2p_status: api::P2pStatus = serde_json::from_str(&result).unwrap();
                 self.p2p_status = Some(p2p_status.clone());
                 self.set_node_id(&p2p_status.node_id);
             }
@@ -446,7 +441,7 @@ impl SimpleAI {
                 task_args: args,
             };
             let mode = mode.unwrap_or("async".to_string());
-            let result = rest_service::request_api_cbor_sync(&format!("p2p_request/{}/{}", mode, target_did), Some(request))
+            let result = api::request_api_cbor_sync(&format!("p2p_request/{}/{}", mode, target_did), Some(request))
                 .unwrap_or_else(|e| {
                     error!("request_remote_task({}) error: {}", p2p_out_did_list, e);
                     "".to_string()
@@ -473,7 +468,7 @@ impl SimpleAI {
                 task_method: task_method.to_string(),
                 task_args: result,
             };
-            let result = rest_service::request_api_cbor_sync(&format!("p2p_response/async/{}", task_id), Some(response.clone()))
+            let result = api::request_api_cbor_sync(&format!("p2p_response/async/{}", task_id), Some(response.clone()))
                 .unwrap_or_else(|e| {
                     error!("response_remote_task({}) error: {}, {}", p2p_in_did_list, e, response.task_method);
                     "".to_string()
@@ -967,13 +962,7 @@ impl SimpleAI {
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
                 if token_utils::is_original_user_key("User", &symbol_hash)  {
-                    let ready_data = {
-                        let ready_users = self.ready_users.lock().unwrap();
-                        match ready_users.get(&user_hash_id) {
-                            Ok(Some(ready_data)) => String::from_utf8(ready_data.to_vec()).unwrap(),
-                            _ => "Unknown".to_string(),
-                        }
-                    };
+                    let ready_data = self.token_db.read().unwrap().get("ready_users", &user_hash_id);
                     if ready_data != "Unknown" {
                         let parts: Vec<&str> = ready_data.split('|').collect();
                         let old_user_did = match parts.len() >= 3 {
@@ -1050,11 +1039,7 @@ impl SimpleAI {
                                 }
                             } else if parts[0] == "user_cert" {
                                 let ready_data = format!("{}|{}|{}", 3, user_did, parts[1]);
-                                let ivec_data = sled::IVec::from(ready_data.as_bytes());
-                                {
-                                    let ready_users = self.ready_users.lock().unwrap();
-                                    let _ = ready_users.insert(&user_hash_id, ivec_data);
-                                }
+                                let _ = self.token_db.write().unwrap().insert("ready_users", &user_hash_id, &ready_data);
                                 debug!("ready_data: {}", ready_data);
                                 println!("{} [UserBase] User apply is ok, ready to verify user_cert with vcode: did({})", token_utils::now_string(), user_did);
                                 return "create".to_string();
@@ -1090,13 +1075,7 @@ impl SimpleAI {
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
-        let ready_data = {
-            let ready_users = self.ready_users.lock().unwrap();
-            match ready_users.get(&user_hash_id) {
-                Ok(Some(ready_data)) => String::from_utf8(ready_data.to_vec()).unwrap(),
-                _ => "Unknown".to_string(),
-            }
-        };
+        let ready_data = self.token_db.read().unwrap().get("ready_users", &user_hash_id);
         if ready_data != "Unknown" {
             let parts: Vec<&str> = ready_data.split('|').collect();
             debug!("ready_data: {:?}", parts);
@@ -1151,17 +1130,10 @@ impl SimpleAI {
                     println!("{} [UserBase] The decoding the claim from Root is incorrect: ready_did({}), symbol({})",
                              token_utils::now_string(), ready_user_did, symbol_hash_base64);
                     let ready_data = format!("{}|{}|{}", try_count, ready_user_did, encrypted_certificate_string);
-                    let ivec_data = sled::IVec::from(ready_data.as_bytes());
-                    {
-                        let ready_users = self.ready_users.lock().unwrap();
-                        let _ = ready_users.insert(&user_hash_id, ivec_data);
-                    }
+                    let _ = self.token_db.write().unwrap().insert("ready_users", &user_hash_id, &ready_data);
                     return format!("error:{}", try_count).to_string();
                 } else {
-                    let _ = {
-                        let ready_users = self.ready_users.lock().unwrap();
-                        let _ = ready_users.remove(user_hash_id.clone());
-                    };
+                    let _ = self.token_db.write().unwrap().remove("ready_users", &user_hash_id);
                     println!("{} [UserBase] The try_count of verify the code has run out: ready_did({}), symbol({}), user_hash_id({})",
                              token_utils::now_string(), ready_user_did, symbol_hash_base64, user_hash_id);
                     return "error:0".to_string();

@@ -4,7 +4,7 @@ use chrono::format;
 use tracing::{error, warn, info, debug, trace};
 use warp::filters::body::form;
 
-use crate::dids::{self, DidToken, token_utils};
+use crate::dids::{self, DidToken, tokendb::TokenDB};
 use crate::user::TokenUser;
 
 lazy_static::lazy_static! {
@@ -18,7 +18,7 @@ pub struct GlobalLocalVars {
     device_did: String,
     guest_did: String,
     admin_did: String,
-    global_local_vars: Arc<RwLock<sled::Tree>>, //HashMap<global|admin|{did}_{key}, String>,
+    token_db: Arc<RwLock<TokenDB>>, //HashMap<global|admin|{did}_{key}, String>,
     didtoken: Arc<Mutex<DidToken>>,
 }
 
@@ -33,25 +33,16 @@ impl GlobalLocalVars {
             let didtoken = didtoken.lock().unwrap();
             (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did(), didtoken.get_admin_did(), didtoken.get_token_db())
         };
-        let global_local_vars_tree = {
-            let token_db = token_db.lock().unwrap();
-            token_db.open_tree("global_local_vars").unwrap()
-        };
-        let global_local_vars = Arc::new(RwLock::new(global_local_vars_tree));
-
+        
         Self {
             sys_did,
             device_did,
             guest_did,
             admin_did,
-            global_local_vars,
+            token_db,
             didtoken,
         }
     }
-    
-    /*pub fn get_vars_db(&self) -> Arc<RwLock<sled::Tree>> {
-        self.global_local_vars.clone()
-    } */
 
     pub fn get_admin_did(&self) -> String {
         self.admin_did.clone()
@@ -62,77 +53,44 @@ impl GlobalLocalVars {
 
     pub fn get_global_vars(&self, key: &str, default: &str) -> String {
         let key = format!("global_{}", key);
-        let global_local_vars = match self.global_local_vars.read() {
+        let token_db = match self.token_db.read() {
             Ok(guard) => guard,
             Err(e) => {
                 error!("获取全局变量读锁失败: key={}, error={:?}", key, e);
                 return default.to_string();
             }
         };
-        match global_local_vars.get(&key) {
-            Ok(Some(context)) => {
-                match String::from_utf8(context.to_vec()) {
-                    Ok(str) => str,
-                    Err(e) => {
-                        error!("全局变量UTF-8转换失败: key={}, error={:?}", key, e);
-                        default.to_string()
-                    }
-                }
-            },
-            Ok(None) => {
-                debug!("未找到全局变量: key={}", key);
-                default.to_string()
-            },
-            Err(e) => {
-                error!("读取全局变量失败: key={}, error={:?}", key, e);
-                default.to_string()
-            }
+        let vars_value = token_db.get("global_local_vars", &key);
+        if !vars_value.is_empty() && vars_value != "Unknown" {
+            vars_value
+        } else {
+            default.to_string()
         }
     }
 
     pub fn put_global_var(&mut self, key: &str, value: &str) {
         let key = format!("global_{}", key);
-        let mut global_local_vars = match self.global_local_vars.write() {
+        let mut token_db = match self.token_db.write() {
             Ok(guard) => guard,
             Err(e) => {
                 error!("获取全局变量写锁失败: key={}, error={:?}", key, e);
                 return;
             }
         };
-        let ivec_data = sled::IVec::from(value.as_bytes());
-        match global_local_vars.insert(&key, ivec_data) {
-            Ok(_) => debug!("成功设置全局变量: key={}", key),
-            Err(e) => error!("插入全局变量失败: key={}, error={:?}", key, e),
-        }
+        token_db.insert("global_local_vars", &key, value);
     }
 
     pub fn get_global_vars_json(&self) -> String {
         let prefix = "global_";
-        let mut global_vars: HashMap<String, String> = HashMap::with_capacity(32);
-        let global_local_vars = match self.global_local_vars.write() {
+        let global_vars: HashMap<String, String> = HashMap::new();
+        let token_db = match self.token_db.write() {
             Ok(guard) => guard,
             Err(e) => {
                 error!("获取全局变量写锁失败: error={:?}", e);
                 return serde_json::to_string(&global_vars).unwrap_or_default();
             }
         };
-        for result in global_local_vars.scan_prefix(prefix) {
-            match result {
-                Ok((key, value)) => {
-                    match (std::str::from_utf8(&key), std::str::from_utf8(&value)) {
-                        (Ok(key_str), Ok(value_str)) => {
-                            global_vars.insert(key_str.to_string(), value_str.to_string());
-                        },
-                        _ => {
-                            error!("全局变量键值UTF-8转换失败");
-                        }
-                    }
-                },
-                Err(e) => {
-                    error!("读取全局变量键值对失败: error={:?}", e);
-                }
-            }
-        }
+        let global_vars = token_db.scan_prefix("global_local_vars", prefix);
         match serde_json::to_string(&global_vars) {
             Ok(json) => json,
             Err(e) => {
@@ -158,14 +116,13 @@ impl GlobalLocalVars {
         };
     
         // 2. 从存储中获取原始值
-        let raw_value = {
-            let global_local_vars = self.global_local_vars.read().unwrap();
-            match global_local_vars.get(&local_key) {
-                Ok(Some(var_value)) => String::from_utf8(var_value.to_vec()).unwrap_or_default(),
-                _ => "Default".to_string()
+        let raw_value = match self.token_db.read() {
+            Ok(guard) => guard.get("global_local_vars", &local_key),
+            Err(e) => {
+                error!("从存储中获取原始值: key={}, error={:?}", local_key, e);
+                "Unknown".to_string()
             }
         };
-        
         // 3. 处理特殊值情况
         if raw_value == "Default" || raw_value == "Unknown" {
             return if is_admin_var {
@@ -185,15 +142,13 @@ impl GlobalLocalVars {
             let admin_value = self.didtoken.lock().unwrap().decrypt_by_did(&raw_value, &local_did, 0);
             debug!("get and decode admin_value: {}", admin_value);
             if admin_value.is_empty() || admin_value == "Unknown"{
-                let global_local_vars = self.global_local_vars.write().unwrap();
-                match global_local_vars.remove(&local_key) {
-                    Ok(_) => {
-                        println!("删除了无法识别的系统变量: key={}", local_key);
-                    },
+                match self.token_db.write() {
+                    Ok(guard) => guard.remove("global_local_vars", &local_key),
                     Err(e) => {
-                        println!("删除无法识别的系统变量失败: key={}, error={:?}", local_key, e);
+                        error!("获取全局变量写锁失败: error={:?}", e);
+                        false
                     }
-                }
+                };
                 let admin_default = {
                     let admin_key_prefix =  format!("admin_{}_", self.sys_did);
                     let default_key_name = key.trim_start_matches(admin_key_prefix.as_str());
@@ -231,19 +186,13 @@ impl GlobalLocalVars {
             // 普通用户变量
             (format!("{}_{}_{}", user_did, self.sys_did, key), value.to_string())
         };
-        match self.global_local_vars.write() {
-            Ok(mut global_local_vars) => {
-                let ivec_data = sled::IVec::from(local_value.as_bytes());
-                if let Err(e) = global_local_vars.insert(&local_key, ivec_data) {
-                    error!("插入变量失败: key={}, error={:?}", local_key, e);
-                } else {
-                    debug!("成功设置变量: key={}", local_key);
-                }
-            },
+        let _ = match self.token_db.write() {
+            Ok(mut guard) => guard.insert("global_local_vars", &local_key, &local_value),
             Err(e) => {
                 error!("获取global_local_vars写锁失败: {:?}", e);
+                false
             }
-        }
+        };
     }
 
     pub fn set_local_vars_for_guest(&mut self, key: &str, value: &str, user_did: &str) {
@@ -254,65 +203,36 @@ impl GlobalLocalVars {
         }
         let local_key = format!("{}_{}_{}", guest, self.sys_did, key);
         let local_value = value.to_string();
-        match self.global_local_vars.write() {
-            Ok(mut global_local_vars) => {
-                let ivec_data = sled::IVec::from(local_value.as_bytes());
-                if let Err(e) = global_local_vars.insert(&local_key, ivec_data) {
-                    error!("插入访客变量失败: key={}, error={:?}", local_key, e);
-                } else {
-                    debug!("成功设置访客变量: key={}", local_key);
-                }
-            },
+        let _ = match self.token_db.write() {
+            Ok(mut guard) => guard.insert("global_local_vars", &local_key, &local_value),
             Err(e) => {
                 error!("获取global_local_vars写锁失败: {:?}", e);
+                false
             }
-        }
+        };
     }
 
     pub fn get_message_list(&self, user_did: &str) -> String {
         let key = format!("msg_list_{}_{}", self.sys_did, user_did);
-        let lock = match self.global_local_vars.read() {
-            Ok(guard) => guard,
+        let result = match self.token_db.read() {
+            Ok(guard) => guard.get("global_local_vars", &key),
             Err(e) => {
                 error!("获取消息列表读锁失败: user_did={}, error={:?}", user_did, e);
-                return String::new();
+                String::new()
             }
         };
-        match lock.get(&key) {
-            Ok(Some(data_bytes)) => {
-                match String::from_utf8(data_bytes.to_vec()) {
-                    Ok(data_str) => data_str,
-                    Err(e) => {
-                        error!("消息列表UTF-8转换失败: user_did={}, error={:?}", user_did, e);
-                        String::new()
-                    }
-                }
-            },
-            Ok(None) => {
-                debug!("未找到消息列表: user_did={}", user_did);
-                String::new()
-            },
-            Err(e) => {
-                error!("读取消息列表失败: user_did={}, error={:?}", user_did, e);
-                String::new()
-            }
-        }
+        result
     }
 
     pub fn set_message_list(&mut self, user_did: &str, message_list: &str) {
         let key = format!("msg_list_{}_{}", self.sys_did, user_did);
-        let mut global_local_vars = match self.global_local_vars.write() {
-            Ok(guard) => guard,
+        let _ = match self.token_db.write() {
+            Ok(guard) => guard.insert("global_local_vars", &key, &message_list),
             Err(e) => {
                 error!("获取消息列表写锁失败: user_did={}, error={:?}", user_did, e);
-                return;
+                false
             }
         };
-        let ivec_data = sled::IVec::from(message_list.as_bytes());
-        match global_local_vars.insert(&key, ivec_data) {
-            Ok(_) => debug!("成功设置消息列表: user_did={}", user_did),
-            Err(e) => error!("插入消息列表失败: user_did={}, error={:?}", user_did, e),
-        }
     }
     
     pub(crate) fn is_allowed_did(&self, did: &str, way: &str) -> bool {

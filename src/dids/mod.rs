@@ -8,20 +8,20 @@ use tokio::runtime::Runtime;
 use base58::{ToBase58, FromBase58};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use lazy_static::lazy_static;
 use tracing_subscriber::EnvFilter;
 use tracing::{error, warn, info, debug, trace};
 
 use crate::dids::claims::{GlobalClaims, LocalClaims, IdClaim};
 use crate::dids::cert_center::GlobalCerts;
-use crate::dids::token_utils::SYSTEM_BASE_INFO;
+use crate::dids::tokendb::TokenDB;
 use crate::utils::systeminfo::SystemInfo;
-use crate::user::user_vars::GlobalLocalVars;
+use crate::api;
 
 
 pub(crate) mod cert_center;
 pub(crate) mod claims;
 pub(crate) mod token_utils;
+pub(crate) mod tokendb;
 
 pub(crate) static TOKEN_ENTRYPOINT_URL: &str = "http://120.79.179.136:3030/api_";
 pub(crate) static TOKEN_ENTRYPOINT_DID: &str = "6eR3Pzp9e2VSUC6suwPSycQ93qi6T";
@@ -79,7 +79,7 @@ pub struct DidToken {
     certificates: Arc<Mutex<GlobalCerts>>,
     // 专项密钥，源自pk.pem的派生，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}, 用途=['exchange', 'issue']
     crypt_secrets: HashMap<String, String>,
-    token_db: Arc<Mutex<sled::Db>>,
+    token_db: Arc<RwLock<TokenDB>>,
 }
 
 impl DidToken {
@@ -99,13 +99,7 @@ impl DidToken {
         let (system_name, sys_phrase, device_name, device_phrase, guest_name, guest_phrase)
             = get_system_vars();
         
-        let db_path = token_utils::get_path_in_sys_key_dir("token.db");
-        let config = sled::Config::new()
-            .path(db_path)
-            .cache_capacity(10_000)
-            .flush_every_ms(Some(1000));
-        let seld_db: sled::Db = config.open().expect("Failed to open token database");
-        let token_db = Arc::new(Mutex::new(seld_db));
+        let token_db = TokenDB::instance();
 
         let is_regenerate = {
             let systemskeys = token_utils::SystemKeys::instance();
@@ -126,6 +120,8 @@ impl DidToken {
                 token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, true, true)
             }
         };
+
+        let _rest_server = api::service::start_rest_server();
 
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
@@ -225,7 +221,7 @@ impl DidToken {
     pub fn get_sysinfo(&self) -> SystemInfo {
         self.sysinfo.clone()
     }
-    pub fn get_token_db(&self) -> Arc<Mutex<sled::Db>> {
+    pub fn get_token_db(&self) -> Arc<RwLock<TokenDB>> {
         self.token_db.clone()
     }
 
