@@ -277,24 +277,29 @@ impl LocalClaims {
     }
 
     pub(crate) fn get_sys_dev_guest_did(
-        &mut self, is_regenerate: bool,
+        &mut self, 
+        was_regenerated: bool,
     ) -> (String, IdClaim, String, IdClaim, String, IdClaim) {
-        let mut sys_did = self.sys_did.clone();
-        let mut device_did = self.device_did.clone();
-        let mut guest = self.guest.clone();
-        if is_regenerate {
+        if was_regenerated {
             let (device_did_new, sys_did_new, guest_new) = LocalClaims::generate_sys_dev_guest_did(
                 &mut self.claims, "Unknown", "Unknown", "Unknown");
-            self.sys_did = sys_did_new.clone();
-            self.device_did = device_did_new.clone();
-            self.guest = guest_new.clone();
-            self.pop_claim(&device_did);
-            self.pop_claim(&sys_did);
-            self.pop_claim(&guest);
-            sys_did = sys_did_new.clone();
-            device_did = device_did_new.clone();
-            guest = guest_new.clone();
+            
+            // 移除旧的claims
+            let dids_to_remove = [self.device_did.clone(), self.sys_did.clone(), self.guest.clone()];
+            for did in dids_to_remove {
+                self.pop_claim(&did);
+            }
+            
+            // 更新新的DIDs
+            self.device_did = device_did_new;
+            self.sys_did = sys_did_new;
+            self.guest = guest_new;
         }
+
+        let device_did = self.device_did.clone();
+        let sys_did = self.sys_did.clone();
+        let guest = self.guest.clone();
+        // 返回当前值
         (
             self.sys_did.clone(),
             self.get_claim_from_local(&sys_did),

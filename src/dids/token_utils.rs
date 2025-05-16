@@ -48,7 +48,7 @@ const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIde
 
 lazy_static! {
     pub static ref SYSTEM_BASE_INFO: SystemBaseInfo = SystemBaseInfo::generate();
-    static ref SYSTEM_KEYS: Arc<RwLock<SystemKeys>> = Arc::new(RwLock::new(SystemKeys::new()));
+    static ref SYSTEM_KEYS: Arc<Mutex<SystemKeys>> = Arc::new(Mutex::new(SystemKeys::new()));
 }
 
 
@@ -57,12 +57,12 @@ pub(crate) struct SystemKeys {
     system_key: [u8; 32],
     device_key: [u8; 32],
     file_crypt_key: [u8; 32],
-    regenerate: bool,
+    regenerated: bool,
 }
 impl SystemKeys {
     fn new() -> Self {
         debug!("Init SystemKeys");
-        let mut regenerate = false;
+        let mut regenerated = false;
         let id_hash = [0u8; 32];
         let device_key = match exists_key_file("Device", &id_hash) {
             true => {
@@ -70,7 +70,7 @@ impl SystemKeys {
                 if device_key == [0u8; 32] {
                     println!("{} [UserBase] Device key is invalid, it will be regenerate for your device, then the system will restore default.", now_string());
                     device_key = read_key_or_generate_key("Device", &id_hash, "None", true, true);
-                    regenerate = true;
+                    regenerated = true;
                 }
                 device_key
             } 
@@ -85,7 +85,7 @@ impl SystemKeys {
                 if system_key == [0u8; 32] {
                     println!("{} [UserBase] System key is invalid, it will be regenerate for your system, then the system will restore default.", now_string());
                     system_key = read_key_or_generate_key("System", &id_hash, "None", true, true);
-                    regenerate = true;
+                    regenerated = true;
                 }
                 system_key
             } 
@@ -111,10 +111,10 @@ impl SystemKeys {
             system_key,
             device_key,
             file_crypt_key,
-            regenerate,
+            regenerated,
         }
     }
-    pub fn instance() -> Arc<RwLock<SystemKeys>> {
+    pub fn instance() -> Arc<Mutex<SystemKeys>> {
         SYSTEM_KEYS.clone()
     }
 
@@ -127,8 +127,8 @@ impl SystemKeys {
     pub fn get_system_key(&self) -> [u8; 32] {
         self.system_key
     }
-    pub fn is_regenerate(&self) -> bool {
-        self.regenerate
+    pub fn was_regenerated(&self) -> bool {
+        self.regenerated
     }
 }
 
@@ -136,14 +136,20 @@ impl SystemKeys {
 pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>, claim: &IdClaim, phrase: &str) {
     let did = claim.gen_did();
     if !crypt_secrets.contains_key(&exchange_key!(did)) {
-        let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
-            "exchange",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
-        crypt_secrets.insert(exchange_key!(did), crypt_secret.clone());
+        let crypt_secret = get_specific_secret_key(
+            "exchange",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase);
+        if crypt_secret == [0u8; 32] {
+            println!("{} [UserBase] exchange key generate fail!", now_string());
+        }
+        crypt_secrets.insert(exchange_key!(did), URL_SAFE_NO_PAD.encode(crypt_secret));
         }
     if !crypt_secrets.contains_key(&issue_key!(did)) {
-        let crypt_secret = URL_SAFE_NO_PAD.encode(get_specific_secret_key(
-            "issue",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase));
-        crypt_secrets.insert(issue_key!(did), crypt_secret.clone());
+        let crypt_secret = get_specific_secret_key(
+            "issue",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase);
+        if crypt_secret == [0u8; 32] {
+            println!("{} [UserBase] issue key generate fail!", now_string());
+        }
+        crypt_secrets.insert(issue_key!(did), URL_SAFE_NO_PAD.encode(crypt_secret));
         }
 }
 
@@ -839,7 +845,7 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
                     if let Some(file_name) = file_path.file_name() {
                         let file_name_str = file_name.to_string_lossy();
                         let keys =SystemKeys::instance();
-                        let mut keys =keys.read().unwrap();
+                        let mut keys =keys.lock().unwrap();
                         if file_name_str.contains("device") {
                             priv_key = keys.get_device_key()
                         } else if file_name_str.contains("system") {
@@ -879,7 +885,7 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
 
     if !through && (key_type == "Device" || key_type == "System"){
         let keys =SystemKeys::instance();
-        let mut keys =keys.read().unwrap();
+        let mut keys =keys.lock().unwrap();
         if key_type == "Device" {
             return keys.get_device_key();
         } else if key_type == "System" {
@@ -895,7 +901,7 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
                                 sysinfo.ram_total + sysinfo.gpu_memory, sysinfo.gpu_name);
     let device_key = if through && (key_type == "Device" || key_type == "System") {
         _read_key_or_generate_key(device_key_file.as_path(), device_phrase.as_str(), regen, through)
-    } else { SystemKeys::instance().read().unwrap().get_device_key() };
+    } else { SystemKeys::instance().lock().unwrap().get_device_key() };
     let system_key = match key_type {
         "System" | "User" => {
             let (sys_hash_id, sys_phrase) = get_key_hash_id_and_phrase("System", symbol_hash);
@@ -908,7 +914,7 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
                                       local_phrase, sys_phrase);
             if through && key_type == "System" {
                 _read_key_or_generate_key(system_key_file.as_path(), phrase_text.as_str(), regen, through)
-            } else { SystemKeys::instance().read().unwrap().get_system_key() }
+            } else { SystemKeys::instance().lock().unwrap().get_system_key() }
         },
         _ => device_key
     };
@@ -1039,7 +1045,7 @@ pub(crate) fn derive_key(password: &[u8], salt: &[u8]) -> Result<[u8; 32], Token
 
 fn get_token_crypt_key() -> [u8; 32] {
     let keys =SystemKeys::instance();
-    let mut keys =keys.read().unwrap();
+    let mut keys =keys.lock().unwrap();
     keys.get_file_crypt_key()
 }
 

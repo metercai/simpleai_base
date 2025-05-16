@@ -101,10 +101,10 @@ impl DidToken {
         
         let token_db = TokenDB::instance();
 
-        let is_regenerate = {
+        let was_regenerated = {
             let systemskeys = token_utils::SystemKeys::instance();
-            let mut systemskeys = systemskeys.read().unwrap();
-            systemskeys.is_regenerate()
+            let mut systemskeys = systemskeys.lock().unwrap();
+            systemskeys.was_regenerated()
         };
         let guest_symbol_hash = get_key_symbol_hash("Guest");
         let mut guest_key = match token_utils::exists_key_file("User", &guest_symbol_hash) {
@@ -126,7 +126,7 @@ impl DidToken {
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
             let mut claims = claims.lock().unwrap();
-            claims.local_claims.get_sys_dev_guest_did(is_regenerate)
+            claims.local_claims.get_sys_dev_guest_did(was_regenerated)
         };
         
         let mut crypt_secrets = HashMap::new();
