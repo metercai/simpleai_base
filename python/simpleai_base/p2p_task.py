@@ -182,7 +182,7 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
         return result_async
     elif method =='remote_ping': #同步任务直接返回结果，不需要新建任务
         args = cbor2.loads(args_cbor2)
-        logger.info(f"Pong {method} task: message={args}, form={from_did}")
+        logger.info(f"Pong {method} task: message={args}, from={from_did}")
         return f'received: {args}.'
 
 
