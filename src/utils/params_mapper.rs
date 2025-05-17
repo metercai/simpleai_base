@@ -16,7 +16,7 @@ pub struct ComfyTaskParams {
 }
 
 static FOOO2NODE_DATA: &[(&str, &str)] = &[
-    ("seed", "KSampler:KSampler:seed;KSampler:main_sampler:seed;TiledKSampler:main_sampler:seed;KolorsSampler:main_sampler:seed;RandomNoise:noise_seed:noise_seed;easy seed:sync_seed:seed;Co_Input_Zho:i2i_overall_input:seed;GeneralInput:GeneralInput:seed"),
+    ("seed", "KSampler:KSampler:seed;KSampler:main_sampler:seed;TiledKSampler:main_sampler:seed;KolorsSampler:main_sampler:seed;RandomNoise:noise_seed:noise_seed;easy seed:sync_seed:seed;Co_Input_Zho:i2i_overall_input:seed;SeedInput:SeedInput:seed"),
     ("steps", "KSampler:KSampler:steps;KSampler:main_sampler:steps;TiledKSampler:main_sampler:steps;KolorsSampler:main_sampler:steps;BasicScheduler:scheduler_select:steps;Co_Input_Zho:i2i_overall_input:steps;easy int:main_steps:value;GeneralInput:GeneralInput:steps"),
     ("cfg_scale", "KSampler:KSampler:cfg;KSampler:main_sampler:cfg;TiledKSampler:main_sampler:cfg;KolorsSampler:main_sampler:cfg;CLIPTextEncodeFlux:prompt:guidance;Co_Input_Zho:i2i_overall_input:cfg;GeneralInput:GeneralInput:cfg"),
     ("sampler", "KSampler:KSampler:sampler_name;KSampler:main_sampler:sampler_name;TiledKSampler:main_sampler:sampler_name;KSamplerSelect:sampler_select:sampler_name;KSampler Config (rgthree):i2i_KSampler:sampler_name"),
