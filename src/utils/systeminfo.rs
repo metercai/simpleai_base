@@ -539,7 +539,7 @@ fn get_gpu_info() -> (String, String, u64, String, String){
         _ => {("Unknown".to_string(), "reserve".to_string(), 0, "reserve".to_string(), "-".to_string())}
     };
     //print!("get_gpu_info.");
-    (gpu_brand, gpu_name, gpu_memory, driver, cuda)
+    (gpu_brand, gpu_name, gpu_memory/(1024*1024), driver, cuda)
 }
 
 fn is_virtual_or_docker_or_physics() -> String {
