@@ -569,10 +569,10 @@ impl SimpleAI {
             self.global_local_vars.write().unwrap().set_local_vars(&format!("admin_{}", key), value, &user_did);
             if key == "p2p_in_did_list" {
                 self.shared_data.set_p2p_in_dids(&value);
-                print!("{} [SimpAI] {} is in p2p_in_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_in_dids(value))
+                //println!("{} [SimpAI] {} is in p2p_in_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_in_dids(value))
             } else if key == "p2p_out_did_list"  {
                 self.shared_data.set_p2p_out_dids(&value);
-                print!("{} [SimpAI] {} is in p2p_out_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_out_dids(value))
+                //println!("{} [SimpAI] {} is in p2p_out_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_out_dids(value))
             }
         }
     }
