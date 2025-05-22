@@ -224,7 +224,7 @@ def process_flow(user_did, flow_name, params, images, callback=None, total_steps
     images_map = images_upload(images)
     params.update_params(images_map)
     print(f'{utils.now_string()} [ComfyClient] Ready ComfyTask to process: workflow={flow_name}')
-    for k, v in params.get_params().items():
+    for k, v in sorted(params.get_params().items()):
         print(f'    {k} = {v}')
     try:
         prompt_str = params.convert2comfy(flow_name)
