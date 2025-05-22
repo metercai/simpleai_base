@@ -109,6 +109,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
     current_node = ''
     current_type = ''
     preview_nodes = ['KSampler', 'KSamplerAdvanced', 'SamplerCustomAdvanced', 'TiledKSampler', 'UltimateSDUpscale', 'UltimateSDUpscaleNoUpscale', 'FramePackSampler', 'WanVideoSampler']
+    save_nodes = ['SaveImageWebsocket', 'SaveImageWebsocketLazy', 'SaveVideoWebsocket']
     total_steps_known = total_steps
     current_step = 0
     current_total_steps = None
@@ -146,7 +147,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 print(f'{utils.now_string()} [ComfyClient] feedback_stream({len(out)})={out[:length]}...')
             if current_type == 'progress':
                 if current_node and current_node in prompt:
-                    if prompt[current_node]['class_type'] in ['SaveImageWebsocket', 'SaveVideoWebsocket']:
+                    if prompt[current_node]['class_type'] in save_nodes:
                         (media_type, media_format) = get_media_info(out[:8])
                         media_name = f'{prompt[current_node]["_meta"]["title"]}_{media_type}_{media_format}'
                         images_output = output_images.get(media_name, [])
@@ -163,7 +164,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                     pass #if current_node in prompt:
                         #print(f'{utils.now_string()} [ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
             continue
-    #从output_images的key里截取第二个下划线之前的字符串组成一个新的列表
+    
     output_images_type = ['_'.join(k.split('_')[-2:]) for k, v in output_images.items()]
     output_images = {k: np.array(Image.open(BytesIO(v[-1]))) if 'image' in k else v[-1] for k, v in output_images.items()}
     print(f'{utils.now_string()} [ComfyClient] The ComfyTask:{prompt_id} has finished, get {len(output_images)} result: {output_images_type}')
