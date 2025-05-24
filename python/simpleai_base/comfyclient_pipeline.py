@@ -128,14 +128,12 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
             if not utils.echo_off:
                 print(f'{utils.now_string()} [ComfyClient] feedback_message={message}')
             current_type = message['type']
-            if message['type'] == 'executing':
-                data = message['data']
-                if data['prompt_id'] == prompt_id:
-                    if data['node'] is None:
-                        break
-                    else:
-                        current_node = data['node']
-            elif message['type'] == 'progress':
+            data = message['data']
+            if data['prompt_id'] != prompt_id or 'node' not in data or data['node'] is None:
+                break
+            else:
+                current_node = data['node']
+            if message['type'] == 'progress':
                 current_step = message["data"]["value"]
                 current_total_steps = message["data"]["max"]
                 if total_steps is None:
