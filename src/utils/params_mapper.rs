@@ -115,6 +115,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("enhance_uov_tiled_height", "EnhanceUovInput:EnhanceUovInput:uov_tiled_height"),
     ("enhance_uov_tiled_steps", "EnhanceUovInput:EnhanceUovInput:uov_tiled_steps"),
     ("enhance_uov_denoise", "EnhanceUovInput:EnhanceUovInput:uov_denoise"),
+    ("enhance_uov_processing_order", "EnhanceUovInput:EnhanceUovInput:enhance_uov_processing_order"),
     ("enhance_uov_prompt_type", "EnhanceUovInput:EnhanceUovInput:uov_prompt_type"),
     ("enhance_prompt", "EnhanceRegionInput:EnhanceRegionInput:prompt"),
     ("enhance_negative_prompt", "EnhanceRegionInput:EnhanceRegionInput:negative_prompt"),
