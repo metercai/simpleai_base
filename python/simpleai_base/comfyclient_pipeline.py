@@ -100,7 +100,7 @@ def get_history(prompt_id):
 
 def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=None):
     result  = queue_prompt(user_did, prompt, user_cert)
-    if 'prompt_id' not in result:
+    if result is None or 'prompt_id' not in result:
         print(f'{utils.now_string()} [ComfyClient] Error in inference prompt: {result["error"]}, {result["node_errors"]}, user_did={user_did}')
         return None
     prompt_id = result['prompt_id']
@@ -129,7 +129,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 print(f'{utils.now_string()} [ComfyClient] feedback_message={message}')
             current_type = message['type']
             data = message['data']
-            if 'prompt_id' not in data or data['prompt_id'] != prompt_id or 'node' not in data or data['node'] is None:
+            if data is None or 'prompt_id' not in data or data['prompt_id'] != prompt_id or 'node' not in data or data['node'] is None:
                 break
             else:
                 current_node = data['node']
