@@ -129,7 +129,7 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 print(f'{utils.now_string()} [ComfyClient] feedback_message={message}')
             current_type = message['type']
             data = message['data']
-            if data['prompt_id'] == prompt_id:
+            if 'prompt_id' in data and data['prompt_id'] == prompt_id:
                 if data['node'] is None and current_type == 'executing':
                     break
                 else:
