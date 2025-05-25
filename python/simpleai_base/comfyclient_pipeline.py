@@ -129,12 +129,11 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                 print(f'{utils.now_string()} [ComfyClient] feedback_message={message}')
             current_type = message['type']
             data = message['data']
-            if 'prompt_id' in data and data['prompt_id'] == prompt_id:
-                if 'node' in data:
-                    if data['node'] is not None:
-                        current_node = data['node']
-                    elif current_type == 'executing':
-                        break
+            if 'prompt_id' in data and data['prompt_id'] == prompt_id and 'node' in data:
+                if data['node'] is not None:
+                    current_node = data['node']
+                elif current_type == 'executing':
+                    break
 
             if current_type == 'progress':
                 current_step = data["value"]
@@ -161,10 +160,6 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
                         if current_step <= current_total_steps:
                             finished_steps += 1
                             callback(finished_steps, total_steps_known, np.array(Image.open(BytesIO(out[8:]))))
-                else:
-                    pass #if current_node in prompt:
-                        #print(f'{utils.now_string()} [ComfyClient] The node:{current_node} is not in the workflow:{prompt_id}')
-            continue
     
     output_images_type = ['_'.join(k.split('_')[-2:]) for k, v in output_images.items()]
     output_images = {k: np.array(Image.open(BytesIO(v[-1]))) if 'image' in k else v[-1] for k, v in output_images.items()}
