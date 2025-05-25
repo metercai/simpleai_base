@@ -130,14 +130,15 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
             current_type = message['type']
             data = message['data']
             if 'prompt_id' in data and data['prompt_id'] == prompt_id:
-                if data['node'] is None and current_type == 'executing':
-                    break
-                else:
-                    current_node = data['node']
+                if 'node' in data:
+                    if data['node'] is not None:
+                        current_node = data['node']
+                    elif current_type == 'executing':
+                        break
 
             if current_type == 'progress':
-                current_step = message["data"]["value"]
-                current_total_steps = message["data"]["max"]
+                current_step = data["value"]
+                current_total_steps = data["max"]
                 if total_steps is None:
                     total_steps_known = current_total_steps
         else:
