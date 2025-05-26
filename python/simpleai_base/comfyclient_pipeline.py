@@ -104,7 +104,8 @@ def get_images(user_did, ws, prompt, callback=None, total_steps=None, user_cert=
         print(f'{utils.now_string()} [ComfyClient] Error in inference prompt: {result["error"]}, {result["node_errors"]}, user_did={user_did}')
         return None
     prompt_id = result['prompt_id']
-    print('{} [ComfyClient] Request and get prompt_id:{}'.format(utils.now_string(), prompt_id))
+    steps_str = f', total_steps={total_steps}' if total_steps is not None else ''
+    print('{} [ComfyClient] Request and get prompt_id:{}{}'.format(utils.now_string(), prompt_id, steps_str))
     output_images = {}
     current_node = ''
     current_type = ''
