@@ -5,6 +5,7 @@ use tracing::{debug, info, error};
 use crate::dids::{REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
 
 pub(crate) mod service;
+pub(crate) mod wsclient;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -16,6 +17,7 @@ pub struct ApiResponse<T> {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct P2pStatus {
     pub node_id: String,
+    pub node_did: String,
     pub is_debug: bool,
 }
 
@@ -93,6 +95,43 @@ pub fn request_api_cbor_sync<T: Serialize>(endpoint: &str, params: Option<T>) ->
             .post(&url)
             .header("Content-Type", "application/cbor")
             .body(cbor_data)
+            .send()?;
+        let data: ApiResponse<String> = res.json()?;
+        Ok(data.data)
+    } else {
+        let res = REQWEST_CLIENT_SYNC.get(&url).send()?;
+        let data: ApiResponse<String> = res.json()?;
+        Ok(data.data)
+    }
+}
+
+pub async fn request_api_bin(endpoint: &str, params: Option<Vec<u8>>) -> Result<String, Box<dyn std::error::Error>> {
+    let url = format!("{}/{}", service::get_api_host(), endpoint);
+    
+    if let Some(bin_params) = params {
+        let res = REQWEST_CLIENT
+            .post(&url)
+            .header("Content-Type", "application/octet-stream")
+            .body(bin_params)
+            .send()
+            .await?;
+        let data: ApiResponse<String> = res.json().await?;
+        Ok(data.data)
+    } else {
+        let res = REQWEST_CLIENT.get(&url).send().await?;
+        let data: ApiResponse<String> = res.json().await?;
+        Ok(data.data)
+    }
+}
+
+pub fn request_api_bin_sync(endpoint: &str, params: Option<Vec<u8>>) -> Result<String, Box<dyn std::error::Error>> {
+    let url = format!("{}/{}", service::get_api_host(), endpoint);
+
+    if let Some(bin_params) = params {
+        let res = REQWEST_CLIENT_SYNC
+            .post(&url)
+            .header("Content-Type", "application/cbor")
+            .body(bin_params)
             .send()?;
         let data: ApiResponse<String> = res.json()?;
         Ok(data.data)

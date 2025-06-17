@@ -12,7 +12,9 @@ use crate::user::user_mgr::{MessageQueue, OnlineUsers};
 
 #[derive(Debug)]
 pub struct SharedData {
-    sys_did: Mutex<String>,
+    sys_did: RwLock<String>,
+    node_did: RwLock<String>,
+    sys_name: RwLock<String>, 
     pub user_list: Mutex<String>,
     did_node_map: RwLock<HashMap<String, String>>,
     node_did_map: RwLock<HashMap<String, String>>,
@@ -29,7 +31,9 @@ pub struct SharedData {
 impl SharedData {
     pub fn new() -> Self {
         Self {
-            sys_did: Mutex::new(String::new()),
+            sys_did: RwLock::new(String::new()),
+            node_did: RwLock::new(String::new()),
+            sys_name: RwLock::new(String::new()),
             user_list: Mutex::new(String::new()),
             did_node_map: RwLock::new(HashMap::new()),
             node_did_map: RwLock::new(HashMap::new()),
@@ -53,9 +57,25 @@ impl SharedData {
         guard.as_ref().expect("MessageQueue not initialized").clone()
     }
 
-    pub fn set_sys_did(&self, did: &str) {
-        let mut guard = self.sys_did.lock().unwrap();
-        *guard = did.to_string();
+    pub fn sys_did(&self) -> String {
+        self.sys_did.read().unwrap().clone()
+    }
+
+    pub fn node_did(&self) -> String {
+        self.node_did.read().unwrap().clone()
+    }
+
+    pub fn sys_name(&self) -> String {
+        self.sys_name.read().unwrap().clone()
+    }
+
+    pub fn set_sys_data(&self, sys_did: &str, node_did: &str, sys_name: &str) {
+        let mut guard = self.sys_did.write().unwrap();
+        *guard = sys_did.to_string();
+        let mut guard = self.node_did.write().unwrap();
+        *guard = node_did.to_string();
+        let mut guard = self.sys_name.write().unwrap();
+        *guard = sys_name.to_string();
     }
 
     pub fn get_last(&self, did: &str, last_timestamp: u64, updated_list: Option<&str>) -> (usize, usize, usize) {
@@ -65,7 +85,7 @@ impl SharedData {
             debug!("update online user list: {}", user_list);
         }
         
-        let sys_did = self.sys_did.lock().unwrap().clone();
+        let sys_did = self.sys_did.read().unwrap().clone();
         let messages_len = self.get_message_queue().get_msg_number_from(did, last_timestamp);
         let msg_sys_len = self.get_message_queue().get_msg_number_from(&sys_did, last_timestamp);
         let user_all = self.online_all.get_number();

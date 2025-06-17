@@ -224,7 +224,7 @@ pub(crate) enum Command {
 }
 
 pub(crate) struct Server<E: EventHandler> {
-    sys_did: String,
+    node_did: String,
     /// The actual network service.
     network_service: Swarm<Behaviour>,
     /// The local peer id.
@@ -282,15 +282,15 @@ impl<E: EventHandler> Server<E> {
     /// Create a new `Server`.
     pub(crate) async fn new(
         config: Config,
-        sys_claim: &IdClaim,
-        sys_phrase: &str,
+        dev_claim: &IdClaim,
+        dev_phrase: &str,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut metric_registry = Registry::default();
-        let sys_did = sys_claim.gen_did();
+        let node_did = dev_claim.gen_did();
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(
-                token_utils::read_key_or_generate_key("System", &sys_claim.get_symbol_hash(), &sys_phrase, false, false)
+                token_utils::read_key_or_generate_key("Device", &dev_claim.get_symbol_hash(), &dev_phrase, false, false)
             ))?));
         let didtoken = DidToken::instance();
         let sysinfo = didtoken.lock().unwrap().get_sysinfo();
@@ -320,7 +320,7 @@ impl<E: EventHandler> Server<E> {
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
                 //.with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key, relay_client | {
-                    Behaviour::new(sys_did.clone(), key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
+                    Behaviour::new(node_did.clone(), key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(120))
                 .with_max_negotiating_inbound_streams(128)
@@ -365,9 +365,9 @@ impl<E: EventHandler> Server<E> {
 
 
         let short_peer_id = swarm.local_peer_id().short_id();
-        let short_sys_did = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
+        let short_node_did = node_did.chars().skip(node_did.len() - 7).collect::<String>();
         if is_global {
-            println!("{} P2P_node({}/{}) start up, peer_id({})", token_utils::now_string(), short_sys_did, short_peer_id, swarm.local_peer_id().to_base58());
+            println!("{} P2P_node({}/{}) start up, peer_id({})", token_utils::now_string(), short_node_did, short_peer_id, swarm.local_peer_id().to_base58());
         } 
 
         swarm.behaviour_mut().kademlia
@@ -390,7 +390,7 @@ impl<E: EventHandler> Server<E> {
         if !is_global {
             let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
             println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
-                token_utils::now_string(), short_sys_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
+                token_utils::now_string(), short_node_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
         }
         for node in upstream_nodes.iter() {
             /*let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;
@@ -424,7 +424,7 @@ impl<E: EventHandler> Server<E> {
         let shared_data = shared::get_shared_data();
         
         Ok(Self {
-            sys_did,
+            node_did,
             network_service: swarm,
             local_peer_id: local_keypair.public().into(),
             listened_addresses,
@@ -1098,7 +1098,7 @@ impl<E: EventHandler> Server<E> {
         let is_debug = self.debug>0;
         NodeStatus {
             local_peer_id: self.local_peer_id.to_base58(),
-            local_sys_did: self.sys_did.clone(),
+            local_node_did: self.node_did.clone(),
             listened_addresses: self.listened_addresses.clone(),
             known_peers_count: known_peers.len(),
             known_peers,
@@ -1156,12 +1156,12 @@ impl<E: EventHandler> Server<E> {
     }
 
     fn get_node_did(&self) -> String {
-        self.sys_did.clone()
+        self.node_did.clone()
     }
 
     fn get_short_id(&self) -> String {
-        let sys_did = self.sys_did.clone();
-        let short_sys_did = sys_did.chars().skip(sys_did.len() - 7).collect::<String>();
+        let node_did = self.node_did.clone();
+        let short_sys_did = node_did.chars().skip(node_did.len() - 7).collect::<String>();
         format!("{}/{}", short_sys_did, self.local_peer_id.short_id())
     }
 
@@ -1299,7 +1299,7 @@ impl<E: EventHandler> Server<E> {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct NodeStatus {
     pub(crate) local_peer_id: String,
-    pub(crate) local_sys_did: String,
+    pub(crate) local_node_did: String,
     pub(crate) listened_addresses: Vec<Multiaddr>,
     pub(crate) known_peers_count: usize,
     pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
@@ -1314,8 +1314,8 @@ pub(crate) struct NodeStatus {
 impl NodeStatus {
     pub(crate) fn short_format(&self) -> String {
         let shared_data = shared::get_shared_data();
-        let short_sys_did = (|| {
-            self.local_sys_did[self.local_sys_did.len() - 7..].to_string()
+        let short_node_did = (|| {
+            self.local_node_did[self.local_node_did.len() - 7..].to_string()
         })();
         let short_peer_id = (|| {
             self.local_peer_id[self.local_peer_id.len() - 7..].to_string()
@@ -1325,7 +1325,7 @@ impl NodeStatus {
             .map(|addr| addr.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        let head= format!("NodeStatus({short_sys_did}/{short_peer_id}), peers({})[", self.known_peers_count);
+        let head= format!("NodeStatus({short_node_did}/{short_peer_id}), peers({})[", self.known_peers_count);
         let peers = self.known_peers.iter()
             .map(|(peer_id, multiaddrs)| {
                 let peer_did = shared_data.get_did_node(&peer_id.to_base58()).unwrap_or_else(|| peer_id.to_base58().into());

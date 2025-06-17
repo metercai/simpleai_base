@@ -54,6 +54,12 @@ impl TokenDB {
         TOKENDB.clone()
     }
 
+    pub fn switch_db(&mut self) {
+        self.sled_db.write().unwrap().take();
+        self.trees.clear();
+        self.trees = HashMap::new();
+    }
+
     pub fn get(&self, tree: &str, key: &str) -> String {
         if self.trees.contains_key(tree) {
             let tree = self.trees.get(tree).unwrap();

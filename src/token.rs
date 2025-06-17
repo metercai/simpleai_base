@@ -32,7 +32,7 @@ use crate::dids::cert_center::GlobalCerts;
 use crate::dids::TOKEN_ENTRYPOINT_DID;
 use crate::user::user_mgr::{OnlineUsers, MessageQueue};
 use crate::user::{TokenUser, DidEntryPoint};
-use crate::p2p::{self, P2p, P2pRequest, DidMessage, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
+use crate::p2p::{self, P2pServer, P2pRequest, DidMessage, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::{AdminDefault, GlobalLocalVars};
 use crate::api;
@@ -51,9 +51,6 @@ pub struct SimpleAI {
     pub device_did: String,
     pub guest_did: String,
 
-    sys_phrase: String,
-    device_phrase: String,
-    guest_phrase: String,
     didtoken: Arc<Mutex<DidToken>>,
     tokenuser: Arc<Mutex<TokenUser>>,
     token_db: Arc<RwLock<TokenDB>>, //HashMap<String, serde_json::Value>,
@@ -93,7 +90,12 @@ impl SimpleAI {
         let message_queue = MessageQueue::new(global_local_vars.clone());
         let mut shared_data = shared::get_shared_data();
         shared_data.set_message_queue(message_queue);
-        shared_data.set_sys_did(&sys_did);
+        shared_data.set_sys_data(&sys_did, &device_did, &sys_name);
+        if !api::service::is_self_service() {
+            if !api::wsclient::WS_CLIENT.is_running() {
+                api::wsclient::WS_CLIENT.clone().start();
+            }
+        }
 
         let admin_did = didtoken.lock().unwrap().get_admin_did();
         if !admin_did.is_empty() {
@@ -107,9 +109,6 @@ impl SimpleAI {
             node_id: "".to_string(),
             device_did,
             guest_did,
-            sys_phrase,
-            device_phrase,
-            guest_phrase,
             didtoken,
             tokenuser,
             token_db,
@@ -267,28 +266,33 @@ impl SimpleAI {
                 return "P2P 服务已经在运行中".to_string();
             }
         }
-        
-        let p2p_config = self.get_p2p_config();
-        let (local_claim, sysinfo) = {
-            let didtoken = self.didtoken.lock().unwrap();
-            (didtoken.get_claim(&self.get_sys_did()), didtoken.get_sysinfo())
-        };
-        let sys_phrase = self.sys_phrase.clone();
-        let handle = dids::TOKIO_RUNTIME.spawn(async move {
-            match P2p::start(p2p_config, &local_claim, &sys_phrase).await {
-                Ok(p2p) => {
-                    let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
-                    *p2p_instance_guard = Some(p2p);
-                    println!("{} P2P service startup successfully!", token_utils::now_string());
-                },
-                Err(e) => {
-                    error!("P2P 服务启动失败: {:?}", e);
+        if api::service::is_self_service()  {
+            let handle = dids::TOKIO_RUNTIME.spawn(async move {
+                match P2pServer::start().await {
+                    Ok(p2p) => {
+                        let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
+                        *p2p_instance_guard = Some(p2p);
+                        println!("{} P2P service startup successfully!", token_utils::now_string());
+                    },
+                    Err(e) => {
+                        error!("P2P 服务启动失败: {:?}", e);
+                    }
                 }
+            });
+            let mut p2p_handle = P2P_HANDLE.lock().unwrap();
+            *p2p_handle = Some(handle);
+        } else {
+            let result = api::request_api_sync("p2p_mgr/turn_on", None as Option<serde_json::Value>)
+                .unwrap_or_else(|e| {
+                    error!("p2p_turn_on error: {}", e);
+                    "".to_string()
+                });
+            if !result.is_empty() {
+                let p2p_status: api::P2pStatus = serde_json::from_str(&result).unwrap();
+                self.p2p_status = Some(p2p_status.clone());
+                self.set_node_id(&p2p_status.node_id);
             }
-        });
-        let mut p2p_handle = P2P_HANDLE.lock().unwrap();
-        *p2p_handle = Some(handle);
-
+        }
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
         self.shared_data.set_p2p_out_dids(&p2p_out_did_list);
         
@@ -300,25 +304,33 @@ impl SimpleAI {
     
     /// 停止 P2P 服务
     pub(crate) fn p2p_stop(&mut self) -> String {
-        let mut p2p_handle = P2P_HANDLE.lock().unwrap();
-        if p2p_handle.is_none() {
-            println!("{} [P2pNode] p2p server({}) not running.", token_utils::now_string(), self.get_sys_did());
-            return "P2P 服务未运行".to_string();
-        }
-        if let Some(handle) = p2p_handle.take() {
-            dids::TOKIO_RUNTIME.block_on(async {
-                if let Some(p2p) = p2p::get_instance().await {
-                    p2p.stop().await;
-                }
-                let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
-                *p2p_instance_guard = None;
-            });
-            handle.abort();
-            println!("{} [P2pNode] p2p server({}) has stopped.", token_utils::now_string(), self.get_sys_did());
-            self.p2p_status = None;
-            "P2P 服务已停止".to_string()
+        if api::service::is_self_service()  {
+            let mut p2p_handle = P2P_HANDLE.lock().unwrap();
+            if p2p_handle.is_none() {
+                println!("{} [P2pNode] p2p server({}) not running.", token_utils::now_string(), self.get_sys_did());
+                return "P2P 服务未运行".to_string();
+            }
+            if let Some(handle) = p2p_handle.take() {
+                dids::TOKIO_RUNTIME.block_on(async {
+                    if let Some(p2p) = p2p::get_instance().await {
+                        p2p.stop().await;
+                    }
+                });
+                handle.abort();
+                println!("{} [P2pNode] p2p server({}) has stopped.", token_utils::now_string(), self.get_sys_did());
+                self.p2p_status = None;
+                "P2P 服务已停止".to_string()
+            } else {
+                "P2P 服务未运行".to_string()
+            }
         } else {
-            "P2P 服务未运行".to_string()
+            let result = api::request_api_sync("p2p_mgr/turn_off", None as Option<serde_json::Value>)
+                .unwrap_or_else(|e| {
+                    error!("p2p_turn_off error: {}", e);
+                    "".to_string()
+                });
+            self.p2p_status = None;
+            "已通知P2P服务实例去停止".to_string()
         }
     }
     
@@ -330,65 +342,11 @@ impl SimpleAI {
         format!("P2P 服务重启: {}, {}", stop_result, start_result)
     }
 
-    fn get_p2p_config(&mut self) -> String {
-        let mut default_config = self.p2p_config.clone();
-        let mut final_config = toml::Table::new();
-        
-        if !default_config.is_empty() {
-            match toml::from_str::<toml::Table>(&default_config) {
-                Ok(config) => final_config = config,
-                Err(e) => {
-                    error!("解析默认P2P配置失败: {}", e);
-                }
-            }
-        }
-        let system_config = self.get_local_admin_vars("p2p_config");
-        if !system_config.is_empty() && system_config != "None" {
-            match toml::from_str::<toml::Table>(&system_config) {
-                Ok(sys_config) => {
-                    for (key, value) in sys_config {
-                        final_config.insert(key, value);
-                    }
-                    debug!("已合并系统P2P配置");
-                },
-                Err(e) => error!("解析系统P2P配置失败: {}", e)
-            }
-        }
-        
-        let config_path = Path::new("p2pconfig.toml");
-        if config_path.exists() {
-            match fs::read_to_string(config_path) {
-                Ok(content) => {
-                    match toml::from_str::<toml::Table>(&content) {
-                        Ok(manual_config) => {
-                            for (key, value) in manual_config {
-                                final_config.insert(key, value);
-                            }
-                            debug!("已合并本地p2pconfig.toml文件配置");
-                        },
-                        Err(e) => error!("解析本地P2P配置文件失败: {}", e)
-                    }
-                },
-                Err(e) => error!("读取p2pconfig.toml文件失败: {}", e)
-            }
-        }
-        
-        match toml::to_string(&final_config) {
-            Ok(merged_config) => {
-                self.p2p_config = merged_config.clone();
-                debug!("合并后的P2P配置: {}", merged_config);
-                merged_config
-            },
-            Err(e) => {
-                error!("序列化合并后的P2P配置失败: {}", e);
-                default_config
-            }
-        }
-    }
+    
 
     pub fn get_p2p_status(&mut self) -> String {
         if self.p2p_status.is_none() {
-            let result = api::request_api_sync("p2p_status", None as Option<serde_json::Value>)
+            let result = api::request_api_sync("p2p_mgr/status", None as Option<serde_json::Value>)
                 .unwrap_or_else(|e| {
                     error!("p2p_status error: {}", e);
                     "".to_string()
@@ -420,30 +378,27 @@ impl SimpleAI {
 
     pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>, target_did: Option<String>, mode: Option<String>) -> String {
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
-        let target_did = if task_method == "remote_ping" {
-            match target_did {
-                Some(did) if !did.is_empty() && IdClaim::validity(&did) => did,
-                _ => {
-                    error!("request_remote_task({}) error: no target_did", task_id);
-                    return "".to_string();
-                }
-            }
-        } else {
-            p2p_out_did_list.clone()
-        };
-        if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out" 
-            && IdClaim::validity(&p2p_out_did_list)) {
+        let target_did = target_did.unwrap_or(p2p_out_did_list.clone());
+        let target_node_did = target_did.split_once('.').map(|(_, after)| after).unwrap_or(&target_did);
+        if IdClaim::validity(&target_node_did) {
+            error!("request_remote_task({}) error: target_node_did({}) is invalid", task_id, target_did);             
+        }
+        let p2p_node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
+        let short_sys_did = self.get_sys_did().chars().take(7).collect::<String>();
+        let task_id = format!("{}@{}.{}", task_id, short_sys_did, p2p_node_did); //包含源did信息的task_id
+
+        if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out") {
             let request = P2pRequest {
                 target_did: target_did.clone(),
                 method: "remote_process".to_string(),
-                task_id: task_id.to_string(),
+                task_id: task_id.clone(),
                 task_method: task_method.to_string(),
                 task_args: args,
             };
             let mode = mode.unwrap_or("async".to_string());
             let result = api::request_api_cbor_sync(&format!("p2p_request/{}/{}", mode, target_did), Some(request))
                 .unwrap_or_else(|e| {
-                    error!("request_remote_task({}) error: {}", p2p_out_did_list, e);
+                    error!("request_remote_task({}) error: {}, target_did={}, method={}", task_id, e, target_did, task_method);
                     "".to_string()
                 });
             result
@@ -453,24 +408,17 @@ impl SimpleAI {
     }
 
     pub fn response_remote_task(&mut self, task_id: &str, task_method: &str, result: Vec<u8>) -> String {
-        let p2p_in_did_list = self.get_local_admin_vars("p2p_in_did_list");
-        let target_did = match task_method {
-            "remote_pong" => String::new(),
-            _ => p2p_in_did_list.clone(),
-        };
-        if task_method == "remote_pong" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" 
-            && IdClaim::validity(&p2p_in_did_list)) {
-            
+        if self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" {
             let response = P2pRequest {
-                target_did: target_did,
+                target_did: String::new(),  // 从哪儿来的回哪儿去
                 method: "async_response".to_string(),
-                task_id: task_id.to_string(),
+                task_id: task_id.to_string(),  // 原样返回，含源did信息
                 task_method: task_method.to_string(),
                 task_args: result,
             };
             let result = api::request_api_cbor_sync(&format!("p2p_response/async/{}", task_id), Some(response.clone()))
                 .unwrap_or_else(|e| {
-                    error!("response_remote_task({}) error: {}, {}", p2p_in_did_list, e, response.task_method);
+                    error!("response_remote_task({}) error: {}, method={}", task_id, e, task_method);
                     "".to_string()
                 });
             result
@@ -569,9 +517,13 @@ impl SimpleAI {
             self.global_local_vars.write().unwrap().set_local_vars(&format!("admin_{}", key), value, &user_did);
             if key == "p2p_in_did_list" {
                 self.shared_data.set_p2p_in_dids(&value);
+                let p2p_node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
+        
                 //println!("{} [SimpAI] {} is in p2p_in_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_in_dids(value))
             } else if key == "p2p_out_did_list"  {
                 self.shared_data.set_p2p_out_dids(&value);
+                let p2p_node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
+        
                 //println!("{} [SimpAI] {} is in p2p_out_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_out_dids(value))
             }
         }

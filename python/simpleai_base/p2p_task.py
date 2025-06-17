@@ -136,10 +136,11 @@ def call_response_by_p2p_task(task_id, method, result_cbor2):
 
 
 #接收远程任务，异步任务压入队列后即返回，同步任务直接返回结果
-def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
+def call_request_by_p2p_task(task_id, method, args_cbor2):
     global worker
 
-    logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}")
+    from_node_sys = task_id.split('@')[1] if '@' in task_id else ''
+    logger.info(f"Received remote task: {method}, {task_id}, length: {len(args_cbor2)}, from={from_node_sys}")
     result_async = 'no_response'
     if method == 'generate_image':
         args = cbor2.loads(args_cbor2)
@@ -167,7 +168,7 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
                 args[71][i][0] = webp_bytes_to_ndarray(args[71][i][0])
     
         task = worker.AsyncTask(args=args, task_id=task_id)
-        task.remote_task = from_did
+        task.remote_task = from_node_sys
         with model_management.interrupt_processing_mutex:
             model_management.interrupt_processing = False
         worker.add_task(task)
@@ -176,14 +177,14 @@ def call_request_by_p2p_task(from_did, task_id, method, args_cbor2):
         return result_async
     elif method == 'minicpm_inference':
         args = cbor2.loads(args_cbor2)
-        task = AsyncTask(method=method, args=args, task_id=task_id)
+        task = AsyncTask(method=method, args=args, task_id=task_id, from_did=from_node_sys)
         async_task_queue.put(task)
         logger.info(f"The {method} task was push to async_task_queue")
         return result_async
     elif method =='remote_ping': #同步任务直接返回结果，不需要新建任务
         args = cbor2.loads(args_cbor2)
-        logger.info(f"Pong {method} task: message={args}, from={from_did}")
-        return f'received: {args}.'
+        logger.info(f"Pong {method} task: message={args}, from={from_node_sys}")
+        return f'Pong: received {args} from {from_node_sys}.'
 
 
 #远程任务处理完后回调发起节点

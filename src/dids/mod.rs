@@ -75,6 +75,9 @@ pub struct DidToken {
     pub node_mode: String,
     pub sysinfo: SystemInfo,
 
+    sys_phrase: String,
+    device_phrase: String,
+    guest_phrase: String,
     claims: Arc<Mutex<GlobalClaims>>,
     certificates: Arc<Mutex<GlobalCerts>>,
     // 专项密钥，源自pk.pem的派生，避免交互时对phrase的依赖，key={did}_{用途}，value={key}|{time}|{sig}, 用途=['exchange', 'issue']
@@ -121,7 +124,7 @@ impl DidToken {
             }
         };
 
-        let _rest_server = api::service::start_rest_server();
+        let is_rest_server = api::service::start_rest_server(); 
 
         let claims = GlobalClaims::instance();
         let (local_did, local_claim, device_did, device_claim, guest_did, guest_claim) = {
@@ -174,6 +177,9 @@ impl DidToken {
             admin,
             upstream_did,
             sysinfo,
+            sys_phrase,
+            device_phrase,
+            guest_phrase,
             claims,
             certificates,
             token_db,
@@ -188,23 +194,35 @@ impl DidToken {
     pub fn get_node_id(&self) -> String {
         self.node.clone()
     }
-    pub fn set_node_id(&mut self, node_id: &str) {
+    pub(crate) fn set_node_id(&mut self, node_id: &str) {
         self.node = node_id.to_string();
     }
     
+    pub(crate) fn get_sys_phrase(&self) -> String {
+        self.sys_phrase.clone()
+    }
+
     pub fn get_device_did(&self) -> String {
         self.device.clone()
+    }
+
+    pub fn get_device_phrase(&self) -> String {
+        self.device_phrase.clone()
     }
 
     pub fn get_guest_did(&self) -> String {
         self.guest.clone()
     }
 
+    pub fn get_guest_phrase(&self) -> String {
+        self.guest_phrase.clone()
+    }
+
     pub fn get_admin_did(&self) -> String {
         self.admin.clone()
     }
 
-    pub fn set_admin_did(&mut self, admin_did: &str) {
+    pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
         self.admin = admin_did.to_string();
         token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
     }
@@ -213,7 +231,7 @@ impl DidToken {
         self.upstream_did.clone()
     }
 
-    pub fn set_upstream_did(&mut self, upstream_did: &str) {
+    pub(crate) fn set_upstream_did(&mut self, upstream_did: &str) {
         self.upstream_did = upstream_did.to_string();
         self.certificates.lock().unwrap().set_upstream_did(upstream_did);
     }
@@ -221,14 +239,20 @@ impl DidToken {
     pub fn get_sysinfo(&self) -> SystemInfo {
         self.sysinfo.clone()
     }
+
     pub fn get_token_db(&self) -> Arc<RwLock<TokenDB>> {
         self.token_db.clone()
+    }
+
+    pub fn  switch_db(&self) {
+        self.token_db.write().unwrap().switch_db();
+        api::service::stop_rest_server();
     }
 
     pub fn get_node_mode(&self) -> String {
         self.node_mode.clone()
     }
-    pub fn set_node_mode(&mut self, node_mode: &str) {
+    pub(crate) fn set_node_mode(&mut self, node_mode: &str) {
         self.node_mode = node_mode.to_string();
     }
 

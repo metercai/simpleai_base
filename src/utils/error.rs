@@ -5,6 +5,8 @@ use argon2::Error as Argon2Error;
 use pyo3::exceptions::PyBaseException;
 use pyo3::PyErr;
 use serde_json::Error as SerdeJsonError;
+use serde_cbor::Error as SerdeCborError;
+use tokio_tungstenite::tungstenite::Error as TungsteniteError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum TokenError {
@@ -20,6 +22,10 @@ pub enum TokenError {
     IoError(#[from] io::Error),
     #[error("Error in serde_json")]
     JsonParseError(#[from] SerdeJsonError),
+    #[error("Error in serde_cbor")]
+    CborParseError(#[from] SerdeCborError),
+    #[error("Error in Tungstenite")]
+    TungsteniteError(#[from] TungsteniteError),
     #[error("Error in url parser")]
     UrlParseError(#[from] url::ParseError),
     #[error("路径前缀错误: {0}")]

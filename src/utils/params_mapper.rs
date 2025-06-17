@@ -26,7 +26,7 @@ static FOOO2NODE_DATA: &[(&str, &str)] = &[
     ("tiling", "TiledKSampler:main_sampler:tiling;SeamlessTile:seamless_tile:tiling;CircularVAEDecode:vae_tiled:tiling"),
     ("tiled_offset_x", "OffsetImage:offset_image:x_percent"),
     ("tiled_offset_y", "OffsetImage:offset_image:y_percent"),
-    ("base_model", "CheckpointLoaderSimple:base_model:ckpt_name;UNETLoader:UNETLoader:unet_name;UNETLoader:base_model:unet_name;CheckpointLoaderNF4:base_model:ckpt_name;UnetLoaderGGUF:base_model:unet_name;MZ_KolorsUNETLoaderV2:base_model:unet_name;WanVideoModelLoader:WanVideoModelLoader:model;LoadFramePackModel:LoadFramePackModel:model"),
+    ("base_model", "CheckpointLoaderSimple:base_model:ckpt_name;UNETLoader:UNETLoader:unet_name;UNETLoader:base_model:unet_name;CheckpointLoaderNF4:base_model:ckpt_name;UnetLoaderGGUF:base_model:unet_name;MZ_KolorsUNETLoaderV2:base_model:unet_name;WanVideoModelLoader:WanVideoModelLoader:model;LoadFramePackModel:LoadFramePackModel:model;NunchakuFluxDiTLoader:base_model:model_path"),
     ("base_model_dtype", "UNETLoader:base_model:weight_dtype"),
     ("base_model_gguf", "UnetLoaderGGUF:base_model_gguf:unet_name"),
     ("base_model2", "CheckpointLoaderSimple:base_model2:ckpt_name;UNETLoader:UNETLoader2:unet_name;UNETLoader:base_model2:unet_name"),

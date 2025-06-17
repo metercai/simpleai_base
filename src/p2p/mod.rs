@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+use std::error::Error;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
+use std::path::Path;
+use std::fs;
 use base58::ToBase58;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -7,12 +13,9 @@ use libp2p::PeerId;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
-use std::collections::HashMap;
-use std::error::Error;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time;
+use tracing::{debug, info, error};
 
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
@@ -33,15 +36,18 @@ use crate::dids::claims::{GlobalClaims, IdClaim};
 use crate::dids::{token_utils, DidToken, TOKIO_RUNTIME};
 use crate::p2p::service::{Client, EventHandler, NodeStatus};
 use crate::user::shared::{self, SharedData};
-use crate::user::user_mgr::{MessageQueue, OnlineUsers};
+use crate::user::user_vars::GlobalLocalVars;
 use crate::utils::systeminfo::SystemInfo;
+use crate::api;
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) static P2P_HANDLE: Lazy<Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(None)));
-pub(crate) static P2P_INSTANCE: Lazy<TokioMutex<Option<Arc<P2p>>>> =
+pub(crate) static P2P_INSTANCE: Lazy<TokioMutex<Option<Arc<P2pServer>>>> =
     Lazy::new(|| TokioMutex::new(None));
+
+static MERGED_CONFIG: RwLock<String> = RwLock::new(String::new());
 
 //address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
 pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
@@ -55,8 +61,9 @@ request_interval = 80
 req_resp.request_timeout = 30
 "#;
 
-pub struct P2p {
+pub struct P2pServer {
     sys_did: String,
+    node_did: String,
     config: config::Config,
     client: Client,
     shared_data: &'static SharedData,
@@ -64,25 +71,33 @@ pub struct P2p {
     pending_task: Arc<Mutex<HashMap<String, String>>>,
 }
 
-impl P2p {
-    pub async fn start(
-        config: String,
-        sys_claim: &IdClaim,
-        sys_phrase: &str,
-    ) -> Result<Arc<P2p>, Box<dyn Error + Send + Sync>> {
-        let config = config::Config::from_toml(&config.clone()).expect("无法解析配置字符串");
-        let result = service::new(config.clone(), sys_claim, sys_phrase).await;
+pub async fn get_instance() -> Option<Arc<P2pServer>> {
+    let p2p_instance_guard = P2P_INSTANCE.lock().await;
+    p2p_instance_guard.clone()
+}
+
+impl P2pServer {
+    pub async fn start() -> Result<Arc<P2pServer>, Box<dyn Error + Send + Sync>> {
+        let config_str = Self::get_p2p_config();
+        let config = config::Config::from_toml(&config_str).expect("无法解析配置字符串");
+        let didtoken = DidToken::instance();
+        let (sys_did, node_did, node_claim, node_phrase) = {
+            let didtoken = didtoken.lock().unwrap();
+            let sys_did = didtoken.get_sys_did();
+            let node_did = didtoken.get_device_did();
+            (sys_did, node_did.clone(), didtoken.get_claim(&node_did), didtoken.get_device_phrase())
+        };
+        let result = service::new(config.clone(), &node_claim, &node_phrase).await;
         let (client, mut server) = match result {
             Ok((c, s)) => (c, s),
             Err(e) => panic!("无法启动服务: {:?}", e),
         };
-
-        let sys_did = sys_claim.gen_did();
         let shared_data = shared::get_shared_data();
         let pending_task = Arc::new(Mutex::new(HashMap::new()));
 
         let handler = Handler {
             sys_did: sys_did.clone(),
+            node_did: node_did.clone(),
             shared_data,
             pending_task: pending_task.clone(),
         };
@@ -109,11 +124,11 @@ impl P2p {
         });
 
         let mut message = DidMessage::new(
-            sys_did.clone(),
+            node_did.clone(),
             "login".to_string(),
-            format!("{}:{}", client.get_peer_id().to_base58(), sys_did.clone()),
+            format!("{}:{}", client.get_peer_id().to_base58(), node_did.clone()),
         );
-        message.signature(&sys_phrase);
+        message.signature(&node_phrase);
         match serde_cbor::to_vec(&message) {
             Ok(msg_bytes) => {
                 let _ = client
@@ -128,7 +143,8 @@ impl P2p {
         };
 
         let p2p = Self {
-            sys_did: sys_did.clone(),
+            sys_did,
+            node_did: node_did,
             config: config.clone(),
             client: client.clone(),
             shared_data,
@@ -137,6 +153,75 @@ impl P2p {
         };
 
         Ok(Arc::new(p2p))
+    }
+
+    pub async fn stop(&self) {
+        let _ = self.client.stop().await;
+        if let Some(handle) = &self.handle {
+            handle.abort();
+            tracing::info!("[P2pNode] P2P service stopped");
+        }
+    }
+
+    
+    fn get_p2p_config() -> String  {
+        let mut default_config = MERGED_CONFIG.read().unwrap().clone();
+        if default_config.is_empty() {
+            default_config = DEFAULT_P2P_CONFIG.to_string();
+        }
+        let mut final_config = toml::Table::new();
+        
+        match toml::from_str::<toml::Table>(&default_config) {
+            Ok(config) => final_config = config,
+            Err(e) => {
+                error!("解析默认P2P配置失败: {}", e);
+            }
+        }
+        
+        let global_local_vars = GlobalLocalVars::instance();
+        let system_config = global_local_vars.read().unwrap().get_local_admin_vars("p2p_config");
+        if !system_config.is_empty() && system_config != "None" {
+            match toml::from_str::<toml::Table>(&system_config) {
+                Ok(sys_config) => {
+                    for (key, value) in sys_config {
+                        final_config.insert(key, value);
+                    }
+                    debug!("已合并系统P2P配置");
+                },
+                Err(e) => error!("解析系统P2P配置失败: {}", e)
+            }
+        }
+        
+        let config_path = Path::new("p2pconfig.toml");
+        if config_path.exists() {
+            match fs::read_to_string(config_path) {
+                Ok(content) => {
+                    match toml::from_str::<toml::Table>(&content) {
+                        Ok(manual_config) => {
+                            for (key, value) in manual_config {
+                                final_config.insert(key, value);
+                            }
+                            debug!("已合并本地p2pconfig.toml文件配置");
+                        },
+                        Err(e) => error!("解析本地P2P配置文件失败: {}", e)
+                    }
+                },
+                Err(e) => error!("读取p2pconfig.toml文件失败: {}", e)
+            }
+        }
+        
+        match toml::to_string(&final_config) {
+            Ok(merged_config) => {
+                let mut config = MERGED_CONFIG.write().unwrap();
+                *config = merged_config.clone();
+                debug!("合并后的P2P配置: {}", merged_config);
+                merged_config
+            },
+            Err(e) => {
+                error!("序列化合并后的P2P配置失败: {}", e);
+                default_config
+            }
+        }
     }
 
     pub async fn put_local_claim_to_DHT() {
@@ -298,13 +383,6 @@ impl P2p {
         node_status
     }
 
-    pub async fn stop(&self) {
-        let _ = self.client.stop().await;
-        if let Some(handle) = &self.handle {
-            handle.abort();
-            tracing::info!("[P2pNode] P2P service stopped");
-        }
-    }
 
     pub async fn request_task(&self, target_did: String, body: Bytes, mode: &str) -> String {
         if target_did.is_empty() {
@@ -336,12 +414,13 @@ impl P2p {
 
     async fn request(&self, target_did: String, message: Bytes, mode: &str) -> Vec<u8> {
         let short_id = self.client.get_short_id();
-
+        let target_node_did = target_did.split_once('.').map(|(_, after)| after).unwrap_or(&target_did).to_string();
+        
         let target_peer_id = {
-            if let Some(peer_id) = self.shared_data.get_did_node(&target_did) {
+            if let Some(peer_id) = self.shared_data.get_did_node(&target_node_did) {
                 peer_id.clone()
             } else {
-                tracing::warn!("user_did({}) does not belong to a node", target_did);
+                tracing::warn!("the did({}) does not belong to a node", target_node_did);
                 return String::new().into();
             }
         };
@@ -363,11 +442,12 @@ impl P2p {
             "📣 >>>> Outbound request: {} send {} byte to {} with {} at {}",
             short_id,
             message.len(),
-            target_did,
+            target_node_did,
             target_short_id,
             now_time
         );
 
+        println!("send request to {} with len={} by {}", target_node_did, message.len(), mode);
         match mode {
             "sync" => {
                 match self.client.request(&target_peer_id, message).await {
@@ -404,6 +484,7 @@ impl P2p {
 #[derive(Debug)]
 struct Handler {
     sys_did: String,
+    node_did: String,
     shared_data: &'static shared::SharedData,
     pending_task: Arc<Mutex<HashMap<String, String>>>,
 }
@@ -415,35 +496,42 @@ impl EventHandler for Handler {
         request: Vec<u8>,
     ) -> Result<Vec<u8>, Box<dyn Error>> {
         let peer_id = peer.to_base58();
-        let from_peer_did = {
+        let from_node_did = {
             if let Some(peer_did) = self.shared_data.get_node_did(&peer_id) {
                 peer_did.clone()
             } else {
-                tracing::warn!("node_peer({}) does not found sys_did", peer_id);
-                return Ok("匹配不到来源节点的did".as_bytes().to_vec());
+                tracing::warn!("node_peer({}) does not found did", peer_id);
+                return Ok(format!("does not match did for peer{peer_id}").as_bytes().to_vec());
             }
         };
         match serde_cbor::from_slice::<P2pRequest>(request.as_slice()) {
-            Ok(request) => {
-                if request.target_did.is_empty() || !IdClaim::validity(&request.target_did) {
-                    tracing::warn!("请求的user_did不正确");
-                    return Ok("user_did错误".as_bytes().to_vec());
+            Ok(req) => {
+                let target_did = if req.target_did.is_empty() {
+                    req.task_id.split_once('@').map(|(_, after)| after).unwrap_or(&req.task_id).to_string()
+                } else {
+                    req.target_did.clone()
+                };
+                let target_node = target_did.split_once('.').map(|(_, after)| after).unwrap_or(&target_did).to_string();
+                let target_sys = target_did.split_once('.').map(|(before, _)| before).unwrap_or(&target_did).to_string();
+                if !IdClaim::validity(&target_node) || target_node != self.node_did{
+                    tracing::warn!("node did error: not valid or not match self node ");
+                    return Ok(format!("target did error: {}", target_did).as_bytes().to_vec());
                 }
-                tracing::debug!("📣 <<<< Inbound REQUEST: method={}, task_id={}, task_method={}", request.method, request.task_id, request.task_method);
-                match request.method.as_str() {
+                tracing::debug!("📣 <<<< Inbound REQUEST: method={}, task_id={}, task_method={}", req.method, req.task_id, req.task_method);
+                match req.method.as_str() {
                     "get_claim" => {
                         let response =
-                            if request.task_id.is_empty() || !IdClaim::validity(&request.task_id) {
+                            if req.task_id.is_empty() || !IdClaim::validity(&req.task_id) {
                                 let claim = self
                                     .shared_data
                                     .claims
                                     .lock()
                                     .unwrap()
-                                    .get_claim_from_local(&request.task_id.clone());
+                                    .get_claim_from_local(&req.task_id.clone());
                                 tracing::info!(
                                     "{} [P2pNode] get did({}) claim from upstream.",
                                     token_utils::now_string(),
-                                    request.task_id
+                                    req.task_id
                                 );
                                 claim.to_json_string()
                             } else {
@@ -453,68 +541,83 @@ impl EventHandler for Handler {
                         return Ok(response.as_bytes().to_vec());
                     }
                     "remote_process" => {
-                        let response = if request.task_method == "remote_ping" || self.shared_data.is_p2p_in_dids(&from_peer_did) {
+                        let response = if (req.task_method == "remote_ping" || self.shared_data.is_p2p_in_dids(&from_node_did)) {
                             self.pending_task
                                 .lock()
                                 .unwrap()
-                                .insert(request.task_id.clone(), from_peer_did.clone());
+                                .insert(req.task_id.clone(), from_node_did.clone());
 
-                            let results = Python::with_gil(|py| -> PyResult<String> {
-                                let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                    .expect("No simpleai_base.p2p_task.");
-                                let py_bytes = pyo3::types::PyBytes::new_bound(py, &request.task_args);
-                                let result: String = p2p_task
-                                    .getattr("call_request_by_p2p_task")?
-                                    .call1((
-                                        from_peer_did.clone(),
-                                        request.task_id,
-                                        request.task_method.clone(),
-                                        py_bytes,
-                                    ))?
-                                    .extract()?;
-                                Ok(result)
-                            });
-                            results.unwrap_or_else(|e| {
-                                tracing::error!("call_request {} 调用失败: {:?}", request.task_method, e);
-                                "error".to_string()
-                            })
+                            if target_sys == self.sys_did {
+                                let results = Python::with_gil(|py| -> PyResult<String> {
+                                    let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
+                                        .expect("No simpleai_base.p2p_task.");
+                                    let py_bytes = pyo3::types::PyBytes::new_bound(py, &req.task_args);
+                                    let result: String = p2p_task
+                                        .getattr("call_request_by_p2p_task")?
+                                        .call1((
+                                            req.task_id,
+                                            req.task_method.clone(),
+                                            py_bytes,
+                                        ))?
+                                        .extract()?;
+                                    Ok(result)
+                                });
+                                results.unwrap_or_else(|e| {
+                                    tracing::error!("call_request {} fail: {:?}", req.task_method, e);
+                                    "error in call_response".to_string()
+                                })
+                            } else {
+                                api::request_api_bin_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
+                                    .unwrap_or_else(|e| {
+                                        error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, req.target_did, req.task_method);
+                                        "error in call_ws_task".to_string()
+                                    })
+                            }
                         } else {
-                            println!("Received generate_image task from {}, but not allow.", from_peer_did);
-                            "error".to_string()
+                            println!("Received generate_image task from {}, but not allow.", from_node_did);
+                            "error in allow".to_string()
                         };
                         return Ok(response.as_bytes().to_vec());
                     }
                     "async_response" => {
-                        let response = if request.task_method == "remote_pong" || self.shared_data.is_p2p_out_dids(&from_peer_did) {
-                            let results = Python::with_gil(|py| -> PyResult<String> {
-                                let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                    .expect("No simpleai_base.p2p_task.");
-                                // 将Vec<u8>转换为Python的bytes对象
-                                let py_bytes = pyo3::types::PyBytes::new_bound(py, &request.task_args);
-                                let result: String = p2p_task
-                                    .getattr("call_response_by_p2p_task")?
-                                    .call1((
-                                        request.task_id,
-                                        request.task_method.clone(),
-                                        py_bytes,
-                                    ))?
-                                    .extract()?;
-                                Ok(result)
-                            });
-                            results.unwrap_or_else(|e| {
-                                tracing::error!("call_response {} 调用失败: {:?}", request.task_method, e);
-                                "error".to_string()
-                            })
+                        let response = if self.shared_data.is_p2p_out_dids(&from_node_did) {
+                            if target_sys == self.sys_did {
+                                let results = Python::with_gil(|py| -> PyResult<String> {
+                                    let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
+                                        .expect("No simpleai_base.p2p_task.");
+                                    // 将Vec<u8>转换为Python的bytes对象
+                                    let py_bytes = pyo3::types::PyBytes::new_bound(py, &req.task_args);
+                                    let result: String = p2p_task
+                                        .getattr("call_response_by_p2p_task")?
+                                        .call1((
+                                            req.task_id,
+                                            req.task_method.clone(),
+                                            py_bytes,
+                                        ))?
+                                        .extract()?;
+                                    Ok(result)
+                                });
+                                results.unwrap_or_else(|e| {
+                                    tracing::error!("call_response {} fail: {:?}", req.task_method, e);
+                                    "error in call_response".to_string()
+                                })
+                            } else {
+                                api::request_api_bin_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
+                                    .unwrap_or_else(|e| {
+                                        error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, req.target_did, req.task_method);
+                                        "error in call_ws_task".to_string()
+                                    })
+                            }
                         } else {
-                            println!("Received async_response task from {}, but not allow.", from_peer_did);
-                            "error".to_string()
+                            println!("Received async_response task from {}, but not allow.", from_node_did);
+                            "error in allow".to_string()
                         };
                         return Ok(response.as_bytes().to_vec());
                     }
                     // 可以添加更多方法的处理逻辑
                     _ => {
-                        tracing::warn!("未知的方法: {}", request.method);
-                        return Ok(format!("未知的方法: {}", request.method)
+                        tracing::warn!("未知的方法: {}", req.method);
+                        return Ok(format!("未知的方法: {}", req.method)
                             .as_bytes()
                             .to_vec());
                     }
@@ -587,7 +690,7 @@ impl EventHandler for Handler {
                     let count = self
                         .shared_data
                         .get_message_queue()
-                        .push_messages(&self.sys_did, message_str);
+                        .push_messages(&self.node_did, message_str);
                     tracing::info!(
                         "{} [P2pNode] added {} new system meaasge.",
                         token_utils::now_string(),
@@ -701,10 +804,6 @@ async fn broadcast_online_users(client: Client, interval: u64) {
     }
 }
 
-pub async fn get_instance() -> Option<Arc<P2p>> {
-    let p2p_instance_guard = P2P_INSTANCE.lock().await;
-    p2p_instance_guard.clone()
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pRequest {
@@ -758,3 +857,4 @@ impl DidMessage {
         verify
     }
 }
+

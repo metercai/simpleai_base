@@ -9,6 +9,12 @@ use tracing::{debug, info, error};
 use bytes::Bytes;
 use tokio::task::JoinHandle;
 
+use std::collections::HashMap;
+use tokio::sync::{Mutex as TokioMutex, RwLock, oneshot};
+use warp::ws::{Message, WebSocket};
+use futures_util::{SinkExt, StreamExt};
+use uuid::Uuid;
+use lazy_static::lazy_static;
 
 use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
 use crate::dids::claims::{IdClaim, GlobalClaims};
@@ -20,7 +26,7 @@ use crate::user::user_vars::GlobalLocalVars;
 use crate::p2p;
 use crate::token;
 use crate::utils::env_utils;
-use crate::api::{ApiResponse, P2pStatus};
+use crate::api::{ApiResponse, P2pStatus, wsclient::WsClient};
 
 
 static API_PORT: LazyLock<Mutex<u16>> = LazyLock::new(|| Mutex::new(init_api_port()));
@@ -37,6 +43,7 @@ fn init_api_port() -> u16 {
         match REQWEST_CLIENT_SYNC.get(format!("http://127.0.0.1:{}/api/check_sys", port)).send() {
             Ok(resp) => {
                 if resp.status().is_success() {
+                    println!("{} [SimpAI] REST service was running at:{}", token_utils::now_string(), port);
                     return port
                 }
             }
@@ -47,17 +54,14 @@ fn init_api_port() -> u16 {
     return 0;
 }
 
-
-// 自定义错误类型，用于序列化/反序列化错误
-#[derive(Debug)]
-struct InvalidSerializationError;
-
-impl warp::reject::Reject for InvalidSerializationError {}
-
-
 pub fn get_api_host() -> String {
     let port = *API_PORT.lock().unwrap(); 
     return format!("http://127.0.0.1:{}/api", port);
+}
+
+pub fn get_ws_host() -> String {
+    let port = *API_PORT.lock().unwrap();
+    return format!("ws://127.0.0.1:{}/ws", port);
 }
 
 pub fn is_self_service() -> bool {
@@ -66,12 +70,88 @@ pub fn is_self_service() -> bool {
     port == 0 || server_handle.is_some()
 }
 
-pub fn start_rest_server() {
+
+// 自定义错误类型，用于序列化/反序列化错误
+#[derive(Debug)]
+struct InvalidSerializationError;
+
+impl warp::reject::Reject for InvalidSerializationError {}
+
+#[derive(Debug)]
+pub struct WebSocketError {
+    message: String,
+}
+
+impl std::fmt::Display for WebSocketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WebSocket error: {}", self.message)
+    }
+}
+
+impl std::error::Error for WebSocketError {}
+impl warp::reject::Reject for WebSocketError {}
+impl From<Box<dyn std::error::Error>> for WebSocketError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        WebSocketError {
+            message: err.to_string(),
+        }
+    }
+}
+
+
+// WebSocket连接管理结构
+#[derive(Debug, Clone)]
+pub struct WebSocketConnection {
+    pub id: String,
+    pub client_did: Option<String>,
+    pub client_name: Option<String>,
+    pub subscriptions: Vec<String>, // 订阅的频道列表
+    pub sender: Arc<TokioMutex<Option<futures_util::stream::SplitSink<WebSocket, Message>>>>,
+}
+
+// WebSocket消息类型
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum WsMessage {
+    // 客户端发送的消息
+    Subscribe { channels: Vec<String> },
+    Unsubscribe { channels: Vec<String> },
+    Auth { client_did: String, client_name: String  },
+    Response { id: String, result: String },
+    Ping,
+    
+    // 服务端发送的消息
+    Welcome { connection_id: String },
+    Subscribed { channels: Vec<String> },
+    Unsubscribed { channels: Vec<String> },
+    Authenticated { client_did: String },
+    Notification { channel: String, body: Vec<u8> },
+    DirectMessage { message: Vec<u8> },
+    DirectTask { id: String, body: Vec<u8> },
+    Pong,
+    Error { message: String },
+}
+
+
+// 全局WebSocket连接管理器
+pub type WebSocketManager = Arc<RwLock<HashMap<String, WebSocketConnection>>>;
+
+// 频道订阅管理器
+pub type ChannelManager = Arc<RwLock<HashMap<String, Vec<String>>>>; // channel -> connection_ids
+
+lazy_static! {
+    static ref WS_MANAGER: WebSocketManager = Arc::new(RwLock::new(HashMap::new()));
+    static ref CHANNEL_MANAGER: ChannelManager = Arc::new(RwLock::new(HashMap::new()));
+    static ref RESPONSE_WAITERS: TokioMutex<HashMap<String, oneshot::Sender<String>>> = TokioMutex::new(HashMap::new());
+}
+
+
+pub fn start_rest_server() -> bool{
     let address = Ipv4Addr::LOCALHOST;
     let mut port = *API_PORT.lock().unwrap();
     if port != 0 {
         println!("{} [SimpAI] REST service is already running at: http://{}:{}", token_utils::now_string(), address, port);
-        return;
+        return false;
     }
     port =  TOKIO_RUNTIME.block_on(async move {
         env_utils::get_port_availability(address, 4515).await
@@ -148,45 +228,81 @@ pub fn start_rest_server() {
             .and_then(handle_put_global_message);
         
         let p2p_request = warp::path!("api" / "p2p_request" / String / String)
-        .and(warp::post())
-        .and(warp::body::bytes())
-        .and_then(|mode: String, target_did: String, body: Bytes| handle_p2p_request(mode, target_did, body));
+            .and(warp::post())
+            .and(warp::body::bytes())
+            .and_then(|mode: String, target_did: String, body: Bytes| handle_p2p_request(mode, target_did, body));
 
         let p2p_response = warp::path!("api" / "p2p_response" / String / String)
-        .and(warp::post())
-        .and(warp::body::bytes())
-        .and_then(|mode: String, task_id: String, body: Bytes| handle_p2p_response(mode, task_id, body));
+            .and(warp::post())
+            .and(warp::body::bytes())
+            .and_then(|mode: String, task_id: String, body: Bytes| handle_p2p_response(mode, task_id, body));
 
         let p2p_put_msg = warp::path!("api" / "p2p_put_msg")
-        .and(warp::post())
-        .and(warp::body::bytes())
-        .and_then(handle_p2p_put_msg);
+            .and(warp::post())
+            .and(warp::body::bytes())
+            .and_then(handle_p2p_put_msg);
 
-        let p2p_status = warp::path!("api" / "p2p_status")
-        .and(warp::get())
-        .and_then(handle_p2p_status);
+        let p2p_mgr = warp::path!("api" / "p2p_mgr" / String)
+            .and(warp::get())
+            .and_then(|action: String| handle_p2p_mgr(action));
 
         let db_get = warp::path!("api" / "db_get")
-        .and(warp::post())
-        .and(warp::body::json())
-        .and_then(handle_db_get);
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_db_get);
 
         let db_insert = warp::path!("api" / "db_insert")
-        .and(warp::post())
-        .and(warp::body::json())
-        .and_then( handle_db_insert);
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then( handle_db_insert);
 
         let db_remove = warp::path!("api" / "db_remove")
-        .and(warp::post())
-        .and(warp::body::json())
-        .and_then(handle_db_remove);
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_db_remove);
 
         let db_scan_prefix = warp::path!("api" / "db_scan_prefix")
-        .and(warp::post())
-        .and(warp::body::json())
-        .and_then( handle_db_scan_prefix);
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then( handle_db_scan_prefix);
+        
+        // WebSocket连接端点
+        let websocket = warp::path("ws")
+            .and(warp::ws())
+            .and_then(handle_websocket);
 
-        let routes = check_sys
+        // 广播推送API
+        let broadcast = warp::path!("api" / "broadcast" / String)
+            .and(warp::post())
+            .and(warp::body::bytes())
+            .and_then(|channel: String, body: Bytes| async move {
+                handle_broadcast(channel, body).await
+            });
+
+        // 定向推送API
+        let direct_message = warp::path!("api" / "direct" / String)
+            .and(warp::post())
+            .and(warp::body::bytes())
+            .and_then(|client_did: String, body: Bytes| async move {
+                handle_direct_message(client_did, body).await
+            });
+
+        // 定向任务API
+        let direct_task = warp::path!("api" / "ws_task" / String)
+            .and(warp::post())
+            .and(warp::body::bytes())
+            .and_then(|client_did: String, body: Bytes| async move {
+                handle_direct_task(client_did, body).await
+            });
+
+        // WebSocket连接状态查询API
+        let ws_status = warp::path!("api" / "ws_status")
+            .and(warp::get())
+            .and_then(|| async move {
+                handle_ws_status().await
+            });
+
+        let routes_rest = check_sys
             .or(get_sys_did)
             .or(get_device_did)
             .or(get_upstream_did)
@@ -204,13 +320,21 @@ pub fn start_rest_server() {
             .or(p2p_request)
             .or(p2p_response)
             .or(p2p_put_msg)
-            .or(p2p_status)
+            .or(p2p_mgr)
             .or(db_get)
             .or(db_insert)
             .or(db_remove)
             .or(db_scan_prefix)
             ;
 
+        let routes_ws = websocket      // WebSocket连接
+            .or(broadcast)      // 广播推送
+            .or(direct_message) // 定向推送
+            .or(direct_task)    // 定向任务
+            .or(ws_status)
+            ;
+
+        let routes = routes_rest.or(routes_ws);
         warp::serve(routes).run((address, port)).await;
 
         println!("{} [SimpAI] REST server at http://{}:{} has shut down.", 
@@ -233,8 +357,7 @@ pub fn start_rest_server() {
     }
     *API_PORT.lock().unwrap() = port;
     println!("{} [SimpAI] REST server started at: http://{}:{}", token_utils::now_string(), address, port);
-
-
+    true
 }
 
 pub fn stop_rest_server() {
@@ -269,8 +392,385 @@ pub fn stop_rest_server() {
     }
 }
 
+// WebSocket连接处理
+async fn handle_websocket(
+    ws: warp::ws::Ws,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket)))
+}
 
-// --- 具体路由处理函数 ---
+// 处理单个WebSocket连接
+async fn handle_socket(
+    ws: WebSocket,
+) {
+    let ws_manager = WS_MANAGER.clone();
+    let connection_id = Uuid::new_v4().to_string();
+    let (mut ws_sender, mut ws_receiver) = ws.split();
+    
+    // 发送欢迎消息
+    let welcome_msg = WsMessage::Welcome { 
+        connection_id: connection_id.clone() 
+    };
+    if let Ok(msg_str) = serde_json::to_string(&welcome_msg) {
+        if ws_sender.send(Message::text(msg_str)).await.is_err() {
+            return;
+        }
+    }
+
+    // 创建连接对象
+    let connection = WebSocketConnection {
+        id: connection_id.clone(),
+        client_did: None,
+        client_name: None,
+        subscriptions: Vec::new(),
+        sender: Arc::new(TokioMutex::new(Some(ws_sender))),
+    };
+
+    // 注册连接
+    ws_manager.write().await.insert(connection_id.clone(), connection);
+
+    println!("{} [SimpAI] WebSocket client {} connected", 
+             token_utils::now_string(), connection_id);
+
+    // 处理消息
+    while let Some(result) = ws_receiver.next().await {
+        match result {
+            Ok(msg) => {
+                if msg.is_binary() {
+                    handle_ws_message(&connection_id, msg.into_bytes()).await;
+                } else if msg.is_close() {
+                    break;
+                }
+            }
+            Err(e) => {
+                eprintln!("{} [SimpAI] WebSocket error: {}", 
+                          token_utils::now_string(), e);
+                break;
+            }
+        }
+    }
+
+    // 清理连接
+    cleanup_connection(&connection_id).await;
+    println!("{} [SimpAI] WebSocket client {} disconnected", 
+             token_utils::now_string(), connection_id);
+}
+
+// 处理WebSocket的上行消息
+async fn handle_ws_message(
+    connection_id: &str,
+    message: Vec<u8>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ws_message: WsMessage = serde_cbor::from_slice(&message)?;
+    
+    match ws_message {
+        WsMessage::Subscribe { channels } => {
+            handle_subscribe(connection_id, channels).await?;
+        }
+        WsMessage::Unsubscribe { channels } => {
+            handle_unsubscribe(connection_id, channels).await?;
+        }
+        WsMessage::Auth { client_did, client_name } => {
+            handle_auth(connection_id, client_did, client_name).await?;
+        }
+        WsMessage::Response { id, result } => { 
+            handle_response(id, result).await;
+        }
+        WsMessage::Ping => {
+            send_to_connection(connection_id, WsMessage::Pong).await?;
+        }
+        _ => {
+            // 忽略其他消息类型
+        }
+    }
+    
+    Ok(())
+}
+
+// 处理上行的订阅
+async fn handle_subscribe(
+    connection_id: &str,
+    channels: Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ws_manager = WS_MANAGER.clone();
+    let channel_manager = CHANNEL_MANAGER.clone();
+    let mut ws_lock = ws_manager.write().await;
+    let mut ch_lock = channel_manager.write().await;
+    
+    if let Some(connection) = ws_lock.get_mut(connection_id) {
+        for channel in &channels {
+            if !connection.subscriptions.contains(channel) {
+                connection.subscriptions.push(channel.clone());
+                ch_lock.entry(channel.clone())
+                    .or_insert_with(Vec::new)
+                    .push(connection_id.to_string());
+            }
+        }
+        
+        drop(ws_lock);
+        drop(ch_lock);
+        
+        send_to_connection(
+            connection_id, 
+            WsMessage::Subscribed { channels },
+        ).await?;
+    }
+    
+    Ok(())
+}
+
+// 处理上行的取消订阅
+async fn handle_unsubscribe(
+    connection_id: &str,
+    channels: Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ws_manager = WS_MANAGER.clone();
+    let mut ws_lock = ws_manager.write().await;
+    let channel_manager = CHANNEL_MANAGER.clone();
+    let mut ch_lock = channel_manager.write().await;
+    
+    if let Some(connection) = ws_lock.get_mut(connection_id) {
+        for channel in &channels {
+            connection.subscriptions.retain(|c| c != channel);
+            if let Some(subscribers) = ch_lock.get_mut(channel) {
+                subscribers.retain(|id| id != connection_id);
+                if subscribers.is_empty() {
+                    ch_lock.remove(channel);
+                }
+            }
+        }
+        
+        drop(ws_lock);
+        drop(ch_lock);
+        
+        send_to_connection(
+            connection_id, 
+            WsMessage::Unsubscribed { channels },
+        ).await?;
+    }
+    
+    Ok(())
+}
+
+// 处理上行的认证
+async fn handle_auth(
+    connection_id: &str,
+    client_did: String,
+    client_name: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ws_manager = WS_MANAGER.clone();
+    let mut ws_lock = ws_manager.write().await;
+    
+    if let Some(connection) = ws_lock.get_mut(connection_id) {
+        connection.client_did = Some(client_did.clone());
+        connection.client_name = Some(client_name.clone());
+        
+        drop(ws_lock);
+        
+        send_to_connection(
+            connection_id, 
+            WsMessage::Authenticated { client_did },
+        ).await?;
+    }
+    
+    Ok(())
+}
+
+// 处理返回的任务响应
+async fn handle_response(id: String, result: String) {
+    if let Some(tx) = RESPONSE_WAITERS.lock().await.remove(&id) {
+        let _ = tx.send(result);
+    }
+}
+
+
+// 下行广播消息
+pub(crate) async fn send_broadcast(
+    channel: String,
+    body: Bytes,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let channel_manager = CHANNEL_MANAGER.clone();
+    let ch_lock = channel_manager.read().await;
+    let mut sent_count = 0;
+    if let Some(subscribers) = ch_lock.get(&channel) {
+        let message = WsMessage::Notification { channel: channel.clone(), body: body.to_vec() };
+        let ws_manager = WS_MANAGER.clone();
+        let ws_lock = ws_manager.read().await;
+        for connection_id in subscribers {
+            if send_to_connection(connection_id, message.clone()).await.is_ok() {
+                sent_count += 1;
+            }
+        } 
+    }
+    Ok(sent_count) 
+}
+
+// 下行定向消息
+pub(crate) async fn send_message(
+    client_did: String,
+    body: Bytes,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let message = WsMessage::DirectMessage { message: body.to_vec() };
+    let mut sent_count = 0;
+    let ws_manager = WS_MANAGER.clone();
+    let ws_lock = ws_manager.read().await;
+    for connection in ws_lock.values() {
+        if let Some(ref conn_client_did) = connection.client_did {
+            if conn_client_did == &client_did {
+                if send_to_connection(&connection.id, message.clone()).await.is_ok() {
+                    sent_count += 1;
+                }
+            }
+        }
+    }
+    Ok(sent_count)
+}
+
+
+// 下行消息到指定连接, 消息统一成二进制的CBOR格式
+async fn send_to_connection(
+    connection_id: &str,
+    message: WsMessage,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let ws_manager = WS_MANAGER.clone();
+    let ws_lock = ws_manager.read().await;
+    let msg_cbor = match serde_cbor::to_vec(&message) {
+        Ok(s) => s,
+        Err(_) => return Ok(false),
+    };
+    if let Some(connection) = ws_lock.get(connection_id) {
+        if let Some(sender) = connection.sender.lock().await.as_mut() {
+            sender.send(Message::binary(msg_cbor)).await?;
+            return Ok(true);
+        }
+    }
+    
+    Ok(false)
+}
+
+// 清理连接
+async fn cleanup_connection(
+    connection_id: &str,
+) {
+    let ws_manager = WS_MANAGER.clone();
+    let mut ws_lock = ws_manager.write().await;
+    
+    if let Some(connection) = ws_lock.remove(connection_id) {
+        // 从所有频道中移除该连接
+        for channel in &connection.subscriptions {
+            let channel_manager = CHANNEL_MANAGER.clone();
+            let mut ch_lock = channel_manager.write().await;
+            if let Some(subscribers) = ch_lock.get_mut(channel) {
+                subscribers.retain(|id| id != connection_id);
+                if subscribers.is_empty() {
+                    ch_lock.remove(channel);
+                }
+            }
+        }
+    }
+}
+
+
+// --- REST的路由处理函数 ---
+
+// --- Websocket相关的REST路由处理函数 ---
+// 广播推送处理
+pub(crate) async fn handle_broadcast(
+    channel: String,
+    body: Bytes,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let sent_count = send_broadcast(channel.clone(), body)
+        .await
+        .map_err(|e| warp::reject::custom(WebSocketError::from(e)))?;
+    
+    let response = serde_json::json!({ 
+        "status": "success",
+        "channel": channel,
+        "sent_to": sent_count 
+    });
+        
+    Ok(warp::reply::with_status(
+        warp::reply::json(&response), 
+        warp::http::StatusCode::OK
+    ))
+}
+
+// 定向推送处理
+pub(crate) async fn handle_direct_message(
+    client_did: String,
+    body: Bytes,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let sent_count = send_message(client_did.clone(), body)
+        .await
+        .map_err(|e| warp::reject::custom(WebSocketError::from(e)))?;
+    
+    let response = serde_json::json!({
+        "status": "success",
+        "client_did": client_did,
+        "sent_to": sent_count
+    });
+    
+    Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK))
+}
+
+// 推送任务
+pub(crate) async fn handle_direct_task(
+    client_did: String,
+    body: Bytes,
+) -> Result<String, warp::Rejection> {
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let message = WsMessage::DirectTask { id: task_id.clone(), body: body.to_vec() };
+
+    // 准备接收反馈结果通道
+    let (tx, rx) = oneshot::channel();
+    RESPONSE_WAITERS.lock().await.insert(task_id, tx);
+    
+    // 发送任务
+    let ws_manager = WS_MANAGER.clone();
+    let ws_lock = ws_manager.read().await;
+    for connection in ws_lock.values() {
+        if let Some(ref conn_client_did) = connection.client_did {
+            let short_conn_client_did = conn_client_did.chars().take(7).collect::<String>();
+            if conn_client_did == &client_did  || short_conn_client_did == client_did {
+                send_to_connection(&connection.id, message.clone()).await
+                .map_err(|e| warp::reject::custom(WebSocketError::from(e)))?;
+                break;
+            }
+        }
+    }
+    
+    // 等待响应
+    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(_)) => Err(warp::reject::custom(WebSocketError { message: "Channel closed before receiving response".to_string() })),
+        Err(_) => Err(warp::reject::custom(WebSocketError { message: "Timeout waiting for response".to_string() })),
+    }
+}
+
+// WebSocket状态查询
+async fn handle_ws_status() -> Result<impl warp::Reply, warp::Rejection> {
+    let ws_manager = WS_MANAGER.clone();
+    let ws_lock = ws_manager.read().await;
+    let mut connections = Vec::new();
+    
+    for connection in ws_lock.values() {
+        connections.push(serde_json::json!({
+            "id": connection.id,
+            "user_did": connection.client_did,
+            "subscriptions": connection.subscriptions
+        }));
+    }
+    
+    let response = serde_json::json!({
+        "total_connections": connections.len(),
+        "connections": connections
+    });
+    
+    Ok(warp::reply::json(&response))
+}
+
+// --- 非Websocket相关的REST路由处理函数 ---
+// 系统状态检测
 async fn handle_check_sys() -> Result<impl Reply, Rejection> {
     let claims = GlobalClaims::instance();
     let claims = claims.lock().unwrap();
@@ -591,9 +1091,11 @@ async fn handle_p2p_request(
     target_did: String,
     body: Bytes,
 ) -> Result<impl Reply, Rejection> {
+    println!("handle_p2p_request: {} {} len={}", mode, target_did, body.len());
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
         let res = p2p.request_task(target_did, body, &mode).await;
+        println!("handle_p2p_request: res={}", res);
         Ok(warp::reply::json(&ApiResponse {
             success:!res.is_empty(),
             data: res,
@@ -652,12 +1154,24 @@ async fn handle_p2p_put_msg(
     }
 }
 
-async fn handle_p2p_status() -> Result<impl Reply, Rejection> {
+async fn handle_p2p_mgr(
+    action: String,
+) -> Result<impl Reply, Rejection> {
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
-        let res = p2p.get_node_status().await;
+        let res = if action == "turn_on" {
+            // to turn on p2p
+            p2p.get_node_status().await
+        } else if action == "turn_off" {
+            // to turn off p2p
+            p2p.get_node_status().await
+        } else {
+            p2p.get_node_status().await
+        };
+
         let p2p_status = P2pStatus {
             node_id: res.local_peer_id.clone(),
+            node_did: res.local_node_did.clone(),
             is_debug: res.is_debug,
         };
         let p2p_status = serde_json::to_string(&p2p_status).unwrap_or("".to_string());
