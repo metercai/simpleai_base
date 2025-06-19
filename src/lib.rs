@@ -24,8 +24,8 @@ mod api;
 
 
 #[pyfunction]
-fn init_local(nickname: String) -> PyResult<SimpleAI> {
-    let token = SimpleAI::new(nickname);
+fn init_local() -> PyResult<SimpleAI> {
+    let token = SimpleAI::new();
     Ok(token)
 }
 

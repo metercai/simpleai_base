@@ -109,6 +109,8 @@ impl DidToken {
             let mut systemskeys = systemskeys.lock().unwrap();
             systemskeys.was_regenerated()
         };
+        println!("{} [SimpAI] SystemKeys::instance()", token_utils::now_string());
+        
         let guest_symbol_hash = get_key_symbol_hash("Guest");
         let mut guest_key = match token_utils::exists_key_file("User", &guest_symbol_hash) {
             true => {
@@ -131,9 +133,14 @@ impl DidToken {
             let mut claims = claims.lock().unwrap();
             claims.local_claims.get_sys_dev_guest_did(was_regenerated)
         };
-        
+        println!("{} [SimpAI] System has loaded: system_name({}), device_name({}), guest_name({})",
+            token_utils::now_string(), system_name, device_name, guest_name);
+
         let mut crypt_secrets = HashMap::new();
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
+        println!("{} [SimpAI] System load_token_by_authorized2system: admin({})",
+            token_utils::now_string(), admin);
+
         let crypt_secrets_len = crypt_secrets.len();
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);

@@ -66,9 +66,7 @@ pub struct SimpleAI {
 #[pymethods]
 impl SimpleAI {
     #[new]
-    pub fn new(
-        sys_name: String,
-    ) -> Self {
+    pub fn new() -> Self {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
@@ -90,7 +88,7 @@ impl SimpleAI {
         let message_queue = MessageQueue::new(global_local_vars.clone());
         let mut shared_data = shared::get_shared_data();
         shared_data.set_message_queue(message_queue);
-        shared_data.set_sys_data(&sys_did, &device_did, &sys_name);
+        shared_data.set_sys_data(&sys_did, &device_did, &system_name);
         if !api::service::is_self_service() {
             if !api::wsclient::WS_CLIENT.is_running() {
                 api::wsclient::WS_CLIENT.clone().start();
@@ -104,7 +102,7 @@ impl SimpleAI {
         }
         
         Self {
-            sys_name,
+            sys_name: system_name,
             sys_did,
             node_id: "".to_string(),
             device_did,

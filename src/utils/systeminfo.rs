@@ -75,10 +75,45 @@ impl SystemBaseInfo {
         let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
 
-        let root_dir = env::current_dir().unwrap_or_else(|e| {
-            tracing::error!("env::current_dir, error:{:?}", e);
-            PathBuf::from("/")
-        });
+        let root_dir = std::env::args()
+            .nth(1)
+            .and_then(|arg| {
+                let path = PathBuf::from(&arg);
+                let abs_path = if path.is_absolute() {
+                    path
+                } else {
+                    env::current_dir()
+                        .ok()?
+                        .join(&path)
+                };
+
+                match fs::metadata(&abs_path) {
+                    Ok(metadata) => {
+                        if metadata.is_file() {
+                            tracing::info!("输入为文件路径，提取所在目录");
+                            abs_path.parent().map(|p| p.to_path_buf())
+                        } else {
+                            Some(abs_path)
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("路径访问错误: {:?}", e);
+                        None
+                    }
+                }
+            })
+            .and_then(|p| {
+                if p.exists() {
+                    p.canonicalize().ok()
+                } else {
+                    tracing::error!("路径不存在: {:?}", p);
+                    None
+                }
+            })
+            .unwrap_or_else(|| {
+                tracing::warn!("使用默认根目录");
+                PathBuf::from("/")
+            });
 
         let root_name = Path::new(&root_dir)
             .file_name()

@@ -35,6 +35,7 @@ impl GlobalClaims {
     }
 
     pub fn new() -> Self {
+        println!("{} [SimpAI] GlobalClaims: new()", token_utils::now_string());
         let local_claims = LocalClaims::new();
         Self { local_claims }
     }
@@ -157,6 +158,8 @@ impl LocalClaims {
             }
         }
 
+        println!("{} [SimpAI] Loaded claims from local flag 0", token_utils::now_string());
+        
         let did_file_path = token_utils::get_path_in_sys_key_dir("user_xxxxx.did");
         let root_path = match did_file_path.parent() {
             Some(parent) => {
@@ -219,6 +222,8 @@ impl LocalClaims {
             }
         }
 
+        println!("{} [SimpAI] Loaded claims from local flag 1", token_utils::now_string());
+        
         // 遍历claims，判断是否有重复的id_claim.get_symbol_hash()，如果有重复的则取id_claim.timestamp 最大的保留，其他的删除
         let mut symbol_hash_map: HashMap<Vec<u8>, (String, u64)> = HashMap::new();
         let mut dids_to_remove: Vec<String> = Vec::new();
@@ -242,6 +247,8 @@ impl LocalClaims {
                 symbol_hash_map.insert(symbol_hash, (did.clone(), claim.timestamp));
             }
         }
+        
+        println!("{} [SimpAI] Loaded claims from local flag 2", token_utils::now_string());
         
         // 第二次处理：删除所有旧的DID
         for did_to_remove in dids_to_remove {

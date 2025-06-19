@@ -43,7 +43,7 @@ fn init_api_port() -> u16 {
         match REQWEST_CLIENT_SYNC.get(format!("http://127.0.0.1:{}/api/check_sys", port)).send() {
             Ok(resp) => {
                 if resp.status().is_success() {
-                    println!("{} [SimpAI] REST service was running at:{}", token_utils::now_string(), port);
+                    println!("{} [SimpAI] REST service was running at: 127.0.0.1:{}", token_utils::now_string(), port);
                     return port
                 }
             }
