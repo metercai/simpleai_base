@@ -130,22 +130,6 @@ impl WsClient {
 
         loop {
             tokio::select! {
-                // 认证处理
-                _ = async {
-                    if !authenticated {
-                        write_ws.send(Message::Binary(
-                            serde_cbor::to_vec(&auth_msg)
-                                .map_err(|e| TokenError::CborParseError(e))?.into()
-                        )).await
-                        .map_err(|e| TokenError::TungsteniteError(e))?;
-                        authenticated = true;
-                        println!("Sent auth message ok");
-                        Ok::<_, TokenError>(())
-                    } else {
-                        Ok::<_, TokenError>(())
-                    }
-                } => {},
-
                 // 消息接收处理
                 msg = read_ws.next()  => {
                     match msg {
@@ -186,6 +170,7 @@ impl WsClient {
                             write_ws.send(Message::Pong(vec![1, 2, 3].into())).await?;
                         }
                         Some(Ok(Message::Pong(_))) => {
+                            println!("Received Pong");
                             last_pong = tokio::time::Instant::now();
                         }
                         Some(Err(e)) => return Err(e.into()),
@@ -199,11 +184,26 @@ impl WsClient {
                     }
                 },
 
+                // 认证处理
+                _ = async {
+                    if !authenticated {
+                        write_ws.send(Message::Binary(
+                            serde_cbor::to_vec(&auth_msg)
+                                .map_err(|e| TokenError::CborParseError(e))?.into()
+                        )).await
+                        .map_err(|e| TokenError::TungsteniteError(e))?;
+                        authenticated = true;
+                        println!("Sent auth message ok");
+                        Ok::<_, TokenError>(())
+                    } else {
+                        Ok::<_, TokenError>(())
+                    }
+                } => {},
+
                 // 心跳发送
                 _ = ping_interval.tick() => {
-                    if authenticated {
-                        write_ws.send(Message::Ping(vec![1, 2, 3].into())).await?;
-                    }
+                    println!("Sending Ping");
+                    write_ws.send(Message::Ping(vec![1, 2, 3].into())).await?;
                 },
 
                 // 关闭信号处理
@@ -222,7 +222,7 @@ impl WsClient {
             }
 
             // 检查是否超时未收到 Pong
-            if authenticated && tokio::time::Instant::now().duration_since(last_pong) > pong_timeout {
+            if tokio::time::Instant::now().duration_since(last_pong) > pong_timeout {
                 println!("No Pong received, reconnecting...");
                 break;
             }

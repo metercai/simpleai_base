@@ -118,7 +118,6 @@ pub enum WsMessage {
     Unsubscribe { channels: Vec<String> },
     Auth { client_did: String, client_name: String  },
     Response { id: String, result: String },
-    Ping,
     
     // 服务端发送的消息
     Welcome { connection_id: String },
@@ -128,7 +127,6 @@ pub enum WsMessage {
     Notification { channel: String, body: Vec<u8> },
     DirectMessage { message: Vec<u8> },
     DirectTask { id: String, body: Vec<u8> },
-    Pong,
     Error { message: String },
 }
 
@@ -491,9 +489,6 @@ async fn handle_ws_message(
         }
         WsMessage::Response { id, result } => { 
             handle_response(id, result).await;
-        }
-        WsMessage::Ping => {
-            send_to_connection(connection_id, WsMessage::Pong).await?;
         }
         _ => {
             // 忽略其他消息类型
