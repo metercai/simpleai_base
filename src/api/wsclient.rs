@@ -165,20 +165,32 @@ impl WsClient {
                             debug!("Received text message: {}", text);
                         }
                         Some(Ok(Message::Close(close_frame))) => {
-                            info!("Received close frame: {:?}", close_frame);
-                            write_ws.send(Message::Close(None)).await?;
+                            println!("Received close frame: {:?}", close_frame);
+                            // 构建响应关闭帧
+                            let response_frame = match close_frame {
+                                Some(frame) => Message::Close(Some(frame)),
+                                None => Message::Close(Some(CloseFrame {
+                                    code: CloseCode::Normal,
+                                    reason: "".into(),
+                                })),
+                            };
+
+                            // 发送响应关闭帧
+                            if let Err(e) = write_ws.send(response_frame).await {
+                                tracing::error!("发送关闭帧失败: {:?}", e);
+                            }
                             break;
                         }
                         Some(Ok(Message::Ping(_))) => {
-                            write_ws.send(Message::Pong(vec![].into())).await?;
+                            write_ws.send(Message::Pong(vec![1, 2, 3].into())).await?;
                         }
                         Some(Err(e)) => return Err(e.into()),
                         None => {
-                            info!("WebSocket connection closed");
+                            println!("WebSocket connection closed");
                             return Ok(());
                         }
                         _ => {
-                            warn!("Unhandled message type received");
+                            println!("Unhandled message type received");
                         }
                     }
                 },
@@ -186,13 +198,19 @@ impl WsClient {
                 // 心跳发送
                 _ = ping_interval.tick() => {
                     if authenticated {
-                        write_ws.send(Message::Ping(vec![].into())).await?;
+                        write_ws.send(Message::Ping(vec![1, 2, 3].into())).await?;
                     }
                 },
 
                 // 关闭信号处理
                 _ =  receiver.changed() => {
                     println!("Shutdown signaled, wsclient exiting...");
+                    // 发送关闭帧
+                    let close_frame = CloseFrame {
+                        code: CloseCode::Normal,
+                        reason: "Shutting down".into(),
+                    };
+                    write_ws.send(Message::Close(Some(close_frame))).await?;
                     write_ws.close().await?;
                     return Ok(());
                 }

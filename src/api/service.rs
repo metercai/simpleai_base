@@ -428,7 +428,6 @@ async fn handle_socket(
 
     // 注册连接
     ws_manager.write().await.insert(connection_id.clone(), connection);
-
     println!("{} [SimpAI] WebSocket client {} connected", 
              token_utils::now_string(), connection_id);
 
@@ -436,10 +435,23 @@ async fn handle_socket(
     while let Some(result) = ws_receiver.next().await {
         match result {
             Ok(msg) => {
+                let ws_lock = ws_manager.read().await;
+                let connection = ws_lock.get(&connection_id).unwrap().clone();
+                drop(ws_lock);
+                let mut sender = connection.sender.lock().await;
                 if msg.is_binary() {
                     handle_ws_message(&connection_id, msg.into_bytes()).await;
                 } else if msg.is_close() {
+                    if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
+                        eprintln!("{} [SimpAI] 发送关闭消息时发生错误: {}",
+                                  token_utils::now_string(), e);
+                    }
                     break;
+                } else if msg.is_ping() {
+                    if let Err(e) = sender.as_mut().unwrap().send(Message::pong(vec![])).await {
+                        eprintln!("{} [SimpAI] 发送Pong响应时发生错误: {}",
+                                  token_utils::now_string(), e);
+                    }
                 }
             }
             Err(e) => {
@@ -632,12 +644,12 @@ async fn send_to_connection(
     connection_id: &str,
     message: WsMessage,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let ws_manager = WS_MANAGER.clone();
-    let ws_lock = ws_manager.read().await;
     let msg_cbor = match serde_cbor::to_vec(&message) {
         Ok(s) => s,
         Err(_) => return Ok(false),
     };
+    let ws_manager = WS_MANAGER.clone();
+    let ws_lock = ws_manager.read().await;
     if let Some(connection) = ws_lock.get(connection_id) {
         if let Some(sender) = connection.sender.lock().await.as_mut() {
             sender.send(Message::binary(msg_cbor)).await?;
