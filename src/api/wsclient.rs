@@ -27,6 +27,7 @@ use pyo3::types::PyModule;
 use crate::{api::service::{get_ws_host, WsMessage}, utils::error::TokenError};
 use crate::p2p::P2pRequest;
 use crate::dids::claims::IdClaim;
+use crate::dids::TOKIO_RUNTIME;
 use crate::user::shared;
 
 
@@ -72,7 +73,7 @@ impl WsClient {
         }
         
         let this = self.clone();
-        let handle = tokio::spawn(async move {
+        let handle = TOKIO_RUNTIME.spawn(async move {
             this.run().await;
         });
 
