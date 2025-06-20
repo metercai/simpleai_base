@@ -426,7 +426,7 @@ async fn handle_socket(
 
     // 注册连接
     ws_manager.write().await.insert(connection_id.clone(), connection);
-    println!("{} [SimpAI] WebSocket client {} connected", 
+    println!("{} [SimpBase] WebSocket client({}) connected", 
              token_utils::now_string(), connection_id);
 
     // 处理消息
@@ -440,21 +440,21 @@ async fn handle_socket(
                     let ping_time = u128::from_be_bytes(msg.clone().into_bytes().try_into().unwrap());
                     let delay = tokio::time::Instant::now().elapsed().as_micros() - ping_time;
                     
-                    println!("{} [SimpAI] WebSocket client {} pinged: delay={}", 
+                    println!("{} [SimpBase] WebSocket client({}) ping_delay={}", 
                             token_utils::now_string(), connection_id, delay);
                     let mut sender = connection.sender.lock().await;
                     if let Err(e) = sender.as_mut().unwrap().send(Message::pong(msg)).await {
-                        eprintln!("{} [SimpAI] 发送Pong响应时发生错误: {}",
+                        eprintln!("{} [SimpBase] 发送Pong响应时发生错误: {}",
                                   token_utils::now_string(), e);
                     }
                 } else if msg.is_binary() {
                     handle_ws_message(&connection_id, msg.into_bytes()).await;
                 } else if msg.is_close() {
-                    println!("{} [SimpAI] WebSocket client {} disconnected", 
+                    println!("{} [SimpBase] WebSocket client({}) is disconnecting.", 
                             token_utils::now_string(), connection_id);
                     let mut sender = connection.sender.lock().await;
                     if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
-                        eprintln!("{} [SimpAI] 发送关闭消息时发生错误: {}",
+                        eprintln!("{} [SimpBase] 发送关闭消息时发生错误: {}",
                                   token_utils::now_string(), e);
                     }
                     break;
@@ -462,8 +462,16 @@ async fn handle_socket(
                 
             }
             Err(e) => {
-                eprintln!("{} [SimpAI] WebSocket error: {}", 
+                eprintln!("{} [SimpBase] WebSocket error: {}", 
                           token_utils::now_string(), e);
+                let ws_lock = ws_manager.read().await;
+                let connection = ws_lock.get(&connection_id).unwrap().clone();
+                drop(ws_lock);
+                let mut sender = connection.sender.lock().await;
+                if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
+                    eprintln!("{} [SimpBase] 发送关闭消息时发生错误: {}",
+                                token_utils::now_string(), e);
+                }
                 break;
             }
         }
@@ -471,7 +479,7 @@ async fn handle_socket(
 
     // 清理连接
     cleanup_connection(&connection_id).await;
-    println!("{} [SimpAI] WebSocket client {} disconnected", 
+    println!("{} [SimpBase] WebSocket client({}) disconnected", 
              token_utils::now_string(), connection_id);
 }
 
@@ -555,9 +563,8 @@ async fn handle_unsubscribe(
                 }
             }
         }
-        
-        drop(ws_lock);
         drop(ch_lock);
+        drop(ws_lock);
         
         send_to_connection(
             connection_id, 
@@ -583,6 +590,19 @@ async fn handle_auth(
         println!("{} [SimpAI] WebSocket client({}) auth: client_did={}, client_name={}", 
              token_utils::now_string(), connection_id, client_did, client_name);
 
+        // 遍历所有connection，检查是否有相同client_did的连接，有则关闭
+        for (id, conn) in ws_lock.iter() {
+            if conn.client_did == Some(client_did.clone()) && id != connection_id {
+                println!("{} [SimpAI] WebSocket client({}) auth: client_did={} is already connected, closing...",
+                         token_utils::now_string(), id, client_did);
+                let mut sender = conn.sender.lock().await;
+                if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
+                    eprintln!("{} [SimpAI] 发送关闭消息时发生错误: {}",
+                              token_utils::now_string(), e);
+                }
+                cleanup_connection(id).await;
+            }
+        }
         drop(ws_lock);
         
         send_to_connection(
