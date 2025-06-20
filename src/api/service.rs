@@ -564,7 +564,9 @@ async fn handle_auth(
     if let Some(connection) = ws_lock.get_mut(connection_id) {
         connection.client_did = Some(client_did.clone());
         connection.client_name = Some(client_name.clone());
-        
+        println!("{} [SimpAI] WebSocket client({}) auth: client_did={}, client_name={}", 
+             token_utils::now_string(), connection_id, client_did, client_name);
+
         drop(ws_lock);
         
         send_to_connection(
@@ -594,8 +596,6 @@ pub(crate) async fn send_broadcast(
     let mut sent_count = 0;
     if let Some(subscribers) = ch_lock.get(&channel) {
         let message = WsMessage::Notification { channel: channel.clone(), body: body.to_vec() };
-        let ws_manager = WS_MANAGER.clone();
-        let ws_lock = ws_manager.read().await;
         for connection_id in subscribers {
             if send_to_connection(connection_id, message.clone()).await.is_ok() {
                 sent_count += 1;
@@ -728,15 +728,24 @@ pub(crate) async fn handle_direct_task(
     // 发送任务
     let ws_manager = WS_MANAGER.clone();
     let ws_lock = ws_manager.read().await;
-    for connection in ws_lock.values() {
-        if let Some(ref conn_client_did) = connection.client_did {
-            let short_conn_client_did = conn_client_did.chars().take(7).collect::<String>();
-            if conn_client_did == &client_did  || short_conn_client_did == client_did {
-                send_to_connection(&connection.id, message.clone()).await
-                .map_err(|e| warp::reject::custom(WebSocketError::from(e)))?;
-                break;
+    let wsconntions = ws_lock
+        .values()
+        .filter(|conn| {
+            if let Some(ref conn_client_did) = conn.client_did {
+                let short_conn_client_did = conn_client_did.chars().take(7).collect::<String>();
+                conn_client_did == &client_did || short_conn_client_did == client_did
+            } else {
+                false
             }
-        }
+        })
+        .cloned()  // 添加克隆确保数据所有权
+        .collect::<Vec<_>>();
+    drop(ws_lock);
+
+    // 发送任务到所有匹配的连接
+    for connection in wsconntions {
+        send_to_connection(&connection.id, message.clone()).await
+            .map_err(|e| warp::reject::custom(WebSocketError::from(e)))?;
     }
     
     // 等待响应
