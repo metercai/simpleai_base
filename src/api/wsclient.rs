@@ -186,7 +186,6 @@ impl WsClient {
 
                 // 认证处理
                 _ = async {
-                    if !authenticated {
                         write_ws.send(Message::Binary(
                             serde_cbor::to_vec(&auth_msg)
                                 .map_err(|e| TokenError::CborParseError(e))?.into()
@@ -195,10 +194,7 @@ impl WsClient {
                         authenticated = true;
                         println!("Sent auth message ok");
                         Ok::<_, TokenError>(())
-                    } else {
-                        Ok::<_, TokenError>(())
-                    }
-                } => {},
+                    }, if !authenticated => {},
 
                 // 心跳发送
                 _ = ping_interval.tick() => {
@@ -223,7 +219,7 @@ impl WsClient {
 
             // 检查是否超时未收到 Pong
             if tokio::time::Instant::now().duration_since(last_pong) > pong_timeout {
-                println!("No Pong received, reconnecting...");
+                println!("No Pong received, reconnecting... last_pong={:?}", last_pong);
                 break;
             }
         }
