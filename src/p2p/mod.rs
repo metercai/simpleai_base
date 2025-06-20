@@ -517,7 +517,7 @@ impl EventHandler for Handler {
                     tracing::warn!("node did error: not valid or not match self node ");
                     return Ok(format!("target did error: {}", target_did).as_bytes().to_vec());
                 }
-                tracing::info!("📣 <<<< Inbound REQUEST: method={}, task_id={}, task_method={}, target_did={}", req.method, req.task_id, req.task_method, target_did);
+                tracing::info!("📣 <<<< Inbound REQUEST with P2P: method={}, task_id={}, task_method={}, target_did={}", req.method, req.task_id, req.task_method, target_did);
                 match req.method.as_str() {
                     "get_claim" => {
                         let response =

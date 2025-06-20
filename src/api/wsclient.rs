@@ -111,7 +111,7 @@ impl WsClient {
     }
 
     async fn connect_and_run(self: Arc<Self>) -> Result<()> {
-        println!("Connecting to WebSocket server at {}", self.ws_url);
+        debug!("Connecting to WebSocket server at {}", self.ws_url);
         let (mut ws_stream, _) = connect_async(&self.ws_url).await?;
         let (mut write_ws, mut read_ws) = ws_stream.split();
         let mut receiver = self.shutdown_sender.subscribe();
@@ -133,7 +133,6 @@ impl WsClient {
                 msg = read_ws.next()  => {
                     match msg {
                         Some(Ok(Message::Binary(data))) => {
-                            // 直接处理二进制消息
                             let msg: WsMessage = serde_cbor::from_slice(&data)?;
                             debug!("Received message: {:?}", msg);
                             match msg {
@@ -149,7 +148,7 @@ impl WsClient {
                             debug!("Received text message: {}", text);
                         }
                         Some(Ok(Message::Close(close_frame))) => {
-                            println!("Received close frame: {:?}", close_frame);
+                            debug!("Received close frame: {:?}", close_frame);
                             // 构建响应关闭帧
                             let response_frame = match close_frame {
                                 Some(frame) => Message::Close(Some(frame)),
@@ -173,11 +172,11 @@ impl WsClient {
                         }
                         Some(Err(e)) => return Err(e.into()),
                         None => {
-                            println!("WebSocket connection closed");
+                            debug!("WebSocket connection closed");
                             return Ok(());
                         }
                         _ => {
-                            println!("Unhandled message type received");
+                            debug!("Unhandled message type received");
                         }
                     }
                 },
@@ -190,20 +189,18 @@ impl WsClient {
                         )).await
                         .map_err(|e| TokenError::TungsteniteError(e))?;
                         authenticated = true;
-                        println!("Sent auth message ok");
                         Ok::<_, TokenError>(())
                     }, if !authenticated => {},
 
                 // 心跳发送
                 _ = ping_interval.tick() => {
-                    // 当前时间的微秒值
                     let current_time = tokio::time::Instant::now().elapsed().as_micros().to_be_bytes().to_vec();
                     write_ws.send(Message::Ping(current_time.into())).await?;
                 },
 
                 // 关闭信号处理
                 _ =  receiver.changed() => {
-                    println!("Shutdown signaled, wsclient exiting...");
+                    debug!("Shutdown signaled, wsclient exiting...");
                     // 发送关闭帧
                     let close_frame = CloseFrame {
                         code: CloseCode::Normal,
@@ -217,7 +214,7 @@ impl WsClient {
             }
 
             if tokio::time::Instant::now().duration_since(last_pong) > pong_timeout {
-                println!("No Pong received, reconnecting... last_pong={:?}", last_pong);
+                info!("No Pong received, reconnecting...");
                 break;
             }
         }
@@ -264,7 +261,7 @@ async fn handle_direct_task(id: String, task_body: &[u8]) -> WsMessage {
                     result: format!("node did error: not valid or not match self node: {}", target_did),
                 };
             }
-            tracing::debug!("📣 <<<< Inbound REQUEST: method={}, task_id={}, task_method={}", req.method, req.task_id, req.task_method);    
+            println!("📣 <<<< Inbound REQUEST with Websocket: method={}, task_id={}, task_method={}, target_did={}", req.method, req.task_id, req.task_method, target_did);    
             match req.method.as_str() {
                 "remote_process" => {
                     let response = {
