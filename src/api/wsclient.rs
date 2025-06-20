@@ -87,7 +87,7 @@ impl WsClient {
         
             match self.clone().connect_and_run().await {
                 Ok(_) => {
-                    info!("Connection closed normally");
+                    println!("Connection closed normally");
                 }
                 Err(e) => {
                     error!("Connection failed: {:?}", e);
@@ -104,6 +104,7 @@ impl WsClient {
             }
 
             if receiver.has_changed().unwrap_or(false) {
+                println!("Shutdown signaled during connection");
                 break;
             }
         }
@@ -184,6 +185,9 @@ impl WsClient {
                         Some(Ok(Message::Ping(_))) => {
                             write_ws.send(Message::Pong(vec![1, 2, 3].into())).await?;
                         }
+                        Some(Ok(Message::Pong(_))) => {
+                            last_pong = tokio::time::Instant::now();
+                        }
                         Some(Err(e)) => return Err(e.into()),
                         None => {
                             println!("WebSocket connection closed");
@@ -219,7 +223,7 @@ impl WsClient {
 
             // 检查是否超时未收到 Pong
             if authenticated && tokio::time::Instant::now().duration_since(last_pong) > pong_timeout {
-                warn!("No Pong received, reconnecting...");
+                println!("No Pong received, reconnecting...");
                 break;
             }
         }
