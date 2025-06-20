@@ -125,7 +125,7 @@ impl WsClient {
         let auth_msg = WsMessage::Auth { client_did, client_name };
 
         let mut last_pong = tokio::time::Instant::now();
-        let pong_timeout = Duration::from_secs(35);
+        let pong_timeout = Duration::from_secs(45);
 
         loop {
             tokio::select! {
@@ -165,11 +165,10 @@ impl WsClient {
                             }
                             break;
                         }
-                        Some(Ok(Message::Ping(_))) => {
-                            write_ws.send(Message::Pong(vec![1, 2, 3].into())).await?;
+                        Some(Ok(Message::Ping(data))) => {
+                            write_ws.send(Message::Pong(data)).await?;
                         }
                         Some(Ok(Message::Pong(_))) => {
-                            println!("Received Pong");
                             last_pong = tokio::time::Instant::now();
                         }
                         Some(Err(e)) => return Err(e.into()),
@@ -197,8 +196,9 @@ impl WsClient {
 
                 // 心跳发送
                 _ = ping_interval.tick() => {
-                    println!("Sending Ping");
-                    write_ws.send(Message::Ping(vec![1, 2, 3].into())).await?;
+                    // 当前时间的微秒值
+                    let current_time = tokio::time::Instant::now().elapsed().as_micros().to_be_bytes().to_vec();
+                    write_ws.send(Message::Ping(current_time.into())).await?;
                 },
 
                 // 关闭信号处理
@@ -216,7 +216,6 @@ impl WsClient {
                 
             }
 
-            // 检查是否超时未收到 Pong
             if tokio::time::Instant::now().duration_since(last_pong) > pong_timeout {
                 println!("No Pong received, reconnecting... last_pong={:?}", last_pong);
                 break;
