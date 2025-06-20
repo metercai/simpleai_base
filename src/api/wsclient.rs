@@ -116,8 +116,7 @@ impl WsClient {
         let (mut write_ws, mut read_ws) = ws_stream.split();
         let mut receiver = self.shutdown_sender.subscribe();
         
-
-        let mut authenticated = false;
+        let mut authenticated = true;
         let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
         
         let shared_data = shared::get_shared_data();
