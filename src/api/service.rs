@@ -433,12 +433,21 @@ async fn handle_socket(
     while let Some(result) = ws_receiver.next().await {
         match result {
             Ok(msg) => {
+                println!("{} [DEBUG] Received message type: {:?}", // 添加
+                    token_utils::now_string(), msg);
                 let ws_lock = ws_manager.read().await;
                 let connection = ws_lock.get(&connection_id).unwrap().clone();
                 drop(ws_lock);
                 let mut sender = connection.sender.lock().await;
                 if msg.is_binary() {
                     handle_ws_message(&connection_id, msg.into_bytes()).await;
+                } else if msg.is_ping() {
+                    println!("{} [SimpAI] WebSocket client {} pinged: {:?}", 
+                            token_utils::now_string(), connection_id, msg);
+                    if let Err(e) = sender.as_mut().unwrap().send(Message::pong(msg)).await {
+                        eprintln!("{} [SimpAI] 发送Pong响应时发生错误: {}",
+                                  token_utils::now_string(), e);
+                    }
                 } else if msg.is_close() {
                     println!("{} [SimpAI] WebSocket client {} disconnected", 
                             token_utils::now_string(), connection_id);
@@ -447,14 +456,8 @@ async fn handle_socket(
                                   token_utils::now_string(), e);
                     }
                     break;
-                } else if msg.is_ping() {
-                    println!("{} [SimpAI] WebSocket client {} pinged", 
-                            token_utils::now_string(), connection_id);
-                    if let Err(e) = sender.as_mut().unwrap().send(Message::pong(vec![])).await {
-                        eprintln!("{} [SimpAI] 发送Pong响应时发生错误: {}",
-                                  token_utils::now_string(), e);
-                    }
                 }
+                
             }
             Err(e) => {
                 eprintln!("{} [SimpAI] WebSocket error: {}", 
