@@ -83,6 +83,8 @@ impl WsClient {
     async fn run(self: Arc<Self>) {
         loop {
             let mut backoff = ExponentialBackoff::default();
+            let mut receiver = self.shutdown_sender.subscribe();
+        
             match self.clone().connect_and_run().await {
                 Ok(_) => {
                     info!("Connection closed normally");
@@ -92,8 +94,8 @@ impl WsClient {
                     if let Some(delay) = backoff.next_backoff() {
                         tokio::select! {
                             _ = tokio::time::sleep(delay) => {}
-                            _ = self.is_shutdown_signaled() => {
-                                info!("Shutdown signaled during backoff");
+                            _ = receiver.changed() => {
+                                println!("Shutdown signaled during backoff");
                                 break;
                             }
                         }
@@ -101,16 +103,18 @@ impl WsClient {
                 }
             }
 
-            if self.is_shutdown_signaled().await {
+            if receiver.has_changed().unwrap_or(false) {
                 break;
             }
         }
     }
 
     async fn connect_and_run(self: Arc<Self>) -> Result<()> {
-        info!("Connecting to WebSocket server at {}", self.ws_url);
+        println!("Connecting to WebSocket server at {}", self.ws_url);
         let (mut ws_stream, _) = connect_async(&self.ws_url).await?;
         let (mut write_ws, mut read_ws) = ws_stream.split();
+        let mut receiver = self.shutdown_sender.subscribe();
+        
 
         let mut authenticated = false;
         let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
@@ -134,6 +138,7 @@ impl WsClient {
                         )).await
                         .map_err(|e| TokenError::TungsteniteError(e))?;
                         authenticated = true;
+                        println!("Sent auth message ok");
                         Ok::<_, TokenError>(())
                     } else {
                         Ok::<_, TokenError>(())
@@ -186,7 +191,8 @@ impl WsClient {
                 },
 
                 // 关闭信号处理
-                _ = self.is_shutdown_signaled() => {
+                _ =  receiver.changed() => {
+                    println!("Shutdown signaled, wsclient exiting...");
                     write_ws.close().await?;
                     return Ok(());
                 }
@@ -203,10 +209,6 @@ impl WsClient {
         Ok(())
     }
 
-    async fn is_shutdown_signaled(&self) -> bool {
-        let mut receiver = self.shutdown_sender.subscribe();
-        receiver.has_changed().unwrap_or(false)
-    }
 
     pub fn stop(self: Arc<Self>) {
         info!("Stopping WebSocket client...");
