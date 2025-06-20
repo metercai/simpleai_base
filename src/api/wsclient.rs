@@ -116,7 +116,7 @@ impl WsClient {
         let (mut write_ws, mut read_ws) = ws_stream.split();
         let mut receiver = self.shutdown_sender.subscribe();
         
-        let mut authenticated = true;
+        let mut authenticated = false;
         let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
         
         let shared_data = shared::get_shared_data();
@@ -125,7 +125,7 @@ impl WsClient {
         let auth_msg = WsMessage::Auth { client_did, client_name };
 
         let mut last_pong = tokio::time::Instant::now();
-        let pong_timeout = Duration::from_secs(10);
+        let pong_timeout = Duration::from_secs(35);
 
         loop {
             tokio::select! {
