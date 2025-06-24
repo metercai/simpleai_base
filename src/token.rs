@@ -258,38 +258,15 @@ impl SimpleAI {
     }
 
     pub(crate) fn p2p_start(&mut self) -> String {
-        {
-            let mut p2p_handle = P2P_HANDLE.lock().unwrap();
-            if p2p_handle.is_some() {
-                return "P2P 服务已经在运行中".to_string();
-            }
-        }
-        if api::service::is_self_service()  {
-            let handle = dids::TOKIO_RUNTIME.spawn(async move {
-                match P2pServer::start().await {
-                    Ok(p2p) => {
-                        let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
-                        *p2p_instance_guard = Some(p2p);
-                        println!("{} P2P service startup successfully!", token_utils::now_string());
-                    },
-                    Err(e) => {
-                        error!("P2P 服务启动失败: {:?}", e);
-                    }
-                }
+        let result = api::request_api_sync("p2p_mgr/turn_on", None as Option<serde_json::Value>)
+            .unwrap_or_else(|e| {
+                error!("p2p_turn_on error: {}", e);
+                "".to_string()
             });
-            let mut p2p_handle = P2P_HANDLE.lock().unwrap();
-            *p2p_handle = Some(handle);
-        } else {
-            let result = api::request_api_sync("p2p_mgr/turn_on", None as Option<serde_json::Value>)
-                .unwrap_or_else(|e| {
-                    error!("p2p_turn_on error: {}", e);
-                    "".to_string()
-                });
-            if !result.is_empty() {
-                let p2p_status: api::P2pStatus = serde_json::from_str(&result).unwrap();
-                self.p2p_status = Some(p2p_status.clone());
-                self.set_node_id(&p2p_status.node_id);
-            }
+        if !result.is_empty() {
+            let p2p_status: api::P2pStatus = serde_json::from_str(&result).unwrap();
+            self.p2p_status = Some(p2p_status.clone());
+            self.set_node_id(&p2p_status.node_id);
         }
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
         self.shared_data.set_p2p_out_dids(&p2p_out_did_list);
@@ -302,34 +279,13 @@ impl SimpleAI {
     
     /// 停止 P2P 服务
     pub(crate) fn p2p_stop(&mut self) -> String {
-        if api::service::is_self_service()  {
-            let mut p2p_handle = P2P_HANDLE.lock().unwrap();
-            if p2p_handle.is_none() {
-                println!("{} [P2pNode] p2p server({}) not running.", token_utils::now_string(), self.get_sys_did());
-                return "P2P 服务未运行".to_string();
-            }
-            if let Some(handle) = p2p_handle.take() {
-                dids::TOKIO_RUNTIME.block_on(async {
-                    if let Some(p2p) = p2p::get_instance().await {
-                        p2p.stop().await;
-                    }
-                });
-                handle.abort();
-                println!("{} [P2pNode] p2p server({}) has stopped.", token_utils::now_string(), self.get_sys_did());
-                self.p2p_status = None;
-                "P2P 服务已停止".to_string()
-            } else {
-                "P2P 服务未运行".to_string()
-            }
-        } else {
-            let result = api::request_api_sync("p2p_mgr/turn_off", None as Option<serde_json::Value>)
-                .unwrap_or_else(|e| {
-                    error!("p2p_turn_off error: {}", e);
-                    "".to_string()
-                });
-            self.p2p_status = None;
-            "已通知P2P服务实例去停止".to_string()
-        }
+        let result = api::request_api_sync("p2p_mgr/turn_off", None as Option<serde_json::Value>)
+            .unwrap_or_else(|e| {
+                error!("p2p_turn_off error: {}", e);
+                "".to_string()
+            });
+        self.p2p_status = None;
+        "P2P 服务停止成功".to_string()
     }
     
     /// 重启 P2P 服务

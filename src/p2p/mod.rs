@@ -76,8 +76,24 @@ pub async fn get_instance() -> Option<Arc<P2pServer>> {
     p2p_instance_guard.clone()
 }
 
+
 impl P2pServer {
     pub async fn start() -> Result<Arc<P2pServer>, Box<dyn Error + Send + Sync>> {
+        match Self::run().await {
+            Ok(p2p) => {
+                let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
+                *p2p_instance_guard = Some(p2p.clone());
+                println!("{} P2P service startup successfully!", token_utils::now_string());
+                Ok(p2p)
+            },
+            Err(e) => {
+                println!("P2P 服务启动失败: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    pub async fn run() -> Result<Arc<P2pServer>, Box<dyn Error + Send + Sync>> {
         let config_str = Self::get_p2p_config();
         let config = config::Config::from_toml(&config_str).expect("无法解析配置字符串");
         let didtoken = DidToken::instance();
@@ -155,15 +171,36 @@ impl P2pServer {
         Ok(Arc::new(p2p))
     }
 
-    pub async fn stop(&self) {
+    pub async fn stop() {
+        let mut sys_did = String::new();
+        let mut node_did = String::new();
+        let p2p = get_instance().await;
+        if p2p.is_some() {
+            sys_did = p2p.as_ref().unwrap().get_sys_did();
+            node_did = p2p.as_ref().unwrap().get_node_did();
+            p2p.as_ref().unwrap()._stop().await;
+        }
+        let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
+        *p2p_instance_guard = None;
+        println!("{} P2P service({}/{}) stop successfully!", token_utils::now_string(), sys_did, node_did);
+    }
+
+    async fn _stop(&self) {
         let _ = self.client.stop().await;
         if let Some(handle) = &self.handle {
             handle.abort();
-            tracing::info!("[P2pNode] P2P service stopped");
+            println!("[P2pNode] P2P service stopped");
         }
     }
 
-    
+    pub fn get_sys_did(&self) -> String {
+        self.sys_did.clone()
+    }
+
+    pub fn get_node_did(&self) -> String {
+        self.node_did.clone()
+    }
+
     fn get_p2p_config() -> String  {
         let mut default_config = MERGED_CONFIG.read().unwrap().clone();
         if default_config.is_empty() {

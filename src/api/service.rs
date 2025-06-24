@@ -1,5 +1,5 @@
 use warp::{Filter, Rejection, Reply};
-use std::sync::{Arc, Mutex, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::net::Ipv4Addr;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
@@ -1202,18 +1202,24 @@ async fn handle_p2p_mgr(
     action: String,
 ) -> Result<impl Reply, Rejection> {
     println!("handle_p2p_mgr: {}", action);
-    let p2p = p2p::get_instance().await;
-    if let Some(p2p) = p2p {
-        let res = if action == "turn_on" {
-            // to turn on p2p
-            p2p.get_node_status().await
-        } else if action == "turn_off" {
-            // to turn off p2p
-            p2p.get_node_status().await
-        } else {
-            p2p.get_node_status().await
-        };
-
+    let mut p2p_server = p2p::get_instance().await;
+    if p2p_server.is_none() && action == "turn_on" {
+        match p2p::P2pServer::start().await {
+            Ok(_p2p) => {
+                println!("P2P server started successfully");
+                p2p_server= Some(_p2p);
+            }
+            Err(e) => {
+                println!("Failed to start P2P server: {}", e);
+            }
+        }
+    }
+    if p2p_server.is_some() && (action == "status" || action == "turn_on" || action == "turn_off") {
+        let res = p2p_server.as_ref().unwrap().get_node_status().await;
+        if action == "turn_off" {
+            p2p::P2pServer::stop().await;
+            println!("P2P server stopped successfully");
+        }
         let p2p_status = P2pStatus {
             node_id: res.local_peer_id.clone(),
             node_did: res.local_node_did.clone(),
@@ -1229,7 +1235,7 @@ async fn handle_p2p_mgr(
         Ok(warp::reply::json(&ApiResponse {
             success: false,
             data: "".to_string(),
-            error: Some("P2P not initialized".to_string()),
+            error: Some("P2P Server is not running or failed to start".to_string()),
         }))
     }
 }
