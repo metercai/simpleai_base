@@ -587,13 +587,10 @@ async fn handle_auth(
     if let Some(connection) = ws_lock.get_mut(connection_id) {
         connection.client_did = Some(client_did.clone());
         connection.client_name = Some(client_name.clone());
-        println!("{} [SimpAI] WebSocket client({}) auth: client_did={}, client_name={}", 
-             token_utils::now_string(), connection_id, client_did, client_name);
-
         // 遍历所有connection，检查是否有相同client_did的连接，有则关闭
         for (id, conn) in ws_lock.iter() {
             if conn.client_did == Some(client_did.clone()) && id != connection_id {
-                println!("{} [SimpAI] WebSocket client({}) auth: client_did={} is already connected, closing...",
+                println!("{} [SimpAI] WebSocket client({}): client_did={} is already connected, closing...",
                          token_utils::now_string(), id, client_did);
                 let mut sender = conn.sender.lock().await;
                 if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
@@ -604,6 +601,8 @@ async fn handle_auth(
             }
         }
         drop(ws_lock);
+        println!("{} [SimpAI] WebSocket client({}): client_did={}, client_name={}", 
+             token_utils::now_string(), connection_id, client_did, client_name);
         
         send_to_connection(
             connection_id, 
@@ -1202,6 +1201,7 @@ async fn handle_p2p_put_msg(
 async fn handle_p2p_mgr(
     action: String,
 ) -> Result<impl Reply, Rejection> {
+    println!("handle_p2p_mgr: {}", action);
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
         let res = if action == "turn_on" {
