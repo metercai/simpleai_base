@@ -258,18 +258,19 @@ impl SimpleAI {
     }
 
     pub(crate) fn p2p_start(&mut self) -> String {
-        println!("p2p_start: {:?}", self.p2p_status);
+        println!("p2p_start");
         
         let result = api::request_api_sync("p2p_mgr/turn_on", None as Option<serde_json::Value>)
             .unwrap_or_else(|e| {
                 error!("p2p_turn_on error: {}", e);
                 "".to_string()
             });
+        let mut p2p_status = api::P2pStatus::default();
         if !result.is_empty() {
-            let p2p_status: api::P2pStatus = serde_json::from_str(&result).unwrap();
-            self.p2p_status = Some(p2p_status.clone());
+            p2p_status = serde_json::from_str(&result).unwrap();
             self.set_node_id(&p2p_status.node_id);
         }
+        self.p2p_status = Some(p2p_status.clone());
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
         self.shared_data.set_p2p_out_dids(&p2p_out_did_list);
         
@@ -286,7 +287,7 @@ impl SimpleAI {
                 error!("p2p_turn_off error: {}", e);
                 "".to_string()
             });
-        self.p2p_status = None;
+        self.p2p_status = Some(api::P2pStatus::default());
         "P2P 服务停止成功".to_string()
     }
     
@@ -307,14 +308,18 @@ impl SimpleAI {
                     error!("p2p_status error: {}", e);
                     "".to_string()
                 });
+            let mut p2p_status = api::P2pStatus::default();
             if !result.is_empty() {
-                let p2p_status: api::P2pStatus = serde_json::from_str(&result).unwrap();
-                self.p2p_status = Some(p2p_status.clone());
+                p2p_status = serde_json::from_str(&result).unwrap();
                 self.set_node_id(&p2p_status.node_id);
             }
-            return "Off".to_string();
+            self.p2p_status = Some(p2p_status.clone());
         }
-        return "On".to_string();
+        if self.p2p_status.as_ref().unwrap().node_id == "" {
+            return "Off".to_string();
+        } else {
+            return "On".to_string();
+        }
     }
     pub fn get_p2p_is_debug(&mut self) -> bool {
         if self.p2p_status.is_none() {
@@ -329,7 +334,7 @@ impl SimpleAI {
                 return false;
             }
         }
-        true
+        self.p2p_status.as_ref().map_or(false, |status| status.node_id != "")
     }
 
     pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>, target_did: Option<String>, mode: Option<String>) -> String {
@@ -475,12 +480,12 @@ impl SimpleAI {
                 self.shared_data.set_p2p_in_dids(&value);
                 let p2p_node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
         
-                //println!("{} [SimpAI] {} is in p2p_in_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_in_dids(value))
+                //println!("{} [SimpBase] {} is in p2p_in_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_in_dids(value))
             } else if key == "p2p_out_did_list"  {
                 self.shared_data.set_p2p_out_dids(&value);
                 let p2p_node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
         
-                //println!("{} [SimpAI] {} is in p2p_out_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_out_dids(value))
+                //println!("{} [SimpBase] {} is in p2p_out_did_list set to: {}", token_utils::now_string(), value, self.shared_data.is_p2p_out_dids(value))
             }
         }
     }
@@ -523,7 +528,7 @@ impl SimpleAI {
                     tokenuser.remove_context(admin_did);
                     tokenuser.remove_context(&old_admin);
                 }
-                println!("{} [UserBase] reset_admin to {}", token_utils::now_string(), admin_did);
+                println!("{} [SimpBase] reset_admin to {}", token_utils::now_string(), admin_did);
                 return "OK".to_string();
             }
         }
@@ -533,7 +538,7 @@ impl SimpleAI {
     pub fn reset_node_mode(&mut self, mode: &str) -> (String, String, String) {
         let node_mode = self.get_node_mode();
         if mode == "isolated" && node_mode != "isolated" {
-            println!("{} [UserBase] reset node mode to isolated", token_utils::now_string());
+            println!("{} [SimpBase] reset node mode to isolated", token_utils::now_string());
             // 清除非 device，system，guest 的 crypt_secrets
             let remove_dids = self.didtoken.lock().unwrap().remove_crypt_secrets_for_users();
             // 清除非 guest 的 token
@@ -561,13 +566,13 @@ impl SimpleAI {
                 }
             };
             let admin_phrase_base58 = admin_phrase.as_bytes().to_base58();
-            println!("{} [UserBase] local admin/本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
+            println!("{} [SimpBase] local admin/本地管理身份: did/标识={}, phrase/口令={}", token_utils::now_string(), admin_did, admin_phrase_base58);
             self.set_admin_did(&admin_did);
             self.set_node_mode(mode);
             self.tokenuser.lock().unwrap().sign_user_context(&admin_did, &admin_phrase);
             (admin_did, admin_name, admin_phrase_base58)
         } else if mode == "online" && node_mode != "online" { //
-            println!("{} [UserBase] reset node mode to online", token_utils::now_string());
+            println!("{} [SimpBase] reset node mode to online", token_utils::now_string());
             let admin_did = self.get_admin_did();
             if !admin_did.is_empty() {
                 let _remove_dids = self.didtoken.lock().unwrap().remove_crypt_secrets_for_users();
@@ -628,7 +633,7 @@ impl SimpleAI {
                         let user_cert = certificates.lock().unwrap().get_register_cert(user_did);
                         user_cert
                     };
-                    debug!("{} [UserBase] user_cert:{}", token_utils::now_string(), user_cert);
+                    debug!("{} [SimpBase] user_cert:{}", token_utils::now_string(), user_cert);
                     let user_cert_bytes = token_utils::get_slim_user_cert(&user_cert);
                     if user_cert_bytes.len() < 120 {
                         return "".to_string()
@@ -674,7 +679,7 @@ impl SimpleAI {
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
             let context = self.tokenuser.lock().unwrap().get_user_context(did);
             if context.is_default() || context.is_expired(){
-                println!("{} [UserBase] The user context is error or expired: did={}", token_utils::now_string(), did);
+                println!("{} [SimpBase] The user context is error or expired: did={}", token_utils::now_string(), did);
                 return String::from("Unknown")
             }
             let text1 = self.didtoken.lock().unwrap().get_local_crypt_text(ua_hash);
@@ -703,7 +708,7 @@ impl SimpleAI {
     pub fn check_sstoken_and_get_did(&mut self, sstoken: &str, ua_hash: &str) -> String {
         let sstoken_bytes = sstoken.from_base58().unwrap_or([0; 32].to_vec());
         if sstoken_bytes.len() != 32 || sstoken_bytes==[0; 32] {
-            println!("{} [UserBase] The sstoken is incorrect format: {}", token_utils::now_string(), sstoken);
+            println!("{} [SimpBase] The sstoken is incorrect format: {}", token_utils::now_string(), sstoken);
             return String::from("Unknown")
         }
         let mut padded_sstoken_bytes: [u8; 32] = [0; 32];
@@ -732,7 +737,7 @@ impl SimpleAI {
             let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
             if context.is_default() || context.is_expired(){
                 self.sid_did_map.lock().unwrap().remove(sstoken);
-                println!("{} [UserBase] The context of the sstoken is expired: did={}", token_utils::now_string(), user_did);
+                println!("{} [SimpBase] The context of the sstoken is expired: did={}", token_utils::now_string(), user_did);
                 String::from("Unknown")
             } else {
                 self.sid_did_map.lock().unwrap().insert(sstoken.to_string(), user_did.clone());
@@ -758,14 +763,14 @@ impl SimpleAI {
                 let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);
                 if context.is_default() || context.is_expired(){
                     self.sid_did_map.lock().unwrap().remove(sstoken);
-                    println!("{} [UserBase] The context2 of the sstoken is expired: did={}", token_utils::now_string(), user_did);
+                    println!("{} [SimpBase] The context2 of the sstoken is expired: did={}", token_utils::now_string(), user_did);
                     String::from("Unknown")
                 } else {
                     self.sid_did_map.lock().unwrap().insert(sstoken.to_string(), user_did.clone());
                     user_did
                 }
             } else {
-                println!("{} [UserBase] The sstoken is not validity: {}/{}", token_utils::now_string(), sstoken, ua_hash);
+                println!("{} [SimpBase] The sstoken is not validity: {}/{}", token_utils::now_string(), sstoken, ua_hash);
                 String::from("Unknown")
             }
         }
@@ -855,7 +860,7 @@ impl SimpleAI {
             if telephone=="8610000000001" {
                 return "local".to_string()
             } else {
-                println!("{} [UserBase] The system is isolated mode, please take the local admin qrcode to bind.", token_utils::now_string());
+                println!("{} [SimpBase] The system is isolated mode, please take the local admin qrcode to bind.", token_utils::now_string());
                 return "isolated".to_string()
             }
         }
@@ -904,11 +909,11 @@ impl SimpleAI {
                 match identity_file.exists() {
                     true => "local".to_string(),
                     false => {
-                        println!("{} [UserBase] The identity is not in local and generate ready_data for new user: {}, {}, {}, {}",
+                        println!("{} [SimpBase] The identity is not in local and generate ready_data for new user: {}, {}, {}, {}",
                                  token_utils::now_string(), nickname, telephone, user_hash_id, symbol_hash_base64);
                         let (user_did, _user_phrase) = self.tokenuser.lock().unwrap().create_user(&nickname, telephone, None, None);
                         let new_claim = self.get_claim(&user_did);
-                        println!("{} [UserBase] Create new claim for new user: user_did={}, claim_symbol={}",
+                        println!("{} [SimpBase] Create new claim for new user: user_did={}, claim_symbol={}",
                             token_utils::now_string(), user_did, URL_SAFE_NO_PAD.encode(new_claim.get_symbol_hash()));
 
                         let mut request: serde_json::Value = json!({});
@@ -918,7 +923,7 @@ impl SimpleAI {
                         let apply_result = self.request_token_api(
                             "apply",
                             &serde_json::to_string(&request).unwrap_or("{}".to_string()),);
-                        println!("{} [UserBase] Apply to verify user: symbol({})", token_utils::now_string(), symbol_hash_base64);
+                        println!("{} [SimpBase] Apply to verify user: symbol({})", token_utils::now_string(), symbol_hash_base64);
                         if !apply_result.starts_with("Unknown") {
                             let parts: Vec<&str> = apply_result.split('|').collect();
                             if parts[0] == "user_claim" {
@@ -926,23 +931,23 @@ impl SimpleAI {
                                 match serde_json::from_str::<IdClaim>(&parts[1]) {
                                     Ok(return_claim) => {
                                         let return_did = return_claim.gen_did();
-                                        println!("{} [UserBase] The decoding the claim from Root is correct: user_did({}), nickname={}, claim_symbol({})",
+                                        println!("{} [SimpBase] The decoding the claim from Root is correct: user_did({}), nickname={}, claim_symbol({})",
                                                  token_utils::now_string(), return_did, return_claim.nickname, URL_SAFE_NO_PAD.encode(return_claim.get_symbol_hash()));
                                         debug!("return_claim: {}", parts[1]);
                                         if user_did != return_claim.gen_did() {
-                                            println!("{} [UserBase] Identity confirmed to recall user from root: local_did({}), remote_did({})",
+                                            println!("{} [SimpBase] Identity confirmed to recall user from root: local_did({}), remote_did({})",
                                                      token_utils::now_string(), user_did, return_did);
                                             self.push_claim(&return_claim);
                                             return "recall".to_string();
                                         } else {
-                                            println!("{} [UserBase] Identity confirmed to recall user from root is same the new before: local_did({}), remote_did({})",
+                                            println!("{} [SimpBase] Identity confirmed to recall user from root is same the new before: local_did({}), remote_did({})",
                                                      token_utils::now_string(), user_did, return_did);
                                             self.remove_user(&symbol_hash_base64);
                                             return "unknown".to_string();
                                         }
                                     }
                                     Err(e) => {
-                                        println!("{} [UserBase] The decoding the claim from Root is fail: did({}), error({})", token_utils::now_string(), user_did, e);
+                                        println!("{} [SimpBase] The decoding the claim from Root is fail: did({}), error({})", token_utils::now_string(), user_did, e);
                                         self.remove_user(&symbol_hash_base64);
                                         return "unknown".to_string();
                                     }
@@ -951,23 +956,23 @@ impl SimpleAI {
                                 let ready_data = format!("{}|{}|{}", 3, user_did, parts[1]);
                                 let _ = self.token_db.write().unwrap().insert("ready_users", &user_hash_id, &ready_data);
                                 debug!("ready_data: {}", ready_data);
-                                println!("{} [UserBase] User apply is ok, ready to verify user_cert with vcode: did({})", token_utils::now_string(), user_did);
+                                println!("{} [SimpBase] User apply is ok, ready to verify user_cert with vcode: did({})", token_utils::now_string(), user_did);
                                 return "create".to_string();
                             } else {
                                 self.remove_user(&symbol_hash_base64);
-                                println!("{} [UserBase] User apply is ok, but the feedback is undefined: {}", token_utils::now_string(), apply_result);
+                                println!("{} [SimpBase] User apply is ok, but the feedback is undefined: {}", token_utils::now_string(), apply_result);
                                 return "unknown".to_string();
                             }
                         } else if apply_result.starts_with("Unknown_Repeat") {
-                            println!("{} [UserBase] User apply is failure({}): did({}), symbol({})", token_utils::now_string(), apply_result, user_did, symbol_hash_base64);
+                            println!("{} [SimpBase] User apply is failure({}): did({}), symbol({})", token_utils::now_string(), apply_result, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown_repeat".to_string();
                         } else if apply_result.starts_with("Unknown_Exceeded") {
-                            println!("{} [UserBase] User apply is failure({}): did({}), symbol({})", token_utils::now_string(), apply_result, user_did, symbol_hash_base64);
+                            println!("{} [SimpBase] User apply is failure({}): did({}), symbol({})", token_utils::now_string(), apply_result, user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown_exceeded".to_string();
                         } else {
-                            println!("{} [UserBase] User apply is failure({}): sys_did({}), user_did({}), user_symbol({})", token_utils::now_string(), apply_result, self.get_sys_did(), user_did, symbol_hash_base64);
+                            println!("{} [SimpBase] User apply is failure({}): sys_did({}), user_did({}), user_symbol({})", token_utils::now_string(), apply_result, self.get_sys_did(), user_did, symbol_hash_base64);
                             self.remove_user(&symbol_hash_base64);
                             return "unknown".to_string();
                         }
@@ -999,7 +1004,7 @@ impl SimpleAI {
                     let upstream_did = self.get_upstream_did();
                     if user_certificate.len() > 32 && !upstream_did.is_empty() {
                         let user_certificate_text = self.didtoken.lock().unwrap().decrypt_by_did(&user_certificate, &upstream_did, 0);
-                        debug!("UserBase] The parsed cert from Root is: cert({})", user_certificate_text);
+                        debug!("SimpBase] The parsed cert from Root is: cert({})", user_certificate_text);
                         let cert_user_did = {
                             let certificates = GlobalCerts::instance();
                             let cert_user_did = certificates.lock().unwrap().push_user_cert_text(&user_certificate_text);
@@ -1009,12 +1014,12 @@ impl SimpleAI {
                             let ready_claim = self.get_claim(&ready_user_did);
                             let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(ready_claim.get_symbol_hash());
                             if cert_user_did != ready_user_did {
-                                println!("{} [UserBase] The parsed cert from Root is not match: cert_did({}), ready_did({})",
+                                println!("{} [SimpBase] The parsed cert from Root is not match: cert_did({}), ready_did({})",
                                          token_utils::now_string(), cert_user_did, ready_user_did);
                                 self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
-                            println!("{} [UserBase] The parsed cert from Root is correct: did({}), nickname({}), symbol({})",
+                            println!("{} [SimpBase] The parsed cert from Root is correct: did({}), nickname({}), symbol({})",
                                      token_utils::now_string(), ready_user_did, ready_claim.nickname, symbol_hash_base64);
                             let encrypted_claim = URL_SAFE_NO_PAD.encode(token_utils::encrypt(ready_claim.to_json_string().as_bytes(), vcode.as_bytes(), 0));
 
@@ -1030,27 +1035,27 @@ impl SimpleAI {
                             if !result.starts_with("Unknown") {
                                 return "create".to_string();
                             } else {
-                                println!("{} [UserBase] The user confirm request is fail: ready_did({}), symbol({})",
+                                println!("{} [SimpBase] The user confirm request is fail: ready_did({}), symbol({})",
                                          token_utils::now_string(), ready_user_did, symbol_hash_base64);
                                 self.remove_user(&symbol_hash_base64);
                                 return "error in confirming".to_string();
                             }
                         }
                     }
-                    println!("{} [UserBase] The decoding the claim from Root is incorrect: ready_did({}), symbol({})",
+                    println!("{} [SimpBase] The decoding the claim from Root is incorrect: ready_did({}), symbol({})",
                              token_utils::now_string(), ready_user_did, symbol_hash_base64);
                     let ready_data = format!("{}|{}|{}", try_count, ready_user_did, encrypted_certificate_string);
                     let _ = self.token_db.write().unwrap().insert("ready_users", &user_hash_id, &ready_data);
                     return format!("error:{}", try_count).to_string();
                 } else {
                     let _ = self.token_db.write().unwrap().remove("ready_users", &user_hash_id);
-                    println!("{} [UserBase] The try_count of verify the code has run out: ready_did({}), symbol({}), user_hash_id({})",
+                    println!("{} [SimpBase] The try_count of verify the code has run out: ready_did({}), symbol({}), user_hash_id({})",
                              token_utils::now_string(), ready_user_did, symbol_hash_base64, user_hash_id);
                     return "error:0".to_string();
                 }
             }
         }
-        println!("{} [UserBase] The ready data is not exist or incorrect: symbol({}), user_hash_id({}), ready_data({})",
+        println!("{} [SimpBase] The ready data is not exist or incorrect: symbol({}), user_hash_id({}), ready_data({})",
                  token_utils::now_string(), symbol_hash_base64, user_hash_id, ready_data);
         self.remove_user(&symbol_hash_base64);
         "error:0".to_string()
@@ -1060,14 +1065,14 @@ impl SimpleAI {
     pub fn set_phrase_and_get_context(&mut self, nickname: &str, telephone: &str, phrase: &str) -> UserContext {
         let nickname = token_utils::truncate_nickname(nickname);
         if !token_utils::is_valid_telephone(telephone) {
-            println!("{} [UserBase] The telephone number is not valid: {}, {}.", token_utils::now_string(), nickname, telephone);
+            println!("{} [SimpBase] The telephone number is not valid: {}, {}.", token_utils::now_string(), nickname, telephone);
             return self.get_guest_user_context();
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let user_did = self.didtoken.lock().unwrap().reverse_lookup_did_by_symbol(symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         if user_did == "Unknown" || !self.is_registered(&user_did) {
-            println!("{} [UserBase] The user isn't in local or hasn't been verified by root: nickname={}, telephone={}, symbol={}, user_did={}",
+            println!("{} [SimpBase] The user isn't in local or hasn't been verified by root: nickname={}, telephone={}, symbol={}, user_did={}",
                      token_utils::now_string(), nickname, telephone, symbol_hash_base64, user_did);
             self.remove_user(&symbol_hash_base64);
             return self.get_guest_user_context();
@@ -1077,14 +1082,14 @@ impl SimpleAI {
         if token_utils::is_original_user_key("User", &symbol_hash)  {
             let _ = token_utils::change_phrase_for_pem_and_identity_files(&symbol_hash, &user_phrase, phrase);
         } else {
-            println!("{} [UserBase] The user_key phrase has been changed and can not to be set: {}, {}.",
+            println!("{} [SimpBase] The user_key phrase has been changed and can not to be set: {}, {}.",
                      token_utils::now_string(), nickname, user_did);
             return self.get_guest_user_context();
         }
 
         let context = self.tokenuser.lock().unwrap().sign_user_context(&user_did, phrase);
         if context.is_default() {
-            println!("{} [UserBase] The user maybe in blacklist: {}", token_utils::now_string(), user_did);
+            println!("{} [SimpBase] The user maybe in blacklist: {}", token_utils::now_string(), user_did);
             return self.get_guest_user_context();
         }
         let user_copy_to_cloud = self.get_user_copy_string(&user_did, phrase);
@@ -1098,16 +1103,16 @@ impl SimpleAI {
         let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
         let result = self.request_token_api("submit_user_copy", &params);
         if result.starts_with("Backup_ok") {
-            println!("{} [UserBase] After set phrase, then upload encrypted_user_copy: user_did={}", token_utils::now_string(), user_did);
+            println!("{} [SimpBase] After set phrase, then upload encrypted_user_copy: user_did={}", token_utils::now_string(), user_did);
             context
         } else if result.starts_with("Unknown") {
             //let encoded_params = self.encrypt_for_did(params.as_bytes(), &self.upstream_did.clone() ,0);
             //let user_copy_file = token_utils::get_path_in_sys_key_dir(&format!("user_copy_{}_uncompleted.json", user_did));
             //fs::write(user_copy_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", user_copy_file.display()));
-            println!("{} [UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", token_utils::now_string(), user_did, result);
+            println!("{} [SimpBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", token_utils::now_string(), user_did, result);
             self.get_guest_user_context() //context
         }  else {
-            println!("{} [UserBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", token_utils::now_string(), user_did, result);
+            println!("{} [SimpBase] After set phrase, but upload encrypted_user_copy failed: {}, {}", token_utils::now_string(), user_did, result);
             self.get_guest_user_context()
         }
 
@@ -1142,7 +1147,7 @@ impl SimpleAI {
             let user_did = {
                 match token_utils::exists_and_valid_user_key(&symbol_hash, &phrase) && user_did != "Unknown" {
                     true => {
-                        println!("{} [UserBase] Get user context:{} from local key file: .token_user_{}.pem",
+                        println!("{} [SimpBase] Get user context:{} from local key file: .token_user_{}.pem",
                                  token_utils::now_string(), user_did, user_hash_id);
                         user_did
                     },
@@ -1151,7 +1156,7 @@ impl SimpleAI {
                         match identity_file.exists() {
                             true => {
                                 let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
-                                println!("{} [UserBase] Get user encrypted copy from identity file: {}, {}, len={}, {}",
+                                println!("{} [SimpBase] Get user encrypted copy from identity file: {}, {}, len={}, {}",
                                          token_utils::now_string(), user_did, symbol_hash_base64, encrypted_identity.len(), encrypted_identity);
                                 self.tokenuser.lock().unwrap().import_user(&symbol_hash_base64.clone(), &encrypted_identity, &phrase)
                             }
@@ -1172,18 +1177,18 @@ impl SimpleAI {
                                             let user_copy_from_cloud_array: Vec<&str> = user_copy_from_cloud.split("|").collect();
                                             if user_copy_from_cloud_array.len() >= 3 {
                                                 let encrypted_identity = user_copy_from_cloud_array[0];
-                                                println!("{} [UserBase] Download user encrypted_copy: {}, len={}",
+                                                println!("{} [SimpBase] Download user encrypted_copy: {}, len={}",
                                                          token_utils::now_string(), symbol_hash_base64, encrypted_identity.len());
                                                 debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
                                                 let user_did = self.tokenuser.lock().unwrap().import_user(&symbol_hash_base64, &encrypted_identity, &phrase);
                                                 if user_did != "Unknown" {
                                                     let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                                     fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-                                                    println!("{} [UserBase] Parsing encrypted_copy and save identity_file: {}, {}",
+                                                    println!("{} [SimpBase] Parsing encrypted_copy and save identity_file: {}, {}",
                                                              token_utils::now_string(), user_hash_id, user_did);
 
                                                     if token_utils::exists_and_valid_user_key(&symbol_hash, &phrase) {
-                                                        println!("{} [UserBase] The user encrypted copy is valid: {}", token_utils::now_string(), user_did);
+                                                        println!("{} [SimpBase] The user encrypted copy is valid: {}", token_utils::now_string(), user_did);
 
                                                         let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
                                                             user_copy_from_cloud_array[2]).unwrap(), phrase.as_bytes(), 0).as_slice()).to_string();
@@ -1205,25 +1210,25 @@ impl SimpleAI {
                                                         //    .unwrap_or(UserContext::default()), "add");
                                                         user_did
                                                     } else {
-                                                        println!("{} [UserBase] The user encrypted copy is not valid: {}, user_key is error.", token_utils::now_string(), user_did);
+                                                        println!("{} [SimpBase] The user encrypted copy is not valid: {}, user_key is error.", token_utils::now_string(), user_did);
                                                         "guest".to_string()
                                                     }
                                                 } else {
-                                                    println!("{} [UserBase] The user encrypted copy is not valid: {}, import_user is error.", token_utils::now_string(), user_hash_id);
+                                                    println!("{} [SimpBase] The user encrypted copy is not valid: {}, import_user is error.", token_utils::now_string(), user_hash_id);
                                                     "guest".to_string()
                                                 }
                                             } else {
-                                                println!("{} [UserBase] The user encrypted copy is not valid: {}, user_copy_from_cloud is error.", token_utils::now_string(), user_hash_id);
+                                                println!("{} [SimpBase] The user encrypted copy is not valid: {}, user_copy_from_cloud is error.", token_utils::now_string(), user_hash_id);
                                                 "guest".to_string()
                                             }
                                         },
                                         false => {
-                                            println!("{} [UserBase] The user encrypted copy is not valid: {}, get_user_copy response is error", token_utils::now_string(), user_hash_id);
+                                            println!("{} [SimpBase] The user encrypted copy is not valid: {}, get_user_copy response is error", token_utils::now_string(), user_hash_id);
                                             "guest".to_string()
                                         }
                                     }
                                 } else {
-                                    println!("{} [UserBase] The system is isolated mode, the identity file is no exist: {}", token_utils::now_string(), identity_file.display());
+                                    println!("{} [SimpBase] The system is isolated mode, the identity file is no exist: {}", token_utils::now_string(), identity_file.display());
                                     "guest".to_string()
                                 }
                             }
@@ -1234,14 +1239,14 @@ impl SimpleAI {
             if user_did != "guest" && user_did != "Unknown" {
                 let context = self.tokenuser.lock().unwrap().sign_user_context(&user_did, &phrase);
                 if context.is_default() {
-                    println!("{} [UserBase] The user hasn't been verified by root or in blacklist: {}", token_utils::now_string(), user_did);
+                    println!("{} [SimpBase] The user hasn't been verified by root or in blacklist: {}", token_utils::now_string(), user_did);
                     self.get_guest_user_context()
                 } else { context }
             } else {
                 self.get_guest_user_context()
             }
         } else {
-            println!("{} [UserBase] The telephone is not valid: {}", token_utils::now_string(), telephone);
+            println!("{} [SimpBase] The telephone is not valid: {}", token_utils::now_string(), telephone);
             self.get_guest_user_context()
         }
     }
@@ -1266,7 +1271,7 @@ impl SimpleAI {
                         let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
                         fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
                     }
-                    println!("{} [UserBase] Unbind user({}) from node({}): {}", token_utils::now_string(), user_did, self.get_sys_did(), result);
+                    println!("{} [SimpBase] Unbind user({}) from node({}): {}", token_utils::now_string(), user_did, self.get_sys_did(), result);
                 }
 
                 // release user token and context

@@ -42,7 +42,7 @@ impl TokenDB {
             trees.insert("phone_tree".to_string(), phones);
 
             sled_db = Some(sled_db1);
-            println!("{} [SimpAI] Initialize the local db: {}", token_utils::now_string(), db_path.display());
+            println!("{} [SimpBase] Initialize the local db: {}", token_utils::now_string(), db_path.display());
         }
         Self {
             sled_db: Arc::new(RwLock::new(sled_db)),

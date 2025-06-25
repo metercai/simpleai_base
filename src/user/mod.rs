@@ -107,7 +107,7 @@ impl TokenUser {
         let identity = self.export_user(&nickname, &user_telephone, &phrase);
         let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
-        println!("{} [UserBase] Create user and save identity_file: {}", token_utils::now_string(), identity_file.display());
+        println!("{} [SimpBase] Create user and save identity_file: {}", token_utils::now_string(), identity_file.display());
 
         (user_did, phrase)
     }
@@ -121,7 +121,7 @@ impl TokenUser {
             let claim = didtoken.get_claim(&user_did);
             (user_did, claim)
         };
-        debug!("{} [UserBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
+        debug!("{} [SimpBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
         if user_did != "Unknown" {
             if !claim.is_default() {
                 let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
@@ -152,7 +152,7 @@ impl TokenUser {
         }
 
         let user_did = self.didtoken.lock().unwrap().add_crypt_secret_for_user(&user_claim, phrase);
-        debug!("{} [UserBase] Import user: {}", token_utils::now_string(), user_did);
+        debug!("{} [SimpBase] Import user: {}", token_utils::now_string(), user_did);
 
         user_did
     }
@@ -166,7 +166,7 @@ impl TokenUser {
             let claim = didtoken.get_claim(&user_did);
             (user_did, claim)
         };
-        println!("{} [UserBase] Export user: {}, nickname={}, telephone={}", token_utils::now_string(), user_did, nickname, telephone);
+        println!("{} [SimpBase] Export user: {}, nickname={}, telephone={}", token_utils::now_string(), user_did, nickname, telephone);
 
         URL_SAFE_NO_PAD.encode(token_utils::export_identity(&nickname, telephone, claim.timestamp, phrase))
     }
@@ -236,7 +236,7 @@ impl TokenUser {
                 context.set_pending(false); 
                 self.global_local_vars.write().unwrap().add_allowed_did(did, "web");
                 let admin_did = self.didtoken.lock().unwrap().get_admin_did();
-                println!("{} [UserBase] Set admin_did/设置系统管理 = {}", token_utils::now_string(), admin_did);
+                println!("{} [SimpBase] Set admin_did/设置系统管理 = {}", token_utils::now_string(), admin_did);
             }
             let _ = self.token_db.write().unwrap().insert("authorized", &format!("{}_{}", did, self.get_sys_did()), &context.to_json_string());
             if did == self.get_guest_did() {

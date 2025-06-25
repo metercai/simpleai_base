@@ -68,7 +68,7 @@ impl SystemKeys {
             true => {
                 let mut device_key = read_key_or_generate_key("Device", &id_hash, "None", false, true);
                 if device_key == [0u8; 32] {
-                    println!("{} [UserBase] Device key is invalid, it will be regenerate for your device, then the system will restore default.", now_string());
+                    println!("{} [SimpBase] Device key is invalid, it will be regenerate for your device, then the system will restore default.", now_string());
                     device_key = read_key_or_generate_key("Device", &id_hash, "None", true, true);
                     regenerated = true;
                 }
@@ -83,7 +83,7 @@ impl SystemKeys {
             true => {
                 let mut system_key = read_key_or_generate_key("System", &id_hash, "None", false, true);
                 if system_key == [0u8; 32] {
-                    println!("{} [UserBase] System key is invalid, it will be regenerate for your system, then the system will restore default.", now_string());
+                    println!("{} [SimpBase] System key is invalid, it will be regenerate for your system, then the system will restore default.", now_string());
                     system_key = read_key_or_generate_key("System", &id_hash, "None", true, true);
                     regenerated = true;
                 }
@@ -106,7 +106,7 @@ impl SystemKeys {
         let (dev_hash_id, device_phrase) = get_key_hash_id_and_phrase("Device", &id_hash);
         let (sys_hash_id, system_phrase) = get_key_hash_id_and_phrase("System", &id_hash);
         
-        println!("{} [SimpAI] SystemKeys has loaded: system({system_name}, {sys_hash_id}), device({device_name}, {dev_hash_id}).", now_string());
+        println!("{} [SimpBase] SystemKeys has loaded: system({system_name}, {sys_hash_id}), device({device_name}, {dev_hash_id}).", now_string());
         Self {
             system_key,
             device_key,
@@ -139,7 +139,7 @@ pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>
         let crypt_secret = get_specific_secret_key(
             "exchange",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase);
         if crypt_secret == [0u8; 32] {
-            println!("{} [UserBase] exchange key generate fail!", now_string());
+            println!("{} [SimpBase] exchange key generate fail!", now_string());
         }
         crypt_secrets.insert(exchange_key!(did), URL_SAFE_NO_PAD.encode(crypt_secret));
         }
@@ -147,7 +147,7 @@ pub(crate) fn init_user_crypt_secret(crypt_secrets: &mut HashMap<String, String>
         let crypt_secret = get_specific_secret_key(
             "issue",claim.id_type.as_str(), &claim.get_symbol_hash(), &phrase);
         if crypt_secret == [0u8; 32] {
-            println!("{} [UserBase] issue key generate fail!", now_string());
+            println!("{} [SimpBase] issue key generate fail!", now_string());
         }
         crypt_secrets.insert(issue_key!(did), URL_SAFE_NO_PAD.encode(crypt_secret));
         }
@@ -163,7 +163,7 @@ pub(crate) fn load_token_of_user_certificates(sys_did: &str, certificates: &mut 
             match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("{} [UserBase] read user_certificates file error: {}", now_string(), e);
+                    println!("{} [SimpBase] read user_certificates file error: {}", now_string(), e);
                     return
                 },
             }
@@ -254,7 +254,7 @@ pub(crate) fn load_token_of_issued_certs(sys_did: &str, issued_certs: &mut HashM
             match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("{} [UserBase] read user issued certificates file error: {}", now_string(), e);
+                    println!("{} [SimpBase] read user issued certificates file error: {}", now_string(), e);
                     return
                 },
             }
@@ -316,7 +316,7 @@ pub(crate) fn load_token_by_authorized2system(sys_did: &str, crypt_secrets: &mut
             let token_raw_data = match fs::read(token_file) {
                 Ok(data) => data,
                 Err(e) => {
-                    println!("{} [UserBase] read authorized2system file error: {}", now_string(), e);
+                    println!("{} [SimpBase] read authorized2system file error: {}", now_string(), e);
                     return String::from("");
                 },
             };
@@ -378,7 +378,7 @@ pub(crate) fn load_did_blacklist_from_file() -> Vec<String>  {
 pub(crate) fn get_or_create_user_context_token(did: &str, sys_did: &str, nickname: &str, id_type: &str, symbol_hash: &[u8; 32], phrase: &str) -> UserContext {
     let context = get_user_token_from_file(did, sys_did);
     if context.is_default() {
-        debug!("[UserBase] Create user context token: {}", did);
+        debug!("[SimpBase] Create user context token: {}", did);
         let default_permissions = "standard".to_string();
         let default_private_paths = serde_json::to_string(
             &vec!["config", "presets", "wildcards", "styles", "workflows"]).unwrap_or("".to_string());
@@ -394,7 +394,7 @@ pub(crate) fn get_or_create_user_context_token(did: &str, sys_did: &str, nicknam
         context
     }
     /*
-            println!("[UserBase] Renew user context token: {}", did);
+            println!("[SimpBase] Renew user context token: {}", did);
             let mut context_renew = get_user_token_from_file(did, sys_did);
             context_renew.set_sys_did(sys_did);
             let crypt_key = get_specific_secret_key("context", id_type, symbol_hash, phrase);
@@ -423,7 +423,7 @@ pub(crate) fn get_user_token_from_file(did: &str, sys_did: &str) -> UserContext 
                     match fs::read(user_token_file) {
                         Ok(data) => data,
                         Err(e) => {
-                            println!("{} [UserBase] read user issued certificates file error: {}", now_string(), e);
+                            println!("{} [SimpBase] read user issued certificates file error: {}", now_string(), e);
                             return UserContext::default()
                         },
                     }
@@ -717,7 +717,7 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
                 pkey
             },
             Err(_e) => {
-                println!("{} [UserBase] Read key file error: {}", now_string(), _e);
+                println!("{} [SimpBase] Read key file error: {}", now_string(), _e);
                 let pkey: [u8; 32] = [0; 32];
                 pkey
             },
@@ -727,7 +727,7 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
         PrivateKeyInfo::new(ALGORITHM_ID, &priv_key)
             .encrypt(csprng, &new_phrase_bytes).unwrap()
             .write_pem_file(user_key_file.clone(), pem_label, LineEnding::default()).unwrap();
-        println!("{} [UserBase] Change phrase for user_key_file: {}", now_string(), user_key_file.display());
+        println!("{} [SimpBase] Change phrase for user_key_file: {}", now_string(), user_key_file.display());
     }
     let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
     if identity_file.exists() {
@@ -771,9 +771,9 @@ pub(crate) fn change_phrase_for_pem_and_identity_files(symbol_hash: &[u8; 32], o
             let encrypted_identity_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity.clone());
             debug!("export, encrypted_identity: len={}, {}", encrypted_identity.len(), encrypted_identity_base64);
             fs::write(identity_file.clone(), encrypted_identity_base64).expect(&format!("Unable to write file: {}", identity_file.display()));
-            println!("{} [UserBase] Change phrase for identity_file: {}", now_string(), identity_file.display());
+            println!("{} [SimpBase] Change phrase for identity_file: {}", now_string(), identity_file.display());
         } else {
-            println!("{} [UserBase] Change phrase for identity_file, parsing encrypted_identity error: {}", now_string(), identity_file.display());
+            println!("{} [SimpBase] Change phrase for identity_file, parsing encrypted_identity error: {}", now_string(), identity_file.display());
         }
     }
 }
@@ -867,10 +867,10 @@ pub(crate) fn read_key_or_generate_key(key_type: &str, symbol_hash: &[u8; 32], p
                         },
                         Err(_e) => {
                             if regen {
-                                debug!("[UserBase] Read private key error and generate new key: {}", file_path.display());
+                                debug!("[SimpBase] Read private key error and generate new key: {}", file_path.display());
                                 generate_new_key_and_save_pem(file_path, &phrase_bytes)
                             } else {
-                                println!("{} [SimpAI] Read key error and return 0 key: {}", now_string(), file_path.display());
+                                println!("{} [SimpBase] Read key error and return 0 key: {}", now_string(), file_path.display());
                                 [0; 32]
                             }
                         },
@@ -943,7 +943,7 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
             fs::create_dir_all(parent_dir).unwrap();
         }
     }
-    println!("{} [SimpAI] generate new key and save: {}", now_string(), file_path.file_name().unwrap_or_default().to_string_lossy());
+    println!("{} [SimpBase] generate new key and save: {}", now_string(), file_path.file_name().unwrap_or_default().to_string_lossy());
     let sysinfo = &SYSTEM_BASE_INFO;
 
     let pem_label = "SIMPLE_AI_KEY";
@@ -1144,11 +1144,11 @@ pub(crate) fn import_identity(symbol_hash_base64: &str, encrypted_identity: &Vec
             let mut user_claim = LocalClaims::generate_did_claim("User", nickname, Some(telephone), None, &phrase, Some(timestamp));
             user_claim
         } else {
-            println!("{} [UserBase] import_identity: Invalid identity secret", now_string());
+            println!("{} [SimpBase] import_identity: Invalid identity secret", now_string());
             IdClaim::default()
         }
     } else {
-        println!("{} [UserBase] import_identity: Invalid identity string", now_string());
+        println!("{} [SimpBase] import_identity: Invalid identity string", now_string());
         IdClaim::default()
     }
 }
@@ -1168,7 +1168,7 @@ pub(crate) fn import_identity_qrcode(encrypted_identity: &Vec<u8>) -> (String, S
         let (user_hash_id, _user_phrase) = get_key_hash_id_and_phrase("User", &symbol_hash);
         let identity_file = get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), URL_SAFE_NO_PAD.encode(encrypted_identity)).expect(&format!("Unable to write file: {}", identity_file.display()));
-        debug!("{} [UserBase] Import from qrcode and save identity_file: did={}, nickname={}", now_string(), user_did, nickname);
+        debug!("{} [SimpBase] Import from qrcode and save identity_file: did={}, nickname={}", now_string(), user_did, nickname);
         if telephone == 0 {
             (user_did, nickname, "".to_string(), user_cert)
         } else { (user_did, nickname, telephone.to_string(), user_cert) }

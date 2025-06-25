@@ -109,14 +109,14 @@ impl DidToken {
             let mut systemskeys = systemskeys.lock().unwrap();
             systemskeys.was_regenerated()
         };
-        println!("{} [SimpAI] SystemKeys::instance()", token_utils::now_string());
+        //println!("{} [SimpBase] SystemKeys::instance()", token_utils::now_string());
         
         let guest_symbol_hash = get_key_symbol_hash("Guest");
         let mut guest_key = match token_utils::exists_key_file("User", &guest_symbol_hash) {
             true => {
                 let mut guest_key = token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, false, true);
                 if guest_key == [0u8; 32] {
-                    println!("{} [UserBase] Guest key is invalid, it will be regenerate for your system, then the system will restore default.", token_utils::now_string());
+                    println!("{} [SimpBase] Guest key is invalid, it will be regenerate for your system, then the system will restore default.", token_utils::now_string());
                     guest_key = token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, true, true);
                 }
                 guest_key
@@ -133,13 +133,12 @@ impl DidToken {
             let mut claims = claims.lock().unwrap();
             claims.local_claims.get_sys_dev_guest_did(was_regenerated)
         };
-        println!("{} [SimpAI] System has loaded: system_name({}), device_name({}), guest_name({})",
+        println!("{} [SimpBase] System has loaded: system_name({}), device_name({}), guest_name({})",
             token_utils::now_string(), system_name, device_name, guest_name);
 
         let mut crypt_secrets = HashMap::new();
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
-        println!("{} [SimpAI] System load_token_by_authorized2system: admin({})",
-            token_utils::now_string(), admin);
+        //println!("{} [SimpBase] System load_token_by_authorized2system: admin({})", token_utils::now_string(), admin);
 
         let crypt_secrets_len = crypt_secrets.len();
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
@@ -150,7 +149,7 @@ impl DidToken {
         if crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
         }
-        println!("{} [SimpAI] Guest has loaded: guest_name({}, {})", token_utils::now_string(), guest_name, guest_hash_id);
+        //println!("{} [SimpBase] Guest has loaded: guest_name({}, {})", token_utils::now_string(), guest_name, guest_hash_id);
 
 
         let sysinfo = TOKIO_RUNTIME.block_on(async {
@@ -294,7 +293,7 @@ impl DidToken {
                             .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
-                        debug!("{} [UserBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
+                        debug!("{} [SimpBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
                             token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo);
                         debug!("cert_secret_key:{}, cert_text:{}, sig:{}", URL_SAFE_NO_PAD.encode(cert_secret), cert_text, sig);
                         if for_sys_did == self.did {
@@ -306,7 +305,7 @@ impl DidToken {
                 }
             }
         }
-        println!("{} [UserBase] Sign and issue a cert by did: invalid params", token_utils::now_string());
+        println!("{} [SimpBase] Sign and issue a cert by did: invalid params", token_utils::now_string());
         ("Unknown".to_string(), "Unknown".to_string())
     }
 

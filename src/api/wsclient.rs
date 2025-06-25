@@ -111,7 +111,7 @@ impl WsClient {
     }
 
     async fn connect_and_run(self: Arc<Self>) -> Result<()> {
-        println!("Connecting to WebSocket server at {}", self.ws_url);
+        info!("Connecting to WebSocket server at {}", self.ws_url);
         let (mut ws_stream, _) = connect_async(&self.ws_url).await?;
         let (mut write_ws, mut read_ws) = ws_stream.split();
         let mut receiver = self.shutdown_sender.subscribe();
@@ -214,7 +214,7 @@ impl WsClient {
             }
 
             if tokio::time::Instant::now().duration_since(last_pong) > pong_timeout {
-                println!("No Pong received, reconnecting...");
+                debug!("No Pong received, reconnecting...");
                 break;
             }
         }

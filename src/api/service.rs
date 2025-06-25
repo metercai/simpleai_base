@@ -43,7 +43,7 @@ fn init_api_port() -> u16 {
         match REQWEST_CLIENT_SYNC.get(format!("http://127.0.0.1:{}/api/check_sys", port)).send() {
             Ok(resp) => {
                 if resp.status().is_success() {
-                    println!("{} [SimpAI] REST service was running at: 127.0.0.1:{}", token_utils::now_string(), port);
+                    println!("{} [SimpBase] REST service was running at: 127.0.0.1:{}", token_utils::now_string(), port);
                     return port
                 }
             }
@@ -148,7 +148,7 @@ pub fn start_rest_server() -> bool{
     let address = Ipv4Addr::LOCALHOST;
     let mut port = *API_PORT.lock().unwrap();
     if port != 0 {
-        println!("{} [SimpAI] REST service is already running at: http://{}:{}", token_utils::now_string(), address, port);
+        println!("{} [SimpBase] REST service is already running at: http://{}:{}", token_utils::now_string(), address, port);
         return false;
     }
     port =  TOKIO_RUNTIME.block_on(async move {
@@ -335,12 +335,12 @@ pub fn start_rest_server() -> bool{
         let routes = routes_rest.or(routes_ws);
         warp::serve(routes).run((address, port)).await;
 
-        println!("{} [SimpAI] REST server at http://{}:{} has shut down.", 
+        println!("{} [SimpBase] REST server at http://{}:{} has shut down.", 
                  token_utils::now_string(), address, port);
         *API_PORT.lock().unwrap() = 0;
         let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
         if let Err(e) = std::fs::remove_file(&port_file_path) {
-            eprintln!("{} [SimpAI] INFO: Could not remove port file {}: {}", 
+            eprintln!("{} [SimpBase] INFO: Could not remove port file {}: {}", 
                       token_utils::now_string(), port_file_path.display(), e);
         }
         if let Ok(mut server_handle) = SERVER_HANDLE.try_lock() {
@@ -350,27 +350,27 @@ pub fn start_rest_server() -> bool{
     *SERVER_HANDLE.lock().unwrap() = Some(server);
     let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
     if let Err(e) = std::fs::write(&port_file_path, port.to_string()) {
-        eprintln!("{} [SimpAI] ERROR: Failed to write port {} to {}: {}. Server will run, but other instances might not find it via file.", 
+        eprintln!("{} [SimpBase] ERROR: Failed to write port {} to {}: {}. Server will run, but other instances might not find it via file.", 
                     token_utils::now_string(), port, port_file_path.display(), e);
     }
     *API_PORT.lock().unwrap() = port;
-    println!("{} [SimpAI] REST server started at: http://{}:{}", token_utils::now_string(), address, port);
+    println!("{} [SimpBase] REST server started at: http://{}:{}", token_utils::now_string(), address, port);
     true
 }
 
 pub fn stop_rest_server() {
     let mut server_handle = SERVER_HANDLE.lock().unwrap();
     if let Some(handle) = server_handle.take() {
-        println!("{} [SimpAI] 正在停止REST服务器...", token_utils::now_string());
+        println!("{} [SimpBase] 正在停止REST服务器...", token_utils::now_string());
         // 中止任务
         handle.abort();
         
         // 可选：等待任务完成（在某些情况下可能需要）
         TOKIO_RUNTIME.block_on(async {
             match handle.await {
-                Ok(_) => println!("{} [SimpAI] REST服务器已正常停止", token_utils::now_string()),
-                Err(e) if e.is_cancelled() => println!("{} [SimpAI] REST服务器已被中止", token_utils::now_string()),
-                Err(e) => eprintln!("{} [SimpAI] 停止REST服务器时发生错误: {}", token_utils::now_string(), e),
+                Ok(_) => println!("{} [SimpBase] REST服务器已正常停止", token_utils::now_string()),
+                Err(e) if e.is_cancelled() => println!("{} [SimpBase] REST服务器已被中止", token_utils::now_string()),
+                Err(e) => eprintln!("{} [SimpBase] 停止REST服务器时发生错误: {}", token_utils::now_string(), e),
             }
         });
         
@@ -378,7 +378,7 @@ pub fn stop_rest_server() {
         let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
         if port_file_path.exists() {
             if let Err(e) = std::fs::remove_file(&port_file_path) {
-                eprintln!("{} [SimpAI] 无法删除端口文件 {}: {}", 
+                eprintln!("{} [SimpBase] 无法删除端口文件 {}: {}", 
                           token_utils::now_string(), port_file_path.display(), e);
             }
         }
@@ -386,7 +386,7 @@ pub fn stop_rest_server() {
         // 重置端口
         *API_PORT.lock().unwrap() = 0;
     } else {
-        println!("{} [SimpAI] REST服务器未运行", token_utils::now_string());
+        println!("{} [SimpBase] REST服务器未运行", token_utils::now_string());
     }
 }
 
@@ -426,8 +426,7 @@ async fn handle_socket(
 
     // 注册连接
     ws_manager.write().await.insert(connection_id.clone(), connection);
-    println!("{} [SimpBase] WebSocket client({}) connected", 
-             token_utils::now_string(), connection_id);
+    println!("{} [SimpBase] WebSocket client({}) connected", token_utils::now_string(), connection_id);
 
     // 处理消息
     while let Some(result) = ws_receiver.next().await {
@@ -440,21 +439,20 @@ async fn handle_socket(
                     let ping_time = u128::from_be_bytes(msg.clone().into_bytes().try_into().unwrap());
                     let delay = tokio::time::Instant::now().elapsed().as_micros() - ping_time;
                     
-                    println!("{} [SimpBase] WebSocket client({}) ping_delay={}", 
-                            token_utils::now_string(), connection_id, delay);
+                    info!("{} [SimpBase] WebSocket client({}) ping_delay={}", token_utils::now_string(), connection_id, delay);
                     let mut sender = connection.sender.lock().await;
                     if let Err(e) = sender.as_mut().unwrap().send(Message::pong(msg)).await {
-                        eprintln!("{} [SimpBase] 发送Pong响应时发生错误: {}",
+                        error!("{} [SimpBase] 发送Pong响应时发生错误: {}",
                                   token_utils::now_string(), e);
                     }
                 } else if msg.is_binary() {
                     handle_ws_message(&connection_id, msg.into_bytes()).await;
                 } else if msg.is_close() {
-                    println!("{} [SimpBase] WebSocket client({}) is disconnecting.", 
+                    debug!("{} [SimpBase] WebSocket client({}) is disconnecting.", 
                             token_utils::now_string(), connection_id);
                     let mut sender = connection.sender.lock().await;
                     if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
-                        eprintln!("{} [SimpBase] 发送关闭消息时发生错误: {}",
+                        error!("{} [SimpBase] 发送关闭消息时发生错误: {}",
                                   token_utils::now_string(), e);
                     }
                     break;
@@ -462,14 +460,14 @@ async fn handle_socket(
                 
             }
             Err(e) => {
-                eprintln!("{} [SimpBase] WebSocket error: {}", 
+                error!("{} [SimpBase] WebSocket error: {}", 
                           token_utils::now_string(), e);
                 let ws_lock = ws_manager.read().await;
                 let connection = ws_lock.get(&connection_id).unwrap().clone();
                 drop(ws_lock);
                 let mut sender = connection.sender.lock().await;
                 if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
-                    eprintln!("{} [SimpBase] 发送关闭消息时发生错误: {}",
+                    error!("{} [SimpBase] 发送关闭消息时发生错误: {}",
                                 token_utils::now_string(), e);
                 }
                 break;
@@ -479,8 +477,7 @@ async fn handle_socket(
 
     // 清理连接
     cleanup_connection(&connection_id).await;
-    println!("{} [SimpBase] WebSocket client({}) disconnected", 
-             token_utils::now_string(), connection_id);
+    info!("{} [SimpBase] WebSocket client({}) disconnected", token_utils::now_string(), connection_id);
 }
 
 // 处理WebSocket的上行消息
@@ -590,18 +587,18 @@ async fn handle_auth(
         // 遍历所有connection，检查是否有相同client_did的连接，有则关闭
         for (id, conn) in ws_lock.iter() {
             if conn.client_did == Some(client_did.clone()) && id != connection_id {
-                println!("{} [SimpAI] WebSocket client({}): client_did={} is already connected, closing...",
+                debug!("{} [SimpBase] WebSocket client({}): client_did={} is already connected, closing...",
                          token_utils::now_string(), id, client_did);
                 let mut sender = conn.sender.lock().await;
                 if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
-                    eprintln!("{} [SimpAI] 发送关闭消息时发生错误: {}",
+                    error!("{} [SimpBase] 发送关闭消息时发生错误: {}",
                               token_utils::now_string(), e);
                 }
                 cleanup_connection(id).await;
             }
         }
         drop(ws_lock);
-        println!("{} [SimpAI] WebSocket client({}): client_did={}, client_name={}", 
+        info!("{} [SimpBase] WebSocket client({}): client_did={}, client_name={}", 
              token_utils::now_string(), connection_id, client_did, client_name);
         
         send_to_connection(
