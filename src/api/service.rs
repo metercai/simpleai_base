@@ -43,7 +43,7 @@ fn init_api_port() -> u16 {
         match REQWEST_CLIENT_SYNC.get(format!("http://127.0.0.1:{}/api/check_sys", port)).send() {
             Ok(resp) => {
                 if resp.status().is_success() {
-                    println!("{} [SimpBase] REST service was running at: 127.0.0.1:{}", token_utils::now_string(), port);
+                    println!("{} [SimpBase] REST service is online.", token_utils::now_string());
                     return port
                 }
             }
@@ -148,7 +148,7 @@ pub fn start_rest_server() -> bool{
     let address = Ipv4Addr::LOCALHOST;
     let mut port = *API_PORT.lock().unwrap();
     if port != 0 {
-        println!("{} [SimpBase] REST service is already running at: http://{}:{}", token_utils::now_string(), address, port);
+        info!("{} [SimpBase] REST service is already running at: http://{}:{}", token_utils::now_string(), address, port);
         return false;
     }
     port =  TOKIO_RUNTIME.block_on(async move {

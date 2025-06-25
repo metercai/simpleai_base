@@ -133,9 +133,7 @@ impl DidToken {
             let mut claims = claims.lock().unwrap();
             claims.local_claims.get_sys_dev_guest_did(was_regenerated)
         };
-        println!("{} [SimpBase] System has loaded: system_name({}), device_name({}), guest_name({})",
-            token_utils::now_string(), system_name, device_name, guest_name);
-
+        
         let mut crypt_secrets = HashMap::new();
         let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
         //println!("{} [SimpBase] System load_token_by_authorized2system: admin({})", token_utils::now_string(), admin);

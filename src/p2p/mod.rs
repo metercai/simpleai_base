@@ -83,7 +83,7 @@ impl P2pServer {
             Ok(p2p) => {
                 let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                 *p2p_instance_guard = Some(p2p.clone());
-                println!("{} P2P service startup successfully!", token_utils::now_string());
+                println!("{} [SimpBase] P2P service startup successfully!", token_utils::now_string());
                 Ok(p2p)
             },
             Err(e) => {
@@ -182,14 +182,14 @@ impl P2pServer {
         }
         let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
         *p2p_instance_guard = None;
-        println!("{} P2P service({}/{}) stop successfully!", token_utils::now_string(), sys_did, node_did);
+        println!("{} [SimpBase] P2P service({}/{}) stop successfully!", token_utils::now_string(), sys_did, node_did);
     }
 
     async fn _stop(&self) {
         let _ = self.client.stop().await;
         if let Some(handle) = &self.handle {
             handle.abort();
-            println!("[P2pNode] P2P service stopped");
+            debug!("[P2pNode] P2P service stopped");
         }
     }
 
