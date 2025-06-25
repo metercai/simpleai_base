@@ -1203,11 +1203,11 @@ async fn handle_p2p_mgr(
     if p2p_server.is_none() && action == "turn_on" {
         match p2p::P2pServer::start().await {
             Ok(_p2p) => {
-                println!("P2P server started successfully");
+                debug!("P2P server started successfully");
                 p2p_server= Some(_p2p);
             }
             Err(e) => {
-                println!("Failed to start P2P server: {}", e);
+                error!("Failed to start P2P server: {}", e);
             }
         }
     }
@@ -1215,7 +1215,7 @@ async fn handle_p2p_mgr(
         let res = p2p_server.as_ref().unwrap().get_node_status().await;
         if action == "turn_off" {
             p2p::P2pServer::stop().await;
-            println!("P2P server stopped successfully");
+            debug!("P2P server stopped successfully");
         }
         let p2p_status = P2pStatus {
             node_id: res.local_peer_id.clone(),
