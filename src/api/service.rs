@@ -439,7 +439,7 @@ async fn handle_socket(
                     let ping_time = u128::from_be_bytes(msg.clone().into_bytes().try_into().unwrap());
                     let delay = tokio::time::Instant::now().elapsed().as_micros() - ping_time;
                     
-                    info!("{} [SimpBase] WebSocket client({}) ping_delay={}", token_utils::now_string(), connection_id, delay);
+                    println!("{} [SimpBase] WebSocket client({}) ping_delay={}", token_utils::now_string(), connection_id, delay);
                     let mut sender = connection.sender.lock().await;
                     if let Err(e) = sender.as_mut().unwrap().send(Message::pong(msg)).await {
                         error!("{} [SimpBase] 发送Pong响应时发生错误: {}",
@@ -460,7 +460,7 @@ async fn handle_socket(
                 
             }
             Err(e) => {
-                error!("{} [SimpBase] WebSocket error: {}", 
+                error!("{} [SimpBase] WebSocket error1: {}", 
                           token_utils::now_string(), e);
                 let ws_lock = ws_manager.read().await;
                 let connection = ws_lock.get(&connection_id).unwrap().clone();
@@ -477,7 +477,7 @@ async fn handle_socket(
 
     // 清理连接
     cleanup_connection(&connection_id).await;
-    info!("{} [SimpBase] WebSocket client({}) disconnected", token_utils::now_string(), connection_id);
+    println!("{} [SimpBase] WebSocket client({}) disconnected", token_utils::now_string(), connection_id);
 }
 
 // 处理WebSocket的上行消息
@@ -1198,7 +1198,7 @@ async fn handle_p2p_put_msg(
 async fn handle_p2p_mgr(
     action: String,
 ) -> Result<impl Reply, Rejection> {
-    println!("handle_p2p_mgr: {}", action);
+    debug!("handle_p2p_mgr: {}", action);
     let mut p2p_server = p2p::get_instance().await;
     if p2p_server.is_none() && action == "turn_on" {
         match p2p::P2pServer::start().await {
