@@ -258,6 +258,8 @@ impl SimpleAI {
     }
 
     pub(crate) fn p2p_start(&mut self) -> String {
+        println!("p2p_start: {:?}", self.p2p_status);
+        
         let result = api::request_api_sync("p2p_mgr/turn_on", None as Option<serde_json::Value>)
             .unwrap_or_else(|e| {
                 error!("p2p_turn_on error: {}", e);
