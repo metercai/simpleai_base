@@ -389,8 +389,10 @@ impl<E: EventHandler> Server<E> {
         }
         if !is_global {
             let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
-            println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
-                token_utils::now_string(), short_node_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
+            if (debug & (1 << 0)) != 0 {
+                println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
+                    token_utils::now_string(), short_node_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
+            }
         }
         for node in upstream_nodes.iter() {
             /*let node_addr = Multiaddr::from_str(format!("{}/p2p/{}", node.address(), node.peer_id()).as_str())?;

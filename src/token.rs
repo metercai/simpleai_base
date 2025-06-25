@@ -1361,7 +1361,7 @@ impl SimpleAI {
         let start = Instant::now();
         let mut feedback_code = 0;
         //if !EnvData::check_basepkg(&root) {
-        //    println!("[SimpleAI] 程序所需基础模型包有检测异常，未完全正确安装。请检查并正确安装后，再启动程序。");
+        //    println!("[SimpBase] 程序所需基础模型包有检测异常，未完全正确安装。请检查并正确安装后，再启动程序。");
         //    feedback_code += 2;
         //}
         let mut sysinfo = self.get_sysinfo();
@@ -1370,7 +1370,7 @@ impl SimpleAI {
                 break;
             }
             if start.elapsed() > Duration::from_secs(15) {
-                println!("{} [SimpleAI] 系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。", token_utils::now_string());
+                println!("{} [SimpBase] 系统检测异常，继续运行会影响程序正确执行。请检查系统环境后，重新启动程序。", token_utils::now_string());
                 feedback_code += 1;
                 break;
             }
@@ -1387,7 +1387,7 @@ impl SimpleAI {
                 format!("{}-{}", sysinfo.pyhash, (now_sec/100000*100000).to_string())
                     .as_bytes()));
 
-            println!("{} [SimpleAI] 所运行程序为非官方正式版本，请正确使用开源软件，{}。", token_utils::now_string(), &pyhash_display[..16]);
+            println!("{} [SimpBase] 所运行程序为非官方正式版本，请正确使用开源软件，{}。", token_utils::now_string(), &pyhash_display[..16]);
             feedback_code += 4;
         }
 
