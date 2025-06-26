@@ -335,6 +335,16 @@ impl SimpleAI {
         self.p2p_status.as_ref().map_or(false, |status| status.node_id != "")
     }
 
+    pub fn get_p2p_address(&mut self) -> String {
+        if !self.get_p2p_is_running() {
+            return "".to_string();
+        }
+        let p2p_node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
+        let short_sys_did = self.get_sys_did().chars().take(7).collect::<String>();
+        let p2p_address = format!("{}.{}", short_sys_did, p2p_node_did); 
+        p2p_address
+    }
+
     pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>, target_did: Option<String>, mode: Option<String>) -> String {
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
         let target_did = target_did.unwrap_or(p2p_out_did_list.clone());
@@ -342,9 +352,7 @@ impl SimpleAI {
         if IdClaim::validity(&target_node_did) {
             error!("request_remote_task({}) error: target_node_did({}) is invalid", task_id, target_did);             
         }
-        let p2p_node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
-        let short_sys_did = self.get_sys_did().chars().take(7).collect::<String>();
-        let task_id = format!("{}@{}.{}", task_id, short_sys_did, p2p_node_did); //包含源did信息的task_id
+        let task_id = format!("{}@{}", task_id, self.get_p2p_address()); //包含源did信息的task_id
 
         if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out") {
             let request = P2pRequest {
