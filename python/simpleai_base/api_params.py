@@ -166,3 +166,29 @@ def convert_dict(args):
         args_dict['scene_canvas_image'] = { 'image': args_dict['scene_canvas_image'], 'mask': args_dict.pop('scene_canvas_mask') }
         
     return args_dict
+
+def convert_images(args, img2img_func):
+    images_index = [19, 21, 23, 25, 75]
+    for i in images_index:
+        if args[i] is not None:
+            if i==21:
+                image = args[i]['image']
+                mask = args[i]['mask']
+                args[i]['image'] = img2img_func(image)
+                args[i]['mask'] = img2img_func(mask)
+            else:
+                args[i] = img2img_func(args[i])
+    if args[67][7] is not None:
+        args[67][7] = img2img_func(args[67][7])
+    if args[67][8] is not None:
+        args[67][8] = img2img_func(args[67][8])
+    if args[67][9] is not None:
+        args[67][9] = img2img_func(args[67][9])
+    if args[67][10] is not None:
+        args[67][10] = img2img_func(args[67][10])
+    for i in range(len(args[71])):
+        if args[71][i][0] is not None:
+            args[71][i][0] = img2img_func(args[71][i][0])
+
+    return args
+

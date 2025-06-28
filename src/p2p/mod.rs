@@ -435,13 +435,15 @@ impl P2pServer {
     }
 
     pub async fn response_task(&self, task_id: String, body: Bytes, mode: &str) -> String {
-        let target_did = self.pending_task.lock().unwrap()
-            .get(&task_id).unwrap_or(&String::new()).clone();
-        if target_did.is_empty() {
+        let target_full_did = task_id.split_once('@').map(|(_, after)| after).unwrap_or(&task_id).to_string();
+        let target_node = target_full_did.split_once('.').map(|(_, after)| after).unwrap_or(&target_full_did).to_string();
+        let target_sys = target_full_did.split_once('.').map(|(before, _)| before).unwrap_or(&target_full_did).to_string();
+        
+        if target_node.is_empty() {
             tracing::warn!("target_did is empty");
             return String::new();
         }
-        let response = self.request(target_did, body, mode).await;
+        let response = self.request(target_node, body, mode).await;
         if mode == "sync" {
             String::from_utf8(response).unwrap_or(String::new())
         } else {
@@ -555,108 +557,54 @@ impl EventHandler for Handler {
                     return Ok(format!("target did error: {}", target_did).as_bytes().to_vec());
                 }
                 tracing::info!("📣 <<<< Inbound REQUEST with P2P: method={}, task_id={}, task_method={}, target_did={}", req.method, req.task_id, req.task_method, target_did);
-                match req.method.as_str() {
-                    "get_claim" => {
-                        let response =
-                            if req.task_id.is_empty() || !IdClaim::validity(&req.task_id) {
-                                let claim = self
-                                    .shared_data
-                                    .claims
-                                    .lock()
-                                    .unwrap()
-                                    .get_claim_from_local(&req.task_id.clone());
-                                tracing::info!(
-                                    "{} [P2pNode] get did({}) claim from upstream.",
-                                    token_utils::now_string(),
-                                    req.task_id
-                                );
-                                claim.to_json_string()
-                            } else {
-                                tracing::warn!("get_claim 方法缺少 did 参数");
-                                IdClaim::default().to_json_string()
-                            };
-                        return Ok(response.as_bytes().to_vec());
-                    }
-                    "remote_process" => {
-                        let response = if (req.task_method == "remote_ping" || self.shared_data.is_p2p_in_dids(&from_node_did)) {
-                            self.pending_task
-                                .lock()
-                                .unwrap()
-                                .insert(req.task_id.clone(), from_node_did.clone());
-
-                            if target_sys == self.sys_did {
-                                let results = Python::with_gil(|py| -> PyResult<String> {
-                                    let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                        .expect("No simpleai_base.p2p_task.");
-                                    let py_bytes = pyo3::types::PyBytes::new_bound(py, &req.task_args);
-                                    let result: String = p2p_task
-                                        .getattr("call_request_by_p2p_task")?
-                                        .call1((
-                                            req.task_id,
-                                            req.task_method.clone(),
-                                            py_bytes,
-                                        ))?
-                                        .extract()?;
-                                    Ok(result)
-                                });
-                                results.unwrap_or_else(|e| {
-                                    tracing::error!("call_request {} fail: {:?}", req.task_method, e);
-                                    "error in call_response".to_string()
-                                })
-                            } else {
-                                api::request_api_bin_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
-                                    .unwrap_or_else(|e| {
-                                        error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, req.target_did, req.task_method);
-                                        "error in call_ws_task".to_string()
-                                    })
-                            }
-                        } else {
-                            println!("Received generate_image task from {}, but not allow.", from_node_did);
-                            "error in allow".to_string()
-                        };
-                        return Ok(response.as_bytes().to_vec());
-                    }
-                    "async_response" => {
-                        let response = if self.shared_data.is_p2p_out_dids(&from_node_did) {
-                            if target_sys == self.sys_did {
-                                let results = Python::with_gil(|py| -> PyResult<String> {
-                                    let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                        .expect("No simpleai_base.p2p_task.");
-                                    // 将Vec<u8>转换为Python的bytes对象
-                                    let py_bytes = pyo3::types::PyBytes::new_bound(py, &req.task_args);
-                                    let result: String = p2p_task
-                                        .getattr("call_response_by_p2p_task")?
-                                        .call1((
-                                            req.task_id,
-                                            req.task_method.clone(),
-                                            py_bytes,
-                                        ))?
-                                        .extract()?;
-                                    Ok(result)
-                                });
-                                results.unwrap_or_else(|e| {
-                                    tracing::error!("call_response {} fail: {:?}", req.task_method, e);
-                                    "error in call_response".to_string()
-                                })
-                            } else {
-                                api::request_api_bin_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
-                                    .unwrap_or_else(|e| {
-                                        error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, req.target_did, req.task_method);
-                                        "error in call_ws_task".to_string()
-                                    })
-                            }
-                        } else {
-                            println!("Received async_response task from {}, but not allow.", from_node_did);
-                            "error in allow".to_string()
-                        };
-                        return Ok(response.as_bytes().to_vec());
-                    }
-                    // 可以添加更多方法的处理逻辑
-                    _ => {
-                        tracing::warn!("未知的方法: {}", req.method);
-                        return Ok(format!("未知的方法: {}", req.method)
-                            .as_bytes()
-                            .to_vec());
+                if req.method == "remote_process" && req.task_method != "remote_ping" && !self.shared_data.is_p2p_in_dids(&from_node_did) {
+                    return Ok(format!("the request did is not in allow list for remote process: {}", target_did).as_bytes().to_vec());
+                }
+                if target_sys != self.sys_did { //非p2p node当前系统任务，通过websocket转发
+                    let response = api::request_api_bin_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
+                        .unwrap_or_else(|e| {
+                            error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, req.target_did, req.task_method);
+                            "error in call_ws_task".to_string()
+                        });
+                    return Ok(response.as_bytes().to_vec());
+                } else {
+                    match req.method.as_str() {
+                        "get_claim" => {
+                            let response =
+                                if req.task_id.is_empty() || !IdClaim::validity(&req.task_id) {
+                                    let claim = self
+                                        .shared_data
+                                        .claims
+                                        .lock()
+                                        .unwrap()
+                                        .get_claim_from_local(&req.task_id.clone());
+                                    tracing::info!(
+                                        "{} [P2pNode] get did({}) claim from upstream.",
+                                        token_utils::now_string(),
+                                        req.task_id
+                                    );
+                                    claim.to_json_string()
+                                } else {
+                                    tracing::warn!("get_claim 方法缺少 did 参数");
+                                    IdClaim::default().to_json_string()
+                                };
+                            return Ok(response.as_bytes().to_vec());
+                        }
+                        "remote_process" => {
+                            let response = p2p_task_request(req.task_id, req.task_method.clone(), &req.task_args);
+                             return Ok(response.as_bytes().to_vec());
+                        }
+                        "async_response" => {
+                            let response = p2p_task_response(req.task_id, req.task_method.clone(), &req.task_args);
+                            return Ok(response.as_bytes().to_vec());
+                        }
+                        // 可以添加更多方法的处理逻辑
+                        _ => {
+                            tracing::warn!("未知的方法: {}", req.method);
+                            return Ok(format!("未知的方法: {}", req.method)
+                                .as_bytes()
+                                .to_vec());
+                        }
                     }
                 }
             }
@@ -740,6 +688,49 @@ impl EventHandler for Handler {
             }
         }
     }
+}
+
+pub(crate) fn p2p_task_request(task_id: String, task_method: String, task_args: &Vec<u8>) -> String {
+    let results = Python::with_gil(|py| -> PyResult<String> {
+        let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
+            .expect("No simpleai_base.p2p_task.");
+        let py_bytes = pyo3::types::PyBytes::new_bound(py, task_args);
+        let result: String = p2p_task
+            .getattr("call_request_by_p2p_task")?
+            .call1((
+                task_id,
+                task_method.clone(),
+                py_bytes,
+            ))?
+            .extract()?;
+        Ok(result)
+    });
+    results.unwrap_or_else(|e| {
+        tracing::error!("call_request {} fail: {:?}", task_method, e);
+        "error in call_response".to_string()
+    })
+}
+
+pub(crate) fn p2p_task_response(task_id: String, task_method: String, task_args: &Vec<u8>) -> String {
+    let results = Python::with_gil(|py| -> PyResult<String> {
+        let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
+            .expect("No simpleai_base.p2p_task.");
+        // 将Vec<u8>转换为Python的bytes对象
+        let py_bytes = pyo3::types::PyBytes::new_bound(py, task_args);
+        let result: String = p2p_task
+            .getattr("call_response_by_p2p_task")?
+            .call1((
+                task_id,
+                task_method.clone(),
+                py_bytes,
+            ))?
+            .extract()?;
+        Ok(result)
+    });
+    results.unwrap_or_else(|e| {
+        tracing::error!("call_response {} fail: {:?}", task_method, e);
+        "error in call_response".to_string()
+    })
 }
 
 async fn get_node_status(client: Client, interval: u64) {

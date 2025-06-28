@@ -1159,7 +1159,6 @@ async fn handle_p2p_response(
 ) -> Result<impl Reply, Rejection> {
     let p2p = p2p::get_instance().await;
     if let Some(p2p) = p2p {
-        // 现在可以使用 task_id 参数
         let res = p2p.response_task(task_id, body, &mode).await;
         Ok(warp::reply::json(&ApiResponse {
             success:!res.is_empty(),

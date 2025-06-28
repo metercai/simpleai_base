@@ -1,14 +1,14 @@
-from ast import arg
 import io
 import time
-from unittest import result
 import cbor2
+import json
 import threading
 import queue
-import uuid
 import numpy as np
 from datetime import datetime
 from PIL import Image
+from api_params import convert_images
+from simpleai_base.simpleai_base import gen_task_id
 
 
 import logging
@@ -34,27 +34,7 @@ def request_p2p_task(task):
     task_method = task.method #'generate_image'
     if task_method=='generate_image':
         args = vars(task)["args"]
-        images_index = [19, 21, 23, 25, 75]
-        for i in images_index:
-            if args[i] is not None:
-                if i==21:
-                    image = args[i]['image']
-                    mask = args[i]['mask']
-                    args[i]['image'] = ndarray_to_webp_bytes(image)
-                    args[i]['mask'] = ndarray_to_webp_bytes(mask)
-                else:
-                    args[i] = ndarray_to_webp_bytes(args[i])
-        if args[67][7] is not None:
-            args[67][7] = ndarray_to_webp_bytes(args[67][7])
-        if args[67][8] is not None:
-            args[67][8] = ndarray_to_webp_bytes(args[67][8])
-        if args[67][9] is not None:
-            args[67][9] = ndarray_to_webp_bytes(args[67][9])
-        if args[67][10] is not None:
-            args[67][10] = ndarray_to_webp_bytes(args[67][10])
-        for i in range(len(args[71])):
-            if args[71][i][0] is not None:
-                args[71][i][0] = ndarray_to_webp_bytes(args[71][i][0])
+        args = convert_images(args, ndarray_to_webp_bytes)
         task.start_time = int(time.time() * 1000)
     else:
         args = task.args
@@ -145,28 +125,7 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
     if method == 'generate_image':
         args = cbor2.loads(args_cbor2)
         print(f"Received task args: type={type(args)}, args.len={len(args)}")
-        images_index = [19, 21, 23, 25, 75]
-        for i in images_index:
-            if args[i] is not None:
-                if i==21:
-                    image = args[i]['image']
-                    mask = args[i]['mask']
-                    args[i]['image'] = webp_bytes_to_ndarray(image)
-                    args[i]['mask'] = webp_bytes_to_ndarray(mask)
-                else:
-                    args[i] = webp_bytes_to_ndarray(args[i])
-        if args[67][7] is not None:
-            args[67][7] = webp_bytes_to_ndarray(args[67][7])
-        if args[67][8] is not None:
-            args[67][8] = webp_bytes_to_ndarray(args[67][8])
-        if args[67][9] is not None:
-            args[67][9] = webp_bytes_to_ndarray(args[67][9])
-        if args[67][10] is not None:
-            args[67][10] = webp_bytes_to_ndarray(args[67][10])
-        for i in range(len(args[71])):
-            if args[71][i][0] is not None:
-                args[71][i][0] = webp_bytes_to_ndarray(args[71][i][0])
-    
+        args = convert_images(args, webp_bytes_to_ndarray)
         task = worker.AsyncTask(args=args, task_id=task_id)
         task.remote_task = from_node_sys
         with model_management.interrupt_processing_mutex:
@@ -185,6 +144,12 @@ def call_request_by_p2p_task(task_id, method, args_cbor2):
         args = cbor2.loads(args_cbor2)
         logger.info(f"Pong {method} task: message={args}, from={from_node_sys}")
         return f'Pong: received {args} from {from_node_sys}.'
+    elif method == 'service_info':
+        args = cbor2.loads(args_cbor2)
+        service_info = worker.worker.get_service_info(args)
+        service_info_json = json.dumps(service_info)
+        logger.info(f"service_info: {service_info}")
+        return service_info_json
 
 
 #远程任务处理完后回调发起节点
@@ -262,7 +227,7 @@ class AsyncTask:
     def __init__(self, method, args, task_id=None, from_did=None, target_did=None, delay=0):
         self.from_did = from_did
         self.target_did = target_did
-        self.task_id = str(uuid.uuid4()) if task_id is None else task_id
+        self.task_id = gen_task_id() if task_id is None else task_id
         self.method = method
         self.args = args
         self.results = []

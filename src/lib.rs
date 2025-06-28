@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use rand::Rng;
 use base58::ToBase58;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -102,6 +103,15 @@ fn import_identity_qrcode(encrypted_identity: &str) -> (String, String, String) 
 }
 
 #[pyfunction]
+fn gen_task_id() -> String {
+    let mut rng = rand::thread_rng();
+    let mut bytes = [0u8; 7];
+    rng.fill(&mut bytes);
+    bytes.to_base58()
+}
+
+
+#[pyfunction]
 fn gen_entry_point_id(pid: u32) -> String {
     calc_sha256(pid.to_string().as_bytes()).to_base58()
 }
@@ -133,6 +143,7 @@ fn simpleai_base(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_registered_did, m)?)?;
     m.add_function(wrap_pyfunction!(export_identity_qrcode_svg, m)?)?;
     m.add_function(wrap_pyfunction!(import_identity_qrcode, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_task_id, m)?)?;
     m.add_class::<SimpleAI>()?;
     m.add_class::<IdClaim>()?;
     m.add_class::<UserContext>()?;

@@ -963,10 +963,14 @@ fn generate_new_key_and_save_pem(file_path: &Path, phrase: &[u8; 32]) -> [u8; 32
                 .unwrap_or([0u8; 32]);
             secret_key = SigningKey::from_bytes(&seed).to_bytes();
         } else {
-            secret_key = SigningKey::generate(&mut csprng).to_bytes();
+            let mut secret_bytes = [0u8; 32];
+            csprng.fill_bytes(&mut secret_bytes);
+            secret_key = SigningKey::from_bytes(&secret_bytes).to_bytes();
         }
     } else {
-        secret_key = SigningKey::generate(&mut csprng).to_bytes();
+        let mut secret_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut secret_bytes);
+        secret_key = SigningKey::from_bytes(&secret_bytes).to_bytes();
     }
 
     PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)

@@ -25,7 +25,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
 use crate::{api::service::{get_ws_host, WsMessage}, utils::error::TokenError};
-use crate::p2p::P2pRequest;
+use crate::p2p::{P2pRequest, p2p_task_request, p2p_task_response};
 use crate::dids::claims::IdClaim;
 use crate::dids::TOKIO_RUNTIME;
 use crate::user::shared;
@@ -264,54 +264,14 @@ async fn handle_direct_task(id: String, task_body: &[u8]) -> WsMessage {
             println!("📣 <<<< Inbound REQUEST with Websocket: method={}, task_id={}, task_method={}, target_did={}", req.method, req.task_id, req.task_method, target_did);    
             match req.method.as_str() {
                 "remote_process" => {
-                    let response = {
-                        let results = Python::with_gil(|py| -> PyResult<String> {
-                            let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                .expect("No simpleai_base.p2p_task.");
-                            let py_bytes = pyo3::types::PyBytes::new_bound(py, &req.task_args);
-                            let result: String = p2p_task
-                                .getattr("call_request_by_p2p_task")?
-                                .call1((
-                                    req.task_id,
-                                    req.task_method.clone(),
-                                    py_bytes,
-                                ))?
-                                .extract()?;
-                            Ok(result)
-                        });
-                        results.unwrap_or_else(|e| {
-                            tracing::error!("call_request {} fail: {:?}", req.task_method, e);
-                            "error in call_response".to_string()
-                        })
-                    };
-                    
+                    let response = p2p_task_request(req.task_id, req.task_method, &req.task_args);
                     WsMessage::Response {
                         id: id,
                         result: response,
                     }
                 }
                 "async_response" => {
-                    let response = {
-                        let results = Python::with_gil(|py| -> PyResult<String> {
-                            let p2p_task = PyModule::import_bound(py, "simpleai_base.p2p_task")
-                                .expect("No simpleai_base.p2p_task.");
-                            // 将Vec<u8>转换为Python的bytes对象
-                            let py_bytes = pyo3::types::PyBytes::new_bound(py, &req.task_args);
-                            let result: String = p2p_task
-                                .getattr("call_response_by_p2p_task")?
-                                .call1((
-                                    req.task_id,
-                                    req.task_method.clone(),
-                                    py_bytes,
-                                ))?
-                                .extract()?;
-                            Ok(result)
-                        });
-                        results.unwrap_or_else(|e| {
-                            tracing::error!("call_response {} fail: {:?}", req.task_method, e);
-                            "error in call_response".to_string()
-                        })    
-                    };
+                    let response = p2p_task_response(req.task_id, req.task_method, &req.task_args);
                     WsMessage::Response {
                         id: id,
                         result: response,
