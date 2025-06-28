@@ -65,3 +65,10 @@ futures-util = "0.3.31"
 uuid = "1.17"
 tokio-tungstenite = "0.26.2"
 backoff = "0.4"
+
+[profile.release]
+opt-level = 3       # 最大优化
+debug = false       # 不包含调试信息
+lto = true          # 启用链接时优化
+panic = 'abort'     # 放弃 panic unwind 机制，减少体积
+codegen-units = 1   # 单元编译单元数（提高性能）
