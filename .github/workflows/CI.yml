@@ -14,6 +14,10 @@ on:
       - '*'
   pull_request:
   workflow_dispatch:
+    inputs:
+      commit_hash:
+        type: string
+        description: 'The commit hash to checkout'
 
 permissions:
   contents: read
@@ -77,6 +81,8 @@ jobs:
             target: x64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.commit_hash }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -86,7 +92,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           maturin-version: v1.8.7
-          args: --release --out dist -i python3.10
+          args: --release --verbose --out dist -i python3.10
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
