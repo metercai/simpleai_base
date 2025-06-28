@@ -75,8 +75,9 @@ impl SystemBaseInfo {
         let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
 
-        let root_dir = std::env::args()
-            .nth(1)
+        // 从std::env::args()获取第一个非‘-’开头且以'.py'结尾的参数
+        let mut py_path = env::args().find(|arg| !arg.starts_with('-') && arg.ends_with(".py"));
+        let root_dir = py_path
             .and_then(|arg| {
                 let path = PathBuf::from(&arg);
                 let abs_path = if path.is_absolute() {
