@@ -7,7 +7,7 @@ import queue
 import numpy as np
 from datetime import datetime
 from PIL import Image
-from api_params import convert_images
+from .api_params import convert_images
 from simpleai_base.simpleai_base import gen_task_id
 
 
