@@ -87,11 +87,18 @@ jobs:
         with:
           python-version: '3.10'
           architecture: ${{ matrix.platform.target }}
+      - name: Install Visual Studio Build Tools
+        run: |
+          choco install --no-progress visualstudio2022-workload-vctools
+      - name: Set short target directory
+        env:
+          CARGO_TARGET_DIR: ./target_short
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist -i python3.10
+          maturin-version: v1.8.7
+          args: --release --verbose --out dist -i python3.10
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
