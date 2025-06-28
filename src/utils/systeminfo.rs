@@ -80,13 +80,13 @@ impl SystemBaseInfo {
             .and_then(|arg| {
                 let path = PathBuf::from(&arg);
                 let abs_path = if path.is_absolute() {
-                    path
+                    path.clone()
                 } else {
                     env::current_dir()
                         .ok()?
                         .join(&path)
                 };
-
+                println!("root_dir is: {:?}, path={:?}", abs_path, path);
                 match fs::metadata(&abs_path) {
                     Ok(metadata) => {
                         if metadata.is_file() {
