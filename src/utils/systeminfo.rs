@@ -75,7 +75,6 @@ impl SystemBaseInfo {
         let (cpu_brand, cpu_cores) = (sys.cpus()[0].brand(), sys.physical_core_count());
         let (ram_total, ram_free, ram_swap) = (sys.total_memory(), sys.available_memory(), sys.total_swap());
 
-        // 从std::env::args()获取第一个非‘-’开头且以'.py'结尾的参数
         let mut py_path = env::args().find(|arg| !arg.starts_with('-') && arg.ends_with(".py"));
         let root_dir = py_path
             .and_then(|arg| {
@@ -83,9 +82,12 @@ impl SystemBaseInfo {
                 let abs_path = if path.is_absolute() {
                     path.clone()
                 } else {
+                    //解析path分别获取文件名部分
+                    let file_name = path.file_name().unwrap_or(std::ffi::OsStr::new(""));
+
                     env::current_dir()
                         .ok()?
-                        .join(&path)
+                        .join(&file_name)
                 };
                 println!("root_dir is: {:?}, path={:?}", abs_path, path);
                 match fs::metadata(&abs_path) {
