@@ -89,7 +89,7 @@ impl SystemBaseInfo {
                         .ok()?
                         .join(&file_name)
                 };
-                println!("root_dir is: {:?}, path={:?}", abs_path, path);
+                //println!("root_dir is: {:?}, path={:?}", abs_path, path);
                 match fs::metadata(&abs_path) {
                     Ok(metadata) => {
                         if metadata.is_file() {

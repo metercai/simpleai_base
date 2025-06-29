@@ -815,7 +815,7 @@ pub(crate) fn gen_entry_point_of_service(point_id: &str) -> String {
     let sysinfo = &SYSTEM_BASE_INFO;
     let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-    let salt = calc_sha256(format!("{}/{}:{}", sysinfo.host_name , sysinfo.root_dir, now_sec/600000).as_bytes());
+    let salt = calc_sha256(format!("{}:{}", sysinfo.host_name, now_sec/600000).as_bytes());
     derive_key(&service_id, &salt).unwrap_or([0u8; 32]).to_base58()
 }
 
@@ -824,10 +824,10 @@ pub(crate) fn check_entry_point_of_service(entry_point: &str) -> bool { // å¸¦æœ
     let sysinfo = &SYSTEM_BASE_INFO;
     let now_sec = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs();
-    let salt = calc_sha256(format!("{}/{}:{}", sysinfo.host_name , sysinfo.root_dir, now_sec/600000).as_bytes());
+    let salt = calc_sha256(format!("{}:{}", sysinfo.host_name, now_sec/600000).as_bytes());
     let entry_point_real =  derive_key(&service_id, &salt).unwrap_or([0u8; 32]).to_base58();
     if entry_point_real != entry_point {
-        let salt = calc_sha256(format!("{}/{}:{}", sysinfo.host_name , sysinfo.root_dir, now_sec/600000 - 1).as_bytes());
+        let salt = calc_sha256(format!("{}:{}", sysinfo.host_name, now_sec/600000 - 1).as_bytes());
         let entry_point_real =  derive_key(&service_id, &salt).unwrap_or([0u8; 32]).to_base58();
         entry_point_real == entry_point
     } else { true  }
