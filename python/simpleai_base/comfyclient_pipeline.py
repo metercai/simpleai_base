@@ -280,7 +280,7 @@ def get_media_info(out):
     # 定义事件类型常量
     PREVIEW_IMAGE = 1
     UNENCODED_PREVIEW_IMAGE = 2
-    PREVIEW_VIDEO = 3  # 假设你添加了这个类型
+    PREVIEW_VIDEO = 4
     
     # 定义格式类型常量
     JPEG_FORMAT = 1
