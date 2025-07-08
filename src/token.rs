@@ -346,14 +346,15 @@ impl SimpleAI {
     }
 
     pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>, target_did: Option<String>, mode: Option<String>) -> String {
+        let task_id = format!("{}@{}", task_id, self.get_p2p_address()); //包含源did信息的task_id
+        
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
         let target_did = target_did.unwrap_or(p2p_out_did_list.clone());
         let target_node_did = target_did.split_once('.').map(|(_, after)| after).unwrap_or(&target_did);
         if IdClaim::validity(&target_node_did) {
-            error!("request_remote_task({}) error: target_node_did({}) is invalid", task_id, target_did);             
+            error!("request_remote_task({}) error: target_node_did({}) is invalid: {}", task_id, target_did, target_node_did);             
         }
-        let task_id = format!("{}@{}", task_id, self.get_p2p_address()); //包含源did信息的task_id
-
+        
         if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out") {
             let request = P2pRequest {
                 target_did: target_did.clone(),

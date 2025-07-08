@@ -426,7 +426,7 @@ async fn handle_socket(
 
     // 注册连接
     ws_manager.write().await.insert(connection_id.clone(), connection);
-    println!("{} [SimpBase] WebSocket client({}) connected", token_utils::now_string(), connection_id);
+    println!("{} [SimpBase] WebSocket connected from client({}) ", token_utils::now_string(), connection_id);
 
     // 处理消息
     while let Some(result) = ws_receiver.next().await {
@@ -439,16 +439,17 @@ async fn handle_socket(
                     let ping_time = u128::from_be_bytes(msg.clone().into_bytes().try_into().unwrap());
                     let delay = tokio::time::Instant::now().elapsed().as_micros() - ping_time;
                     
-                    println!("{} [SimpBase] WebSocket client({}) ping_delay={}", token_utils::now_string(), connection_id, delay);
+                    println!("{} [SimpBase] WebSocket ping_delay={} with client({})", token_utils::now_string(), connection_id, delay);
                     let mut sender = connection.sender.lock().await;
                     if let Err(e) = sender.as_mut().unwrap().send(Message::pong(msg)).await {
                         error!("{} [SimpBase] 发送Pong响应时发生错误: {}",
                                   token_utils::now_string(), e);
                     }
                 } else if msg.is_binary() {
+                    println!("WebSocket received binary message from client({}): {:?}", connection_id, msg); 
                     handle_ws_message(&connection_id, msg.into_bytes()).await;
                 } else if msg.is_close() {
-                    debug!("{} [SimpBase] WebSocket client({}) is disconnecting.", 
+                    debug!("{} [SimpBase] WebSocket is disconnecting by client({}).", 
                             token_utils::now_string(), connection_id);
                     let mut sender = connection.sender.lock().await;
                     if let Err(e) = sender.as_mut().unwrap().send(Message::close()).await {
@@ -477,7 +478,7 @@ async fn handle_socket(
 
     // 清理连接
     cleanup_connection(&connection_id).await;
-    println!("{} [SimpBase] WebSocket client({}) disconnected", token_utils::now_string(), connection_id);
+    println!("{} [SimpBase] WebSocket disconnected with client({})", token_utils::now_string(), connection_id);
 }
 
 // 处理WebSocket的上行消息

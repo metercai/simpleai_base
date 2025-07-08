@@ -74,6 +74,7 @@ impl WsClient {
         
         let this = self.clone();
         let handle = TOKIO_RUNTIME.spawn(async move {
+            println!("WebSocket client ready to run");
             this.run().await;
         });
 
