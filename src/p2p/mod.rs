@@ -64,6 +64,7 @@ req_resp.request_timeout = 30
 pub struct P2pServer {
     sys_did: String,
     node_did: String,
+    nickname: String,
     config: config::Config,
     client: Client,
     shared_data: &'static SharedData,
@@ -83,11 +84,11 @@ impl P2pServer {
             Ok(p2p) => {
                 let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                 *p2p_instance_guard = Some(p2p.clone());
-                println!("{} [SimpBase] P2P service startup successfully!", token_utils::now_string());
+                println!("{} [SimpBase] P2P service startup successfully! node_did: {}, node_nickname: {}, app_did: {}", token_utils::now_string(), p2p.node_did, p2p.nickname, p2p.sys_did);
                 Ok(p2p)
             },
             Err(e) => {
-                println!("P2P 服务启动失败: {:?}", e);
+                println!("{} [SimpBase] P2P service startup failed! {:?}", token_utils::now_string(), e);
                 Err(e)
             }
         }
@@ -108,6 +109,7 @@ impl P2pServer {
             Ok((c, s)) => (c, s),
             Err(e) => panic!("无法启动服务: {:?}", e),
         };
+        let nickname = node_claim.nickname.clone();
         let shared_data = shared::get_shared_data();
         let upstream_did = shared_data.upstream_did();
         let online_mgr = shared_data.online_mgr.clone();
@@ -178,6 +180,7 @@ impl P2pServer {
         let p2p = Self {
             sys_did,
             node_did: node_did,
+            nickname,
             config: config.clone(),
             client: client.clone(),
             shared_data,
@@ -855,7 +858,7 @@ async fn broadcast_online_users(client: Client, interval: u64) {
                 now_time,
                 users_list
             );
-            let message = format!("{}:{}:{}", client.get_sys_did(), unix_timestamp, users_list);
+            let message = format!("{}:{}:{}", client.get_node_did(), unix_timestamp, users_list);
             let _ = client
                 .broadcast(topic, Bytes::from(message.as_bytes().to_vec()))
                 .await;

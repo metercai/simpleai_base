@@ -67,21 +67,21 @@ pub(crate) trait EventHandler: Debug + Send + 'static {
 pub(crate) struct Client {
     cmd_sender: UnboundedSender<Command>,
     peer_id: PeerId,
-    sys_did: String,
+    node_did: String,
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sys_phrase: &str) -> Result<(Client, Server<E>), Box<dyn Error + Send + Sync>> {
+pub(crate) async fn new<E: EventHandler>(config: Config, node_claim: &IdClaim, node_phrase: &str) -> Result<(Client, Server<E>), Box<dyn Error + Send + Sync>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
     // let (event_sender, event_receiver) = mpsc::channel(0);
 
-    let server = Server::new(config, sys_claim, sys_phrase, cmd_receiver).await?;
+    let server = Server::new(config, node_claim, node_phrase, cmd_receiver).await?;
     let local_peer_id = server.get_peer_id();
 
     let client = Client {
         cmd_sender,
         peer_id: local_peer_id,
-        sys_did: sys_claim.gen_did(),
+        node_did: node_claim.gen_did(),
     };
 
     Ok((client, server))
@@ -98,12 +98,12 @@ impl Client {
     }
 
     /// Get the did of the local node.
-    pub(crate) fn get_sys_did(&self) -> String {
-        self.sys_did.clone()
+    pub(crate) fn get_node_did(&self) -> String {
+        self.node_did.clone()
     }
 
     pub(crate) fn get_short_did(&self) -> String {
-        self.sys_did.chars().skip(self.sys_did.len() - 7).collect::<String>()
+        self.node_did.chars().skip(self.node_did.len() - 7).collect::<String>()
     }
 
     /// Send a blocking request to the `target` peer.
@@ -342,16 +342,16 @@ impl<E: EventHandler> Server<E> {
     /// Create a new `Server`.
     pub(crate) async fn new(
         config: Config,
-        dev_claim: &IdClaim,
-        dev_phrase: &str,
+        node_claim: &IdClaim,
+        node_phrase: &str,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut metric_registry = Registry::default();
-        let node_did = dev_claim.gen_did();
-        let nickname = dev_claim.nickname.clone();
+        let node_did = node_claim.gen_did();
+        let nickname = node_claim.nickname.clone();
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(
-                token_utils::read_key_or_generate_key("Device", &dev_claim.get_symbol_hash(), &dev_phrase, false, false)
+                token_utils::read_key_or_generate_key("Node", &node_claim.get_symbol_hash(), node_phrase, false, false)
             ))?));
         let didtoken = DidToken::instance();
         let sysinfo = didtoken.lock().unwrap().get_sysinfo();
