@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs;
 use base58::ToBase58;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -29,16 +29,16 @@ mod service;
 mod utils;
 
 use once_cell::sync::Lazy;
-use once_cell::sync::OnceCell;
-
-use crate::dids::cert_center::GlobalCerts;
 use crate::dids::claims::{GlobalClaims, IdClaim};
 use crate::dids::{token_utils, DidToken, TOKIO_RUNTIME};
 use crate::p2p::service::{Client, EventHandler, NodeStatus};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::GlobalLocalVars;
-use crate::utils::systeminfo::SystemInfo;
+use crate::user::online_mgr::OnlineMgr;
+use crate::user::DidEntryPoint;
+use crate::user::TokenUser;
 use crate::api;
+use crate::dids;
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
@@ -109,6 +109,12 @@ impl P2pServer {
             Err(e) => panic!("无法启动服务: {:?}", e),
         };
         let shared_data = shared::get_shared_data();
+        let upstream_did = shared_data.upstream_did();
+        let online_mgr = shared_data.online_mgr.clone();
+        let tokenuser = TokenUser::instance();
+        let entry_point = tokenuser.lock().unwrap().get_entry_point();
+        let entry_point = Arc::new(tokio::sync::Mutex::new(entry_point));
+
         let pending_task = Arc::new(Mutex::new(HashMap::new()));
 
         let handler = Handler {
@@ -122,6 +128,8 @@ impl P2pServer {
 
         let config_clone = config.clone();
         let client_clone = client.clone();
+        let sys_did_clone = sys_did.clone();
+        let node_did_clone = node_did.clone();
 
         let handle = TOKIO_RUNTIME.spawn(async move {
             let task_run = server.run();
@@ -129,13 +137,22 @@ impl P2pServer {
                 client_clone.clone(),
                 config_clone.get_node_status_interval(),
             );
-            let task_broadcast_online =
-                broadcast_online_users(client_clone.clone(), config_clone.get_broadcast_interval());
+            let task_sync_upstream = sync_upstream(
+                sys_did_clone.clone(),
+                node_did_clone.clone(),
+                upstream_did.clone(),
+                online_mgr,
+                entry_point.clone(),
+            );
+            let task_uncompleted_submit = submit_uncompleted_request_files(
+                &upstream_did, &sys_did_clone, &node_did_clone, entry_point);
+                
 
             tokio::join!(
                 task_run,
                 task_node_status,
-                //task_broadcast_online
+                task_sync_upstream,
+                task_uncompleted_submit
             );
         });
 
@@ -518,6 +535,17 @@ impl P2pServer {
         let _ = self.client.broadcast(topic.clone(), message).await;
         tracing::info!("📣 >>>> Outbound broadcast: {:?}", topic);
     }
+
+    pub async fn provide_file(&mut self, file_identifier: String, file_path: PathBuf) -> String {
+        self.client.provide_file(file_identifier, file_path).await;
+        "ok".to_string()
+    }
+
+    pub async fn download_file(&mut self, full_identifier: &String) -> String {
+        self.client.download_file(full_identifier.clone()).await;
+        "ok".to_string()
+    }
+    
 }
 
 #[derive(Debug)]
@@ -670,12 +698,13 @@ impl EventHandler for Handler {
             }
             "system" => {
                 let message_str = String::from_utf8_lossy(&message).to_string();
+                let node_did = self.node_did.clone();
                 // 收到系统消息，更新本地消息队列
                 if !message_str.is_empty() {
                     let count = self
                         .shared_data
-                        .get_message_queue()
-                        .push_messages(&self.node_did, message_str);
+                        .online_mgr.messages
+                        .push_messages(node_did, message_str);
                     tracing::info!(
                         "{} [P2pNode] added {} new system meaasge.",
                         token_utils::now_string(),
@@ -687,6 +716,10 @@ impl EventHandler for Handler {
                 // 其他类型的消息，可以根据需要添加处理逻辑
             }
         }
+    }
+
+    fn handle_download_progress(&self, peer: PeerId, progress: String) {
+        // 处理下载进度更新
     }
 }
 
@@ -886,3 +919,145 @@ impl DidMessage {
     }
 }
 
+async fn sync_upstream(
+    sys_did: String,
+    node_did: String,
+    upstream_did: String,
+    online_mgr: Arc<OnlineMgr>,
+    entry_point: Arc<tokio::sync::Mutex<DidEntryPoint>>,
+) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+    let sys_did_str = sys_did.as_str();
+    loop {
+        let mut upstream_did = upstream_did.clone();
+        let result_string = {
+            let mut request = json!({});
+            let online_users_list = online_mgr.users.get_full_list();
+            
+            let last_timestamp = online_mgr.messages.get_last_timestamp(sys_did_str).unwrap_or_else(|| 0u64);
+            request["online_users"] = serde_json::to_value(online_users_list).unwrap_or(json!(""));
+            request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
+            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+            let upstream_url = {
+                let ep = entry_point.lock().await;
+                ep.get_entry_point(&upstream_did.clone())
+            };
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                dids::token_utils::request_token_api_async(&upstream_url, sys_did_str, &node_did, "ping", &params),
+            )
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => "Unknown".to_string(),
+            }
+        };
+
+        debug!("{} [Upstream] {} ping upstream node: {}", token_utils::now_string(), sys_did_str, result_string);
+                        
+        if result_string != "Unknown" {
+            let mut ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
+            if let Some(user_online) = ping_vars.get("user_online") {
+                let user_online_array: Vec<&str> = user_online.split(":").collect();
+                if user_online_array.len() >= 3 {
+                    let nodes = user_online_array[0].parse().unwrap_or(1);
+                    let users = user_online_array[1].parse().unwrap_or(1);
+                    let top_list = user_online_array[2].to_string();
+                    if nodes > 1 && users > 1 {
+                        online_mgr.set_nodes_users(nodes, users, top_list.clone());
+                        debug!("{} [Upstream] set_nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
+                    } else if nodes == 0 && users == 0 {
+                        debug!("{} [Upstream] get null nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
+                        let claims = GlobalClaims::instance();
+                        let (local_claim, device_claim) = {
+                            let mut claims = claims.lock().unwrap();
+                            (claims.get_claim_from_local(sys_did_str), claims.get_claim_from_local(&node_did))
+                        };
+                        let last_timestamp = online_mgr.messages.get_last_timestamp(sys_did_str).unwrap_or_else(|| 0u64);
+                        let mut request = json!({});
+                        request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
+                        request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
+                        request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
+
+                        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
+                        let upstream_url = {
+                            let ep = entry_point.lock().await;
+                            ep.get_entry_point(dids::TOKEN_ENTRYPOINT_DID)
+                        };
+                        let response = dids::token_utils::request_token_api_async(&upstream_url, &sys_did, &node_did, "register2", &params).await;
+                        ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
+                        debug!("{} [Upstream] repair ping: {}", token_utils::now_string(), response);
+                        upstream_did = if let Some(new_did) = ping_vars.get("upstream_did") {
+                            new_did.clone()
+                        } else { upstream_did.clone() };
+                    } 
+                }
+            }
+
+            if let Some(message_list) = ping_vars.get("message_list") {
+                online_mgr.messages.push_messages(sys_did_str.to_string(), message_list.to_string());
+            }
+        }
+
+        interval.tick().await;
+    }
+
+}
+
+async fn submit_uncompleted_request_files(upstream_did: &str, sys_did: &str, dev_did: &str, entry_point: Arc<tokio::sync::Mutex<DidEntryPoint>>,) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5)); // 设置检查周期
+    let upstream_url = {
+        let ep = entry_point.lock().await;
+        ep.get_entry_point(dids::TOKEN_ENTRYPOINT_DID)
+        };
+                
+    loop {
+        interval.tick().await; // 等待下一个周期
+        let user_copy_file = token_utils::get_path_in_sys_key_dir("user_copy_xxxxx.json");
+        let user_copy_path = match user_copy_file.parent() {
+            Some(parent) => {
+                if parent.exists() {
+                    parent
+                } else {
+                    fs::create_dir_all(parent).unwrap();
+                    parent
+                }
+            },
+            None => panic!("{}", format!("File path does not have a parent directory: {:?}", user_copy_file)),
+        };
+        // 遍历目录中的所有文件
+        if let Ok(mut entries) = tokio::fs::read_dir(user_copy_path).await {
+            while let Some(entry) = entries.next_entry().await.transpose() {
+                if let Ok(entry) = entry {
+                    let file_path = entry.path();
+                    if file_path.is_file() {
+                        if let Some(file_name) = file_path.file_name() {
+                            if let Some(file_name_str) = file_name.to_str() {
+                                if let Some(method) = extract_method_from_filename(file_name_str) {
+                                    if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
+                                        debug!("submit uncompleted request file: method={}, {}", method, file_path.display());
+                                        let result = dids::token_utils::request_token_api_async(&upstream_url, sys_did, dev_did, &method, &content).await;
+                                        if result != "Unknown"  {
+                                            tokio::fs::remove_file(&file_path).await.expect("remove user copy file failed");
+                                            debug!("remove the uncompleted request file: {}", file_path.display());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn extract_method_from_filename(file_name: &str) -> Option<String> {
+    let re = regex::Regex::new(r"^(.+?)_([a-zA-Z0-9]{29})_uncompleted\.json$").unwrap();
+    if let Some(captures) = re.captures(file_name) {
+        if let Some(method) = captures.get(1) {
+            return Some(method.as_str().to_string());
+        }
+    }
+    None
+}

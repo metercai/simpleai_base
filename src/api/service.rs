@@ -16,7 +16,7 @@ use futures_util::{SinkExt, StreamExt};
 use uuid::Uuid;
 use lazy_static::lazy_static;
 
-use crate::dids::{token_utils, TOKIO_RUNTIME, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC};
+use crate::dids::{self, token_utils, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC, TOKIO_RUNTIME};
 use crate::dids::claims::{IdClaim, GlobalClaims};
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::tokendb::TokenDB;
@@ -921,7 +921,7 @@ async fn handle_get_claim(
                 let entry_point = TokenUser::instance().lock().unwrap().get_did_entry_point( &upstream_did);
                 let encoded_params = DidToken::instance().lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did ,0);
                 debug!("[UpstreamClient] sys({}),dev({}) request {}/api_{} with params: {}", sys_did, device_did, entry_point, api_name, params);
-                token::request_token_api_async(&entry_point, &sys_did, &device_did, api_name, &encoded_params).await    
+                dids::token_utils::request_token_api_async(&entry_point, &sys_did, &device_did, api_name, &encoded_params).await    
             };
             claim = if result != "Unknown" {
                 serde_json::from_str(&result).unwrap_or(IdClaim::default())
@@ -1120,7 +1120,7 @@ async fn handle_put_global_message(
     let claims = claims.lock().unwrap();
     let sys_did = claims.local_claims.get_system_did();
     let mut shared_data = shared::get_shared_data();
-    shared_data.get_message_queue().push_messages(&sys_did, req.msg);
+    shared_data.online_mgr.messages.push_messages(sys_did, req.msg);
     Ok(warp::reply::json(&ApiResponse {
         success: true,
         data: "",

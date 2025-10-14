@@ -17,9 +17,9 @@ use crate::user::user_vars::GlobalLocalVars;
 use crate::api;
 use crate::p2p::DidMessage;
 
-pub(crate) mod user_mgr;
 pub(crate) mod shared;
 pub(crate) mod user_vars;
+pub(crate) mod online_mgr;
 
 lazy_static::lazy_static! {
     static ref TOKEN_USER: Arc<Mutex<TokenUser>> = Arc::new(Mutex::new(TokenUser::new()));

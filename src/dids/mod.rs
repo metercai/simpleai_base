@@ -16,7 +16,7 @@ use crate::dids::cert_center::GlobalCerts;
 use crate::dids::tokendb::TokenDB;
 use crate::utils::systeminfo::SystemInfo;
 use crate::api;
-
+use crate::user::shared;
 
 pub(crate) mod cert_center;
 pub(crate) mod claims;
@@ -49,6 +49,8 @@ pub(crate)  static REQWEST_CLIENT_SYNC: Lazy<reqwest::blocking::Client> = Lazy::
 lazy_static::lazy_static! {
     static ref DID_TOKEN: Arc<Mutex<DidToken>> = Arc::new(Mutex::new(DidToken::new()));
 }
+
+static SYNC_TASK_HANDLE: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
 #[macro_export]
 macro_rules! exchange_key {
@@ -171,6 +173,26 @@ impl DidToken {
         debug!("DidToken context build finished: {} -> crypt_secrets.len={}", 
             crypt_secrets_len, crypt_secrets.len());
         debug!("admin_did: {}, upstream_did: {}", admin, upstream_did);
+
+        if !is_rest_server {
+            let previous_handle = {
+                let mut handle_guard = SYNC_TASK_HANDLE.lock()
+                    .expect("Failed to acquire SYNC_TASK_HANDLE lock");
+                handle_guard.take()
+            };
+            if let Some(handle) = previous_handle {
+                handle.abort();
+            }
+
+            let new_handle = TOKIO_RUNTIME.spawn(async move {
+                sync_inst_heart().await;
+            });
+            let mut guard = SYNC_TASK_HANDLE.lock()
+                .expect("Failed to acquire SYNC_TASK_HANDLE lock");
+            *guard = Some(new_handle);     
+        }
+        
+
         
         Self {
             did: local_did,
@@ -545,4 +567,36 @@ pub(crate) fn get_key_symbol_hash(key_type: &str) -> [u8; 32] {
         "Guest" => IdClaim::get_symbol_hash_by_source(&guest_name,None,Some(format!("{}:{}", root_dir.clone(), disk_uuid.clone()))),
         _ => [0u8; 32],
     }
+}
+
+async fn sync_inst_heart() {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+    let shared_data = shared::get_shared_data();
+    let mut inst_id = shared_data.sys_did();
+    let mut capacity = shared_data.capacity();
+    let mut register_flag = false;
+    let mut service_list = String::new();
+    let mut load = 0;
+    
+    
+    loop {
+        service_list = {
+            let guard = shared_data.service_list();
+            guard.clone()
+        };
+        load = shared_data.load();
+        if register_flag {
+            shared_data.online_mgr.insts.log_access(&inst_id, load, &*service_list);
+        } else {
+            if !inst_id.is_empty() {
+                shared_data.online_mgr.insts.log_register(&inst_id, capacity, load, &*service_list);
+                register_flag = true;
+            } else {
+                inst_id = shared_data.sys_did();
+                capacity = shared_data.capacity();
+            }
+        } 
+        interval.tick().await; // 等待下一个周期
+    }
+
 }

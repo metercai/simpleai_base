@@ -1,3 +1,12 @@
+use std::{
+    str::FromStr,
+    net::IpAddr,
+    time::{Duration, Instant},
+    error::Error,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+};
+use serde::{Deserialize, Serialize};
 use bytes::Bytes;
 use libp2p::{autonat, dcutr, mdns, upnp};
 use libp2p::identify;
@@ -10,14 +19,7 @@ use libp2p::gossipsub::{self, IdentTopic, TopicHash};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, StreamProtocol};
 use libp2p::{identity, Multiaddr, PeerId, rendezvous};
-use std::{
-    str::FromStr,
-    net::IpAddr,
-    time::Duration,
-    error::Error,
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-};
+
 use rand::rngs::OsRng;
 use lazy_static::lazy_static;
 
@@ -34,6 +36,12 @@ lazy_static! {
 pub(crate) const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
 pub(crate) const NAMESPACE: &str = "token";
 
+// Simple file exchange protocol
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct FileRequest(pub(crate) String);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct FileResponse(pub(crate) Vec<u8>);
+
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour {
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
@@ -41,6 +49,7 @@ pub(crate) struct Behaviour {
     pub(crate) req_resp: request_response::Behaviour<req_resp::GenericCodec>,
     pub(crate) rendezvous: Toggle<rendezvous::server::Behaviour>,
     pub(crate) rendezvous_client: Toggle<rendezvous::client::Behaviour>,
+    pub(crate) request_response: request_response::cbor::Behaviour<FileRequest, FileResponse>,
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     mdns: mdns::tokio::Behaviour,
@@ -50,6 +59,7 @@ pub(crate) struct Behaviour {
     autonat_client: Toggle<autonat::v2::client::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     upnp: Toggle<upnp::tokio::Behaviour>,
+    
 }
 
 impl Behaviour {
@@ -132,6 +142,14 @@ impl Behaviour {
             None
         }.into();
 
+        let request_response = request_response::cbor::Behaviour::new(
+                [(
+                    StreamProtocol::new("/file-exchange/1"),
+                    ProtocolSupport::Full,
+                )],
+                request_response::Config::default(),
+            );
+
         Self {
             ping: ping::Behaviour::new(ping::Config::default().with_interval(Duration::from_secs(15))),
             identify,
@@ -147,6 +165,7 @@ impl Behaviour {
             rendezvous_client,
             dcutr,
             upnp,
+            request_response,
         }
     }
 
@@ -260,14 +279,13 @@ impl Behaviour {
         self.kademlia.get_record(key)
     }
 
-    pub(crate) fn set_key_value(&mut self, key: String, value: String) -> QueryId {
+    pub(crate) fn set_key_value(&mut self, key: String, value: Vec<u8>, publisher: Option<PeerId>, expires: Option<Instant>) -> QueryId {
         let key = kad::RecordKey::new(&key);
-        let value = value.as_bytes().to_vec();
         let record = kad::Record {
             key,
             value,
-            publisher: None,
-            expires: None,
+            publisher,
+            expires,
         };
         self.kademlia
             .put_record(record, kad::Quorum::One)

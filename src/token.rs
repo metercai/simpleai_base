@@ -30,17 +30,12 @@ use crate::dids::claims::{GlobalClaims, IdClaim, UserContext, };
 use crate::utils::systeminfo::SystemInfo;
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::TOKEN_ENTRYPOINT_DID;
-use crate::user::user_mgr::{OnlineUsers, MessageQueue};
 use crate::user::{TokenUser, DidEntryPoint};
 use crate::p2p::{self, P2pServer, P2pRequest, DidMessage, DEFAULT_P2P_CONFIG, P2P_HANDLE, P2P_INSTANCE};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::{AdminDefault, GlobalLocalVars};
 use crate::api;
 
-pub(crate) static TOKEN_API_VERSION: &str = "v1.2.2";
-
-
-static SYNC_TASK_HANDLE: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
 #[derive(Clone)]
 #[pyclass]
@@ -55,7 +50,6 @@ pub struct SimpleAI {
     tokenuser: Arc<Mutex<TokenUser>>,
     token_db: Arc<RwLock<TokenDB>>, //HashMap<String, serde_json::Value>,
     global_local_vars: Arc<RwLock<GlobalLocalVars>>, //HashMap<global|admin|{did}_{key}, String>,
-    online_users: OnlineUsers,
     last_timestamp: Arc<RwLock<u64>>,
     sid_did_map: Arc<Mutex<HashMap<String, String>>>,
     shared_data: &'static SharedData,
@@ -83,12 +77,9 @@ impl SimpleAI {
             let didtoken = didtoken.lock().unwrap();
             (didtoken.get_sys_did(), didtoken.get_device_did(), didtoken.get_guest_did(), didtoken.get_token_db())
         };
-    
-        let online_users = OnlineUsers::new(60, 2);
-        let message_queue = MessageQueue::new(global_local_vars.clone());
+
         let mut shared_data = shared::get_shared_data();
-        shared_data.set_message_queue(message_queue);
-        shared_data.set_sys_data(&sys_did, &device_did, &system_name);
+        shared_data.set_sys_data(&sys_did, &device_did, &system_name, 1);
         if !api::service::is_self_service() {
             if !api::wsclient::WS_CLIENT.is_running() {
                 api::wsclient::WS_CLIENT.clone().start();
@@ -98,7 +89,7 @@ impl SimpleAI {
         let admin_did = didtoken.lock().unwrap().get_admin_did();
         if !admin_did.is_empty() {
             //online_users.log_register(admin_did.clone());
-            shared_data.online_all.log_register(admin_did.clone());
+            shared_data.online_mgr.users.log_register(admin_did.clone());
         }
         
         Self {
@@ -111,7 +102,6 @@ impl SimpleAI {
             tokenuser,
             token_db,
             global_local_vars,
-            online_users,
             last_timestamp: Arc::new(RwLock::new(0u64)),
             sid_did_map: Arc::new(Mutex::new(HashMap::new())),
             shared_data,
@@ -193,11 +183,6 @@ impl SimpleAI {
         if self.get_local_admin_vars("p2p_active_checkbox") == "False" && !self.get_sys_name().ends_with("_p2p") {
             self.p2p_stop();
         }
-        let mut handle_guard = SYNC_TASK_HANDLE.lock().unwrap();
-        if let Some(handle) = handle_guard.take() {
-            handle.abort();
-            *handle_guard = None;
-        }
     }
 
     pub fn get_upstream_did(&mut self) -> String {
@@ -225,30 +210,6 @@ impl SimpleAI {
         debug!("get upstream_did from root: {}", upstream_did);
         if !upstream_did.is_empty() && !upstream_did.starts_with("Unknown") {
             self.didtoken.lock().unwrap().set_upstream_did(&upstream_did.clone());
-            let upstream_url =  self.tokenuser.lock().unwrap().get_did_entry_point(&upstream_did.clone());
-            let sys_did = self.get_sys_did();
-            let dev_did = self.get_device_did();
-            let mut handle_guard = SYNC_TASK_HANDLE.lock().unwrap();
-            if let Some(handle) = handle_guard.take() {
-                handle.abort();
-            }
-            
-            let sys_did_owned = sys_did.clone();
-            let dev_did_owned = dev_did.clone();
-            let upstream_did_owned = upstream_did.clone();
-
-            let entry_point = self.tokenuser.lock().unwrap().get_entry_point();
-            let entry_point = Arc::new(tokio::sync::Mutex::new(entry_point));
-            let online_users = Arc::new(tokio::sync::Mutex::new(self.online_users.clone()));
-            let message_queue =  self.shared_data.get_message_queue().clone();
-
-            let handle = dids::TOKIO_RUNTIME.spawn(async move {
-                let task1 = submit_uncompleted_request_files(&upstream_url, &sys_did_owned, &dev_did_owned);
-                let task2 = sync_upstream(&sys_did_owned, &dev_did_owned, upstream_did_owned,
-                        entry_point, online_users, message_queue);
-                tokio::join!(task1, task2);
-            });
-            *handle_guard = Some(handle);
 
             if self.get_local_admin_vars("p2p_active_checkbox") == "True" || self.get_sys_name().ends_with("_p2p"){
                 self.p2p_start();
@@ -347,6 +308,7 @@ impl SimpleAI {
 
     pub fn request_remote_task(&mut self, task_id: &str, task_method: &str, args: Vec<u8>, target_did: Option<String>, mode: Option<String>) -> String {
         let task_id = format!("{}@{}", task_id, self.get_p2p_address()); //包含源did信息的task_id
+        let node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
         
         let p2p_out_did_list = self.get_local_admin_vars("p2p_out_did_list");
         let target_did = target_did.unwrap_or(p2p_out_did_list.clone());
@@ -354,15 +316,23 @@ impl SimpleAI {
         if IdClaim::validity(&target_node_did) {
             error!("request_remote_task({}) error: target_node_did({}) is invalid: {}", task_id, target_did, target_node_did);             
         }
-        
-        if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out") {
-            let request = P2pRequest {
+        let request = P2pRequest {
                 target_did: target_did.clone(),
                 method: "remote_process".to_string(),
                 task_id: task_id.clone(),
                 task_method: task_method.to_string(),
                 task_args: args,
             };
+        if node_did == target_node_did {
+            let target_sys = target_did.split_once('.').map(|(before, _)| before).unwrap_or(&target_did).to_string();
+            let result = api::request_api_cbor_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
+                .unwrap_or_else(|e| {
+                    error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, request.target_did, request.task_method);
+                    "error in call_ws_task".to_string()
+                });
+            return result;
+        }
+        if task_method == "remote_ping" || (self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "out") {
             let mode = mode.unwrap_or("async".to_string());
             let result = api::request_api_cbor_sync(&format!("p2p_request/{}/{}", mode, target_did), Some(request))
                 .unwrap_or_else(|e| {
@@ -377,14 +347,28 @@ impl SimpleAI {
 
     pub fn response_remote_task(&mut self, task_id: &str, task_method: &str, result: Vec<u8>) -> String {
         if self.get_local_admin_vars("p2p_remote_process").to_lowercase() == "in" {
-            let response = P2pRequest {
+            let request = P2pRequest {
                 target_did: String::new(),  // 从哪儿来的回哪儿去
                 method: "async_response".to_string(),
                 task_id: task_id.to_string(),  // 原样返回，含源did信息
                 task_method: task_method.to_string(),
                 task_args: result,
             };
-            let result = api::request_api_cbor_sync(&format!("p2p_response/async/{}", task_id), Some(response.clone()))
+            let target_did = task_id.split_once('@').map(|(_, after)| after).unwrap_or(&task_id);
+            let target_node_did = target_did.split_once('.').map(|(_, after)| after).unwrap_or(&target_did);
+            let node_did = self.p2p_status.as_ref().map_or("".to_string(), |status| status.node_did.clone());
+        
+            if node_did == target_node_did {
+                let target_sys = target_did.split_once('.').map(|(before, _)| before).unwrap_or(&target_did).to_string();
+                let result = api::request_api_cbor_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
+                    .unwrap_or_else(|e| {
+                        error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, request.target_did, request.task_method);
+                        "error in call_ws_task".to_string()
+                    });
+                return result;
+            }
+
+            let result = api::request_api_cbor_sync(&format!("p2p_response/async/{}", task_id), Some(request.clone()))
                 .unwrap_or_else(|e| {
                     error!("response_remote_task({}) error: {}, method={}", task_id, e, task_method);
                     "".to_string()
@@ -397,60 +381,66 @@ impl SimpleAI {
     
     pub fn get_global_status(&self, sid: &str, last_timestamp: u64) -> (usize, usize, usize) {
         let last_time = self.last_timestamp.read().unwrap();
-        let user_list = self.online_users.get_full_list();
+        let user_list = self.shared_data.online_mgr.users.get_full_list();
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
         self.shared_data.get_last(&did, last_timestamp, Some(&user_list))
     }
 
 
     pub fn get_online_users_number(&self) -> usize {
-        self.online_users.get_number()
+        self.shared_data.online_mgr.users.get_number()
     }
 
     pub fn get_online_nodes_users(&self) -> (usize, usize) {
-        self.online_users.get_nodes_users()
+        self.shared_data.online_mgr.get_nodes_users()
     }
 
     pub fn get_online_nodes_top(&self) -> String {
-        self.online_users.get_nodes_top_list()
+        self.shared_data.online_mgr.get_nodes_top_list()
     }
 
     pub fn log_register(&self, sid: &str) {
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
-        self.online_users.log_register(did.to_string());
-        self.shared_data.online_all.log_register(did.to_string());
+        self.shared_data.online_mgr.users.log_register(did.to_string());
     }
 
     pub fn log_access(&mut self, sid: &str) -> (usize, usize, usize, usize) {
         let did = self.sid_did_map.lock().unwrap().get(sid).cloned().unwrap_or_default();
-        self.online_users.log_access(did.to_string());
-        self.shared_data.online_all.log_access(did.to_string());
+        self.shared_data.online_mgr.users.log_access(did.to_string());
         let (domain_online_nodes, domain_online_users) = if self.get_p2p_is_running() {
-            self.online_users.get_nodes_users()
+            self.shared_data.online_mgr.get_nodes_users()
         } else {
             (0, 0)
         };
-        (self.online_users.get_number(), domain_online_nodes, domain_online_users, self.shared_data.get_message_queue().get_msg_number(&self.get_sys_did()))
+        (self.shared_data.online_mgr.users.get_number(), domain_online_nodes, domain_online_users, self.shared_data.online_mgr.messages.get_msg_number(&self.get_sys_did()))
+    }
+
+    pub fn sync_load(&self, load: u64) {
+        self.shared_data.set_load(load);
+    }
+
+    pub fn sync_service_list(&self, service_list: &str) {
+        self.shared_data.set_service_list(service_list);
     }
 
     pub fn get_global_msg_number(&self) -> usize {
-        self.shared_data.get_message_queue().get_msg_number(&self.get_sys_did())
+        self.shared_data.online_mgr.messages.get_msg_number(&self.get_sys_did())
     }
 
     pub fn get_global_msg_all(&self) -> String {
-        self.shared_data.get_message_queue().get_messages(&self.get_sys_did(), 0)
+        self.shared_data.online_mgr.messages.get_messages(&self.get_sys_did(), 0)
     }
 
     pub fn remove_old_global_msg(&self, timestamp: u64) {
-        self.shared_data.get_message_queue().remove_old_messages(&self.get_sys_did(), timestamp);
+        self.shared_data.online_mgr.messages.remove_old_messages(self.get_sys_did(), timestamp);
     }
 
     pub fn get_global_msg_list(&self, last_timestamp: u64) -> String {
-        self.shared_data.get_message_queue().get_messages(&self.get_sys_did(), last_timestamp)
+        self.shared_data.online_mgr.messages.get_messages(&self.get_sys_did(), last_timestamp)
     }
 
     pub fn put_global_message(&self, message: &str) {
-        let _ = self.shared_data.get_message_queue().push_messages(&self.get_sys_did(), message.to_string());
+        let _ = self.shared_data.online_mgr.messages.push_messages(self.get_sys_did().clone(), message.to_string());
     }
 
     pub fn get_global_vars(&mut self, key: &str, default: &str) -> String {
@@ -1326,7 +1316,7 @@ impl SimpleAI {
         let (local_claim, device_claim) = {
             (self.get_claim(&sys_did), self.get_claim(&dev_did))
         };
-        let last_timestamp = self.shared_data.get_message_queue().get_last_timestamp(&sys_did).unwrap_or_else(|| 0u64);
+        let last_timestamp = self.shared_data.online_mgr.messages.get_last_timestamp(sys_did.as_str()).unwrap_or_else(|| 0u64);
         let mut request = json!({});
         request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
         request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
@@ -1336,12 +1326,12 @@ impl SimpleAI {
 
         let upstream_url = self.tokenuser.lock().unwrap().get_did_entry_point(dids::TOKEN_ENTRYPOINT_DID);
         let response = dids::TOKIO_RUNTIME.block_on(async {
-            request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await
+            dids::token_utils::request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await
         });
         let ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
         debug!("register_upstream, response: {}", response);
         if let Some(message_list) = ping_vars.get("message_list") {
-            self.shared_data.get_message_queue().push_messages(&sys_did, message_list.to_string());
+            self.shared_data.online_mgr.messages.push_messages(sys_did, message_list.to_string());
         }
         if let Some(p2p_config) = ping_vars.get("p2p_config") {
             self.p2p_config = p2p_config.clone();
@@ -1360,7 +1350,7 @@ impl SimpleAI {
         let encoded_params = self.didtoken.lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did ,0);
         dids::TOKIO_RUNTIME.block_on(async {
             debug!("[UpstreamClient] sys({}),dev({}) request {}/api_{} with params: {}", self.get_sys_did(), self.get_device_did(), entry_point, api_name, params);
-            request_token_api_async(&entry_point, &self.get_sys_did(), &self.get_device_did(), api_name, &encoded_params).await
+            dids::token_utils::request_token_api_async(&entry_point, &self.get_sys_did(), &self.get_device_did(), api_name, &encoded_params).await
         })
     }
 
@@ -1454,192 +1444,3 @@ impl SimpleAI {
     }
 }
 
-pub(crate) async fn request_token_api_async(upstream_url: &str, sys_did: &str, dev_did: &str, api_name: &str, encoded_params: &str) -> String  {
-    debug!("[Upstream] request: {}{} with params: {}, sys={}, dev={}, ver={}", upstream_url, api_name, encoded_params, sys_did, dev_did, TOKEN_API_VERSION);
-    let response = match dids::REQWEST_CLIENT
-        .post(format!("{}{}", upstream_url, api_name))
-        .header("Sys-Did", sys_did.to_string())
-        .header("Dev-Did", dev_did.to_string())
-        .header("Version", TOKEN_API_VERSION.to_string())
-        .body(encoded_params.to_string())
-        .send()
-        .await
-    {
-        Ok(res) => res,
-        Err(e) => {
-            info!(
-                "Failed to send request: {} to {}{}, sys_did={}, dev_did={}",
-                e, upstream_url, api_name, sys_did, dev_did
-            );
-            return "Unknown".to_string();
-        }
-    };
-
-    // 获取状态码
-    let status_code = response.status();
-
-    // 读取响应体
-    let text = match response.text().await {
-        Ok(text) => text,
-        Err(e) => {
-            info!("Failed to read response body: {},{}", status_code, e);
-            return "Unknown".to_string();
-        }
-    };
-
-    // 处理响应
-    debug!("[Upstream] response: {}", text);
-    if status_code.is_success() {
-        let result = serde_json::from_str(&text).unwrap_or("".to_string());
-        debug!("[Upstream] result: {}", result);
-        result
-    } else {
-        debug!("status_code is unsuccessful: {},{}", status_code, text);
-        format!("Unknown_{}", status_code).to_string()
-    }
-}
-
-async fn submit_uncompleted_request_files(upstream_url: &str, sys_did: &str, dev_did: &str) {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5)); // 设置检查周期
-
-    loop {
-        interval.tick().await; // 等待下一个周期
-        let user_copy_file = token_utils::get_path_in_sys_key_dir("user_copy_xxxxx.json");
-        let user_copy_path = match user_copy_file.parent() {
-            Some(parent) => {
-                if parent.exists() {
-                    parent
-                } else {
-                    fs::create_dir_all(parent).unwrap();
-                    parent
-                }
-            },
-            None => panic!("{}", format!("File path does not have a parent directory: {:?}", user_copy_file)),
-        };
-        // 遍历目录中的所有文件
-        if let Ok(mut entries) = tokio::fs::read_dir(user_copy_path).await {
-            while let Some(entry) = entries.next_entry().await.transpose() {
-                if let Ok(entry) = entry {
-                    let file_path = entry.path();
-                    if file_path.is_file() {
-                        if let Some(file_name) = file_path.file_name() {
-                            if let Some(file_name_str) = file_name.to_str() {
-                                if let Some(method) = extract_method_from_filename(file_name_str) {
-                                    if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
-                                        debug!("submit uncompleted request file: method={}, {}", method, file_path.display());
-                                        let result = request_token_api_async(upstream_url, sys_did, dev_did, &method, &content).await;
-                                        if result != "Unknown"  {
-                                            tokio::fs::remove_file(&file_path).await.expect("remove user copy file failed");
-                                            debug!("remove the uncompleted request file: {}", file_path.display());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-fn extract_method_from_filename(file_name: &str) -> Option<String> {
-    let re = regex::Regex::new(r"^(.+?)_([a-zA-Z0-9]{29})_uncompleted\.json$").unwrap();
-    if let Some(captures) = re.captures(file_name) {
-        if let Some(method) = captures.get(1) {
-            return Some(method.as_str().to_string());
-        }
-    }
-    None
-}
-
-
-async fn sync_upstream(
-    sys_did: &str,
-    dev_did: &str,
-    upstream_did: String,
-    entry_point: Arc<tokio::sync::Mutex<DidEntryPoint>>,
-    online_users: Arc<tokio::sync::Mutex<OnlineUsers>>,
-    message_queue: Arc<MessageQueue>,
-) {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-
-    loop {
-        let mut upstream_did = upstream_did.clone();
-        let result_string = {
-            let mut request = json!({});
-            let online_users_list = {
-                let users_guard = online_users.lock().await;
-                users_guard.get_full_list()
-            };
-            let last_timestamp = message_queue.get_last_timestamp(sys_did).unwrap_or_else(|| 0u64);
-            request["online_users"] = serde_json::to_value(online_users_list).unwrap_or(json!(""));
-            request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
-            let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-            let upstream_url = {
-                let ep = entry_point.lock().await;
-                ep.get_entry_point(&upstream_did.clone())
-            };
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(5),
-                request_token_api_async(&upstream_url, sys_did, dev_did, "ping", &params),
-            )
-                .await
-            {
-                Ok(result) => result,
-                Err(_) => "Unknown".to_string(),
-            }
-        };
-
-        debug!("{} [Upstream] {} ping upstream node: {}", token_utils::now_string(), sys_did, result_string);
-                        
-        if result_string != "Unknown" {
-            let mut ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
-            if let Some(user_online) = ping_vars.get("user_online") {
-                let user_online_array: Vec<&str> = user_online.split(":").collect();
-                if user_online_array.len() >= 3 {
-                    let nodes = user_online_array[0].parse().unwrap_or(1);
-                    let users = user_online_array[1].parse().unwrap_or(1);
-                    let top_list = user_online_array[2].to_string();
-                    if nodes > 1 && users > 1 {
-                        let mut users_guard = online_users.lock().await;
-                        users_guard.set_nodes_users(nodes, users, top_list.clone());
-                        debug!("{} [Upstream] set_nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
-                    } else if nodes == 0 && users == 0 {
-                        debug!("{} [Upstream] get null nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
-                        let claims = GlobalClaims::instance();
-                        let (local_claim, device_claim) = {
-                            let mut claims = claims.lock().unwrap();
-                            (claims.get_claim_from_local(sys_did), claims.get_claim_from_local(dev_did))
-                        };
-                        let last_timestamp = message_queue.get_last_timestamp(sys_did).unwrap_or_else(|| 0u64);
-                        let mut request = json!({});
-                        request["system_claim"] = serde_json::to_value(local_claim).unwrap_or(json!(""));
-                        request["device_claim"] = serde_json::to_value(device_claim).unwrap_or(json!(""));
-                        request["msg_timestamp"] = serde_json::to_value(last_timestamp).unwrap_or(json!(0u64));
-
-                        let params = serde_json::to_string(&request).unwrap_or("{}".to_string());
-                        let upstream_url = {
-                            let ep = entry_point.lock().await;
-                            ep.get_entry_point(dids::TOKEN_ENTRYPOINT_DID)
-                        };
-                        let response = request_token_api_async(&upstream_url, &sys_did, &dev_did, "register2", &params).await;
-                        ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
-                        debug!("{} [Upstream] repair ping: {}", token_utils::now_string(), response);
-                        upstream_did = if let Some(new_did) = ping_vars.get("upstream_did") {
-                            new_did.clone()
-                        } else { upstream_did.clone() };
-                    } 
-                }
-            }
-
-            if let Some(message_list) = ping_vars.get("message_list") {
-                message_queue.push_messages(&sys_did, message_list.to_string());
-            }
-        }
-
-        interval.tick().await;
-    }
-
-}

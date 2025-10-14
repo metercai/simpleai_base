@@ -1,28 +1,37 @@
 use std::{
-        cell::OnceCell,
-        collections::HashMap,
-        fmt::{self, Debug},
-        error::Error,
-        str::FromStr,
-        io,
-        net::{Ipv4Addr, IpAddr},
-        time::{Duration, Instant} };
+        cell::OnceCell, 
+        collections::{hash_map, HashMap, HashSet}, 
+        error::Error, 
+        fmt::{self, Debug}, 
+        io, 
+        net::{IpAddr, Ipv4Addr}, 
+        path::PathBuf, 
+        str::FromStr, 
+        time::{Duration, Instant, UNIX_EPOCH} 
+    };
 use tokio::{
         select,
         sync::{oneshot, Mutex},
         time::{self, Interval},
-        sync::mpsc::{self, UnboundedSender, UnboundedReceiver} };
+        sync::mpsc::{self, UnboundedSender, UnboundedReceiver},
+        fs::{File, metadata},
+        io::AsyncWriteExt, // Required for write_all 
+    };
+
 use libp2p::{
-        kad, tcp, identify, noise, yamux, ping, mdns, autonat, relay, dcutr, upnp, rendezvous,
-        core::multiaddr::Protocol,
-        identity::{Keypair, ed25519},
-        futures::{StreamExt, FutureExt},
-        metrics::{Metrics, Recorder},
-        swarm::{dial_opts::DialOpts, SwarmEvent},
-        gossipsub::{self, TopicHash},
-        request_response::{self, OutboundFailure, OutboundRequestId, ResponseChannel},
-        kad::{QueryId},
-        Swarm, Multiaddr, PeerId,};
+        autonat, 
+        core::multiaddr::Protocol, 
+        dcutr, 
+        futures::{FutureExt, StreamExt}, 
+        gossipsub::{self, TopicHash}, identify,
+        identity::{ed25519, Keypair}, 
+        kad::{self, GetClosestPeersOk, QueryId, PeerInfo}, 
+        mdns, 
+        metrics::{Metrics, Recorder}, 
+        noise, ping, relay, rendezvous, 
+        request_response::{self, OutboundFailure, OutboundRequestId, ResponseChannel}, 
+        swarm::{dial_opts::DialOpts, SwarmEvent}, 
+        tcp, upnp, yamux, Multiaddr, PeerId, Swarm};
 use std::sync::Arc;
 use futures::{executor::block_on};
 use prometheus_client::{metrics::info::Info, registry::Registry};
@@ -50,6 +59,8 @@ pub(crate) trait EventHandler: Debug + Send + 'static {
     fn handle_inbound_request(&self, peer: PeerId, request: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
     /// Handles an broadcast message from a remote peer.
     fn handle_broadcast(&self, topic: &str, message: Vec<u8>, sender: PeerId);
+
+    fn handle_download_progress(&self, peer: PeerId, progress: String);
 }
 
 #[derive(Clone, Debug)]
@@ -62,8 +73,11 @@ pub(crate) struct Client {
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
 pub(crate) async fn new<E: EventHandler>(config: Config, sys_claim: &IdClaim, sys_phrase: &str) -> Result<(Client, Server<E>), Box<dyn Error + Send + Sync>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
+    // let (event_sender, event_receiver) = mpsc::channel(0);
+
     let server = Server::new(config, sys_claim, sys_phrase, cmd_receiver).await?;
     let local_peer_id = server.get_peer_id();
+
     let client = Client {
         cmd_sender,
         peer_id: local_peer_id,
@@ -200,6 +214,28 @@ impl Client {
         let _ = self.cmd_sender.send(Command::Stop);
     }
 
+    /// Advertise the local node as the provider of the given file on the DHT.
+    pub(crate) async fn provide_file(&mut self, file_name: String, file_path: PathBuf) {
+        let _ = self.cmd_sender.send(Command::StartProviding { file_name, file_path }); // Use unbounded_send
+    }
+
+    /// Find the providers for the given file on the DHT.
+    pub(crate) async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
+        let (responder, receiver) = oneshot::channel();
+        self.cmd_sender
+            .send(Command::GetProviders { file_name, responder }) // Use unbounded_send
+            .expect("Command receiver not to be dropped.");
+        receiver.await.expect("Sender not be dropped.")
+    }
+
+    /// Initiate the process of getting a file by name.
+    pub(crate) async fn download_file(&mut self, full_file_name: String) {
+        //let (sender, _) = oneshot::channel(); // No need to wait for a result here, EventLoop handles it
+        let _ = self.cmd_sender.send(Command::DownloadFile { full_file_name }); // Use unbounded_send
+    }
+
+
+
 }
 
 /// The commands sent by the `Client` to the `Server`.
@@ -221,10 +257,24 @@ pub(crate) enum Command {
     GetKeyValue(String, oneshot::Sender<Vec<u8>>),
     SetKeyValue(String, Vec<u8>),
     Stop,
+    
+    StartProviding {
+        file_name: String,
+        file_path: PathBuf,
+        // sender: oneshot::Sender<()>,
+    },
+    GetProviders {
+        file_name: String,
+        responder: oneshot::Sender<HashSet<PeerId>>,
+    },
+    DownloadFile {
+        full_file_name: String,
+    },
 }
 
 pub(crate) struct Server<E: EventHandler> {
     node_did: String,
+    nickname: String,
     /// The actual network service.
     network_service: Swarm<Behaviour>,
     /// The local peer id.
@@ -240,6 +290,16 @@ pub(crate) struct Server<E: EventHandler> {
     /// The pending outbound requests, awaiting for a response from the remote.
     pending_outbound_requests: HashMap<OutboundRequestId, oneshot::Sender<ResponseType>>,
     pending_kad_query: HashMap<QueryId, oneshot::Sender<Vec<u8>>>,
+    /// file-sharing related requests
+    pending_providing: HashMap<QueryId, String>, // Store file_name with sender
+    pending_providers: HashMap<QueryId, oneshot::Sender<HashSet<PeerId>>>, // For GetProviders method returning via oneshot
+    pending_downloading: HashMap<QueryId, (String, String, u64)>, // For GetFile internal use, stores (file_key, filename, filesize)
+    pending_get_file: HashMap<OutboundRequestId, (String, File, String, u64)>, // Store (file_key, file_handle, filename, filesize) for streaming
+    temp_files: HashMap<OutboundRequestId, PathBuf>, // Track temp file paths for cleanup
+    completed_downloads: HashSet<String>, // Track successfully completed downloads by file_key
+    // Store file paths and names for serving
+    provided_files: HashMap<String, PathBuf>, // Map file_key to file_path for serving
+
     /// The topics will be hashed when subscribing to the gossipsub protocol,
     /// but we need to keep the original topic names for broadcasting.
     pubsub_topics: Vec<String>,
@@ -288,6 +348,7 @@ impl<E: EventHandler> Server<E> {
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut metric_registry = Registry::default();
         let node_did = dev_claim.gen_did();
+        let nickname = dev_claim.nickname.clone();
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(
                 token_utils::read_key_or_generate_key("Device", &dev_claim.get_symbol_hash(), &dev_phrase, false, false)
@@ -427,6 +488,7 @@ impl<E: EventHandler> Server<E> {
         
         Ok(Self {
             node_did,
+            nickname,
             network_service: swarm,
             local_peer_id: local_keypair.public().into(),
             listened_addresses,
@@ -435,6 +497,13 @@ impl<E: EventHandler> Server<E> {
             discovery_ticker,
             pending_outbound_requests: HashMap::new(),
             pending_kad_query: HashMap::new(),
+            pending_providing: Default::default(),
+            pending_providers: Default::default(),
+            pending_downloading: Default::default(),
+            pending_get_file: Default::default(),
+            temp_files: Default::default(),
+            completed_downloads: Default::default(),
+            provided_files: Default::default(),
             pubsub_topics,
             upstream_nodes,
             lan_addresses,
@@ -475,15 +544,15 @@ impl<E: EventHandler> Server<E> {
                         }
                     },
                 // Next command from the `Client`.
-                msg = self.cmd_receiver.recv() => {
-                    if let Some(cmd) = msg {
-                        self.handle_command(cmd);
-                    }
+                msg = self.cmd_receiver.recv() =>  match msg {
+                    Some(c) => self.handle_command(c).await,
+                    // Command channel closed, thus shutting down the network event loop.
+                    None =>  return,
                 },
                 // Next event from `Swarm`.
                 event = self.network_service.select_next_some() => {
                     self.metrics.record(&event);
-                    self.handle_swarm_event(event);
+                    self.handle_swarm_event(event).await;
                 },
             }
 
@@ -491,7 +560,7 @@ impl<E: EventHandler> Server<E> {
     }
 
     // Process the next command coming from `Client`.
-    fn handle_command(&mut self, cmd: Command) {
+    async fn handle_command(&mut self, cmd: Command) {
         match cmd {
             Command::SendRequest {
                 target,
@@ -510,12 +579,72 @@ impl<E: EventHandler> Server<E> {
                 }
             },
             Command::GetKeyValue(key, responder) => self.handle_kad_get_key(key, responder).unwrap(),
-            Command::SetKeyValue(key, value) => self.handle_kad_set_value(key, value),
+            Command::SetKeyValue(key, value) => self.handle_kad_set_value(key, value, None, None, None),
             Command::Stop => self.stop_flag = true,
+
+            Command::StartProviding { file_name, file_path} => {
+                let file_key = format!("{}@{}|DF", file_name.clone(), self.nickname);
+                let filename = file_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file_name.clone());
+                let metadata = metadata(file_path.clone()).await.unwrap();
+                let value = format!("{}|{}|{}", filename, metadata.len(), metadata.accessed().unwrap().duration_since(UNIX_EPOCH).unwrap().as_secs())
+                    .into_bytes();
+                let expires = Some(Instant::now() + Duration::from_secs(60));
+                let (sender, receiver) = oneshot::channel();
+                self.handle_kad_set_value(file_key.clone(), value, Some(self.local_peer_id.clone()), expires, Some(sender));
+                let _ = receiver.await;
+                
+                self.provided_files.insert(file_key.clone(), file_path.clone());
+                let query_id = self
+                    .network_service
+                    .behaviour_mut()
+                    .kademlia
+                    .start_providing(file_key.clone().into_bytes().into())
+                    .expect("No store error.");
+                self.pending_providing.insert(query_id, file_key);
+            }
+            Command::GetProviders { file_name, responder } => {
+                let query_id = self
+                    .network_service
+                    .behaviour_mut()
+                    .kademlia
+                    .get_providers(file_name.into_bytes().into());
+                self.pending_providers.insert(query_id, responder);
+            }
+            Command::DownloadFile { full_file_name } => {
+                let file_key = format!("{}|DF", full_file_name.clone());
+                let (sender, receiver) = oneshot::channel();
+                self.handle_kad_get_key(file_key.clone(), sender);
+                let value = receiver.await.unwrap();
+                if value.len() == 0 {
+                    tracing::error!("{} 无法下载文件 {}，文件不存在", token_utils::now_string(), full_file_name);
+                } else {
+                    let value_str = String::from_utf8_lossy(&value);
+                    let parts: Vec<&str> = value_str.split('|').collect();
+                    if parts.len() != 3 {
+                        tracing::error!("{} 无法下载文件 {}，文件元数据格式错误", token_utils::now_string(), full_file_name);
+                    } else {
+                        let filename = parts[0].to_string();
+                        let filesize = parts[1].parse::<u64>().unwrap();
+                        let last_modified = parts[2].parse::<u64>().unwrap();
+                        // Initiate the Kademlia query to find providers
+                        // The file handle creation is deferred until providers are found in handle_event
+                        let query_id = self
+                            .network_service
+                            .behaviour_mut()
+                            .kademlia
+                            .get_providers(file_key.clone().into_bytes().into());
+                        // Store the file_name for the query ID, to be used when providers are found
+                        self.pending_downloading.insert(query_id, (file_key, filename, filesize));
+                    }
+                }
+            }
         }
     }
     // Process the next event coming from `Swarm`.
-    fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         let behaviour_ev = match event {
             SwarmEvent::Behaviour(ev) => ev,
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -603,15 +732,23 @@ impl<E: EventHandler> Server<E> {
                     
                 }
                 return;
+            }
+            SwarmEvent::IncomingConnection { .. } => { return; }
+            SwarmEvent::ConnectionClosed { .. } => { return; }
+            SwarmEvent::IncomingConnectionError { .. } => { return; }
+            SwarmEvent::Dialing {
+                peer_id: Some(peer_id),
+                ..
+            } => { println!("{} Dialing {peer_id}", token_utils::now_string()); 
+                return;
             },
-            
 
             _ => return,
         };
         self.handle_behaviour_event(behaviour_ev);
     }
 
-    fn handle_behaviour_event(&mut self, ev: BehaviourEvent) {
+    async fn handle_behaviour_event(&mut self, ev: BehaviourEvent) {
         tracing::debug!("{:?}", ev);
         //self.record_event_metrics(&ev);
         match ev {
@@ -942,6 +1079,42 @@ impl<E: EventHandler> Server<E> {
                     id, result, .. 
             }) => {
                 match result {
+                    kad::QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers , ..})) => {
+                        if (self.debug & (1 << 2)) != 0  {
+                            println!("{} ☕ Got {} closest peers for key {:?}.", token_utils::now_string(), peers.len(), key);
+                        }
+                        let target_peer_id = match PeerId::from_bytes(key.as_ref()) {
+                            Ok(peer_id) => peer_id,
+                            Err(e) => {
+                                println!("❌ Failed to convert key to PeerId: {}", e);
+                                return;
+                            }
+                        };
+                        for peer in peers {
+                            if peer.peer_id == target_peer_id {
+                                // 遍历peer的地址，尝试连接，连接成功后加入kad地址表
+                                for addr in peer.addrs {
+                                    let full_addr = addr.with(Protocol::P2p(peer.peer_id));
+                                    match self.network_service.dial(full_addr.clone()) {
+                                        Ok(()) => {
+                                            println!("🔄 Dialing target {} at {}", peer.peer_id, full_addr);
+                                            self.network_service.behaviour_mut().kademlia.add_address(&peer.peer_id, full_addr);
+                                            break; // 成功连接一个地址即可
+                                        }
+                                        Err(e) => {
+                                            println!("❌ Failed to dial {} at {}: {}", peer.peer_id, full_addr, e);
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    kad::QueryResult::GetClosestPeers(Err(error)) => {
+                        if (self.debug & (1 << 2)) != 0  {
+                            println!("{} ❌ Kad get closest peers failed: {:?}", token_utils::now_string(), error);
+                        }
+                    }
                     kad::QueryResult::GetRecord(Ok(
                         kad::GetRecordOk::FoundRecord(kad::PeerRecord {
                             record: kad::Record { key, value, .. },
@@ -984,9 +1157,202 @@ impl<E: EventHandler> Server<E> {
                         }
                         self.handle_kad_failure(id);
                     }
+
+                    kad::QueryResult::StartProviding(_) => {
+                        if (self.debug & (1 << 2)) != 0  {
+                            if let Some(file_name) = self.pending_providing.remove(&id) {
+                                println!("{} Successfully started providing record: {}", token_utils::now_string(), file_name);
+                            }
+                            
+                        }
+                    }
+                    kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
+                            providers,
+                            ..
+                    })) => {
+                        if (self.debug & (1 << 2)) != 0  {
+                            if let Some(sender) = self.pending_providers.remove(&id) {
+                                sender.send(providers.clone()).expect("Receiver not to be dropped");
+                                // Finish the query. We are only interested in the first result.
+                                self.network_service
+                                    .behaviour_mut()
+                                    .kademlia
+                                    .query_mut(&id)
+                                    .unwrap()
+                                    .finish();
+                                println!("{} Successfully got providers: {:?}", token_utils::now_string(), providers);      
+                            // Handle result for GetFile internal use (event return)
+                            } else if let Some((file_key, filename, filesize)) = self.pending_downloading.remove(&id) {
+                                // Finish the query. We are only interested in the first result.
+                                self.network_service
+                                    .behaviour_mut()
+                                    .kademlia
+                                    .query_mut(&id)
+                                    .unwrap()
+                                    .finish();
+                                // Now that we have providers, initiate requests to them (similar to original Get logic)
+                                for provider in providers {
+                                    // Create a temporary file path for this specific request to this provider
+                                    let temp_path = std::path::PathBuf::from(format!("received_{}_from_{}.{}.bin.tmp", filename.clone(), provider.to_base58(), id));
+                                    // Create the file handle
+                                    match File::create(&temp_path).await {
+                                        Ok(file_handle) => {
+                                            // Send the request to the provider
+                                            let request_id = self
+                                                .network_service
+                                                .behaviour_mut()
+                                                .request_response
+                                                .send_request(&provider, FileRequest(file_key.clone()));
+                                            // Store the file handle and temp path for the specific request ID
+                                            self.pending_get_file.insert(request_id, (file_key.clone(), file_handle, filename.clone(), filesize));
+                                            // Also track the temp path for potential cleanup
+                                            self.temp_files.insert(request_id, temp_path.clone());
+                                            println!("Sent file request for '{}' to provider {}", filename, provider);
+                                            
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Failed to create temporary file for request to {}: {}", provider, e);
+                                            // Could send an error event or handle this failure, e.g., try next provider
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    kad::QueryResult::GetProviders(Ok(
+                            kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. }
+                        )) => {
+                            // Handle case where no providers were found for GetFile
+                            if let Some((file_key, filename, filesize)) = self.pending_downloading.remove(&id) {
+                                eprintln!("Could not find any providers for file: {}", filename);
+                                // Could send an error event here if needed
+                            }
+                        }
+                    
                     _ => {}
                 }
             }
+            BehaviourEvent::Kademlia(_) => {}
+            BehaviourEvent::RequestResponse(
+                request_response::Event::Message { message, .. },
+            ) => match message {
+                request_response::Message::Request {
+                    request, channel, ..
+                } => {
+                    // Handle incoming file requests
+                    let requested_file_key = request.0;
+                    if let Some(file_path) = self.provided_files.get(&requested_file_key) {
+                        // Read the file content
+                        match tokio::fs::read(file_path).await { // Use tokio::fs for async read
+                            Ok(file_content) => {
+                                // Send the file content as response
+                                self.network_service
+                                    .behaviour_mut()
+                                    .request_response
+                                    .send_response(channel, FileResponse(file_content))
+                                    .expect("Connection to peer to be still open.");
+                                println!("Sent file '{}' to peer", requested_file_key);
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to read file '{}' for serving: {}", file_path.display(), e);
+                                // Optionally send an error response
+                                // self.swarm
+                                //     .behaviour_mut()
+                                //     .request_response
+                                //     .send_response(channel, FileResponse(vec![])); // Or an error message
+                            }
+                        }
+                    } else {
+                        eprintln!("Received request for non-provided file: {}", requested_file_key);
+                         // Optionally send an error response
+                        // self.swarm
+                        //     .behaviour_mut()
+                        //     .request_response
+                        //     .send_response(channel, FileResponse(vec![])); // Or an error message
+                    }
+                }
+                request_response::Message::Response {
+                    request_id,
+                    response,
+                } => {
+                    if let Some((file_key, ref mut file_handle, filename, filesize)) = self.pending_get_file.get_mut(&request_id) {
+                        // Check if this file_key has already been successfully downloaded
+                        if self.completed_downloads.contains(file_key) {
+                            println!("File '{}' already downloaded successfully, ignoring response for request {}.", file_key, request_id);
+                            // Clean up resources for this ignored request
+                            if let Some((file_key, _, filename, _)) = self.pending_get_file.remove(&request_id) {
+                                if let Some(temp_path) = self.temp_files.remove(&request_id) {
+                                    let _ = tokio::fs::remove_file(temp_path).await; // Ignore error on cleanup
+                                }
+                            }
+                            return; // Exit early, ignore this response
+                        }
+
+                        let chunk = response.0;
+                        let chunk_len = chunk.len();
+
+                        // Stream the chunk directly to the file
+                        match file_handle.write_all(&chunk).await {
+                            Ok(()) => {
+                                // Report progress
+                                println!("Received {}/{} bytes for file '{}'", chunk_len, filesize, filename);
+                                // If this is the last chunk (or the only chunk), finalize
+                                // In this simple model, we assume one response = full file.
+                                // Remove the entry from the map, which takes ownership of the File handle.
+                                if let Some((file_key, mut file_handle, filename, filesize)) = self.pending_get_file.remove(&request_id) {
+                                    // Flush the file to ensure data is written to disk
+                                    if let Err(e) = file_handle.flush().await {
+                                         eprintln!("Failed to flush file for '{}': {}", filename, e);
+                                    } else {
+                                        println!("Successfully wrote received file for '{}' to disk.", filename);
+                                        // Mark this file as completed *before* renaming and sending the final event
+                                        self.completed_downloads.insert(file_key.clone());
+                                        
+                                        // Send final progress event with final path
+                                        if let Some(final_path) = self.temp_files.remove(&request_id) {
+                                            // Rename temporary file to final name if needed
+                                            let final_file_name = format!("received_{}.bin", filename);
+                                            let final_path = std::path::PathBuf::from(final_file_name);
+                                            if let Err(e) = tokio::fs::rename(&final_path.with_extension("tmp"), &final_path).await {
+                                                eprintln!("Failed to rename temporary file to final name: {}", e);
+                                                // Still report the temp path as the saved path
+                                                println!("Still reporting temp path as saved path for '{}': {}", filename, final_path.with_extension("tmp").display());
+                                            } else {
+                                                println!("Successfully renamed temporary file to final name for '{}': {}", filename, final_path.display());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to write chunk to file for request {}: {}", request_id, e);
+                                // Attempt to remove the temp file on write error
+                                if let Some(temp_path) = self.temp_files.remove(&request_id) {
+                                    let _ = tokio::fs::remove_file(temp_path).await; // Ignore error on cleanup
+                                }
+                                self.pending_get_file.remove(&request_id); // Clean up the handle
+                            }
+                        }
+                    }
+                }
+            }
+            BehaviourEvent::RequestResponse(
+                request_response::Event::OutboundFailure {
+                    request_id, error, ..
+                },
+            ) => {
+                if let Some((file_key, _, filename, _)) = self.pending_get_file.remove(&request_id) {
+                     eprintln!("Failed to get file '{}' from peer (request_id: {}): {}", filename, request_id, error);
+                     // Attempt to remove the temp file on failure
+                     if let Some(temp_path) = self.temp_files.remove(&request_id) {
+                         let _ = tokio::fs::remove_file(temp_path).await; // Ignore error on cleanup
+                     }
+                     // Could send an error event here if needed
+                }
+            }
+            BehaviourEvent::RequestResponse(
+                request_response::Event::ResponseSent { .. }
+            ) => {}
             _ => {}
         }
     }
@@ -1138,17 +1504,17 @@ impl<E: EventHandler> Server<E> {
     fn handle_kad_result(&mut self, query_id: QueryId, response: Vec<u8> ) {
         if let Some(responder) = self.pending_kad_query.remove(&query_id) {
             let _ = responder.send(response);
-        } else {
-            tracing::warn!("❗ Received response for unknown request: {}", query_id);
-            debug_assert!(false);
         }
     }
 
-    fn handle_kad_set_value(&mut self, key: String, value: Vec<u8>) {
+    fn handle_kad_set_value(&mut self, key: String, value: Vec<u8>, publisher: Option<PeerId>, expiry: Option<Instant>, responder: Option<oneshot::Sender<Vec<u8>>>) {
         let query_id = self
             .network_service
             .behaviour_mut()
-            .set_key_value(key.clone(), String::from_utf8_lossy(&value).to_string());
+            .set_key_value(key.clone(), value.clone(), publisher, expiry);
+        if let Some(responder) = responder {
+            self.pending_kad_query.insert(query_id, responder);
+        }
         
         tracing::debug!("☕ 存储键值对: {} -> {:?}, query_id: {:?}", key, value.len(), query_id);
     }
@@ -1370,3 +1736,21 @@ impl NodeStatus {
                 self.pubsub_peers.len())
     }
 }
+
+#[derive(Debug)]
+pub(crate) enum Event {
+    ProviderReady {
+        file_name: String,
+    },
+    FileChunkReceived {
+        file_name: String,
+        path: PathBuf, // Path where the file is saved
+        progress: usize, // Current received bytes or chunk index
+        total_size: Option<usize>, // Total size if known, None for the final event
+    },
+    ProvidersFound {
+        file_name: String,
+        providers: HashSet<PeerId>,
+    },
+}
+

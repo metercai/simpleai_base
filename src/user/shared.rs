@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use serde::{Serialize, Deserialize};
 use tracing::{debug, info};
@@ -7,7 +7,7 @@ use tracing_subscriber::field::debug;
 
 use crate::dids::claims::{GlobalClaims, IdClaim};
 use crate::dids::cert_center::GlobalCerts;
-use crate::user::user_mgr::{MessageQueue, OnlineUsers};
+use crate::user::online_mgr::OnlineMgr;
 
 
 #[derive(Debug)]
@@ -15,12 +15,13 @@ pub struct SharedData {
     sys_did: RwLock<String>,
     node_did: RwLock<String>,
     sys_name: RwLock<String>, 
+    capacity: RwLock<u64>,
+    service_list: RwLock<String>,
+    load: RwLock<u64>,
     pub user_list: Mutex<String>,
     did_node_map: RwLock<HashMap<String, String>>,
     node_did_map: RwLock<HashMap<String, String>>,
-    pub message_queue: Mutex<Option<Arc<MessageQueue>>>,
-    pub online_all: OnlineUsers,
-    pub online_nodes: OnlineUsers,
+    pub online_mgr: Arc<OnlineMgr>,
     pub claims: Arc<Mutex<GlobalClaims>>, 
     pub certificates: Arc<Mutex<GlobalCerts>>,
     pub p2p_in_did_list: Arc<Mutex<HashSet<String>>>,
@@ -34,27 +35,18 @@ impl SharedData {
             sys_did: RwLock::new(String::new()),
             node_did: RwLock::new(String::new()),
             sys_name: RwLock::new(String::new()),
+            capacity: RwLock::new(0),
+            service_list: RwLock::new(String::new()),
+            load: RwLock::new(0),
             user_list: Mutex::new(String::new()),
             did_node_map: RwLock::new(HashMap::new()),
             node_did_map: RwLock::new(HashMap::new()),
-            message_queue: None.into(),
-            online_all: OnlineUsers::new(600, 5),
-            online_nodes: OnlineUsers::new(600, 5),
+            online_mgr: Arc::new(OnlineMgr::new("test")),
             claims: GlobalClaims::instance(), 
             certificates: GlobalCerts::instance(),
             p2p_in_did_list: Arc::new(Mutex::new(HashSet::new())),
             p2p_out_did_list: Arc::new(Mutex::new(HashSet::new())),
         }
-    }
-
-    pub fn set_message_queue(&self, queue: MessageQueue) {
-        let mut guard = self.message_queue.lock().unwrap();
-        *guard = Some(Arc::new(queue)); // 包装为 Arc
-    }
-
-    pub fn get_message_queue(&self) -> Arc<MessageQueue> {
-        let guard = self.message_queue.lock().unwrap();
-        guard.as_ref().expect("MessageQueue not initialized").clone()
     }
 
     pub fn sys_did(&self) -> String {
@@ -69,13 +61,41 @@ impl SharedData {
         self.sys_name.read().unwrap().clone()
     }
 
-    pub fn set_sys_data(&self, sys_did: &str, node_did: &str, sys_name: &str) {
+    pub fn set_sys_data(&self, sys_did: &str, node_did: &str, sys_name: &str, capacity: u64) {
         let mut guard = self.sys_did.write().unwrap();
         *guard = sys_did.to_string();
         let mut guard = self.node_did.write().unwrap();
         *guard = node_did.to_string();
         let mut guard = self.sys_name.write().unwrap();
         *guard = sys_name.to_string();
+        let mut guard = self.capacity.write().unwrap();
+        *guard = capacity;
+    }
+
+    pub fn upstream_did(&self) -> String {
+        self.certificates.lock().unwrap().get_upstream_did()
+    }
+
+    pub fn capacity(&self) -> u64 {
+        *self.capacity.read().unwrap()
+    }
+
+    pub fn service_list(&self) -> RwLockReadGuard<'_, String>  {
+        self.service_list.read().expect("Failed to acquire read lock")
+    }
+
+    pub fn set_service_list(&self, service_list: &str) {
+        let mut guard = self.service_list.write().unwrap();
+        *guard = service_list.to_string();
+    }
+
+    pub fn load(&self) -> u64 {
+        *self.load.read().unwrap()
+    }
+
+    pub fn set_load(&self, load: u64) {
+        let mut guard = self.load.write().unwrap();
+        *guard = load;
     }
 
     pub fn get_last(&self, did: &str, last_timestamp: u64, updated_list: Option<&str>) -> (usize, usize, usize) {
@@ -86,10 +106,10 @@ impl SharedData {
         }
         
         let sys_did = self.sys_did.read().unwrap().clone();
-        let messages_len = self.get_message_queue().get_msg_number_from(did, last_timestamp);
-        let msg_sys_len = self.get_message_queue().get_msg_number_from(&sys_did, last_timestamp);
-        let user_all = self.online_all.get_number();
-        let node_all = self.online_nodes.get_number();
+        let messages_len = self.online_mgr.messages.get_msg_number_from(did, last_timestamp);
+        let msg_sys_len = self.online_mgr.messages.get_msg_number_from(&sys_did, last_timestamp);
+        let user_all = self.online_mgr.users.get_number();
+        let node_all = self.online_mgr.domain.read().unwrap().nodes_num;
         debug!("status({}): node:{}, user:{}, local_msg:{}", did, node_all, user_all, messages_len+msg_sys_len);
         (node_all, user_all, messages_len)
     }

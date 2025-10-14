@@ -1,6 +1,6 @@
 [package]
 name = "simpleai_base"
-version = "0.3.25"
+version = "0.4.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -51,7 +51,7 @@ if-addrs = "0.13"
 futures = "0.3"
 futures-timer = "3"
 hyper = { version = "0.14", features = ["server", "tcp", "http1"] }
-libp2p = { version = "0.55.0", features = ["gossipsub", "request-response", "dcutr", "mdns", "autonat", "dns", "tokio", "noise", "tcp", "yamux", "identify", "kad", "ping", "relay", "metrics", "rsa", "macros", "quic", "websocket", "upnp", "rendezvous"] }
+libp2p = { version = "0.55.0", features = ["gossipsub", "request-response", "cbor", "dcutr", "mdns", "autonat", "dns", "tokio", "noise", "tcp", "yamux", "identify", "kad", "ping", "relay", "metrics", "rsa", "macros", "quic", "websocket", "upnp", "rendezvous"] }
 prometheus-client = "0.22.1"
 toml = "0.8.10"
 async-trait = "0.1"
@@ -65,6 +65,7 @@ futures-util = "0.3.31"
 uuid = "1.17"
 tokio-tungstenite = "0.26.2"
 backoff = "0.4"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
 
 [profile.release]
 opt-level = 3       # 最大优化
