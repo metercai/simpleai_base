@@ -379,6 +379,36 @@ impl SimpleAI {
         }
     }
     
+    pub fn send_file(&self, file_identifier: &str, file_path: &str) -> String {
+        let json_params = serde_json::to_vec(&json!({
+            "file_identifier": file_identifier,
+            "file_path": file_path,
+        })).unwrap_or_else(|e| {
+            error!("send_file({}) params error: {}", file_identifier, e);
+            Vec::new()
+        });
+
+        let result = api::request_api_bin_sync(&format!("p2p_file/{}", "send"), Some(json_params)).unwrap_or_else(|e| {
+            error!("send_file({}) error: {}", file_identifier, e);
+            "".to_string()
+        });
+        result
+    }
+
+    pub fn receive_file(&self, full_identifier: &str) -> String {
+        let json_params = serde_json::to_vec(&json!({
+            "full_identifier": full_identifier,
+        })).unwrap_or_else(|e| {
+            error!("receive_file({}) params error: {}", full_identifier, e);
+            Vec::new()
+        });
+        let result = api::request_api_bin_sync(&format!("p2p_file/{}", "receive"), Some(json_params)).unwrap_or_else(|e| {
+            error!("receive_file({}) error: {}", full_identifier, e);
+            "".to_string()
+        });
+        result
+    }
+
     pub fn get_global_status(&self, sid: &str, last_timestamp: u64) -> (usize, usize, usize) {
         let last_time = self.last_timestamp.read().unwrap();
         let user_list = self.shared_data.online_mgr.users.get_full_list();

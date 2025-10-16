@@ -215,12 +215,12 @@ impl Client {
     }
 
     /// Advertise the local node as the provider of the given file on the DHT.
-    pub(crate) async fn provide_file(&mut self, file_name: String, file_path: PathBuf) {
+    pub(crate) async fn provide_file(&self, file_name: String, file_path: PathBuf) {
         let _ = self.cmd_sender.send(Command::StartProviding { file_name, file_path }); // Use unbounded_send
     }
 
     /// Find the providers for the given file on the DHT.
-    pub(crate) async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
+    pub(crate) async fn get_providers(&self, file_name: String) -> HashSet<PeerId> {
         let (responder, receiver) = oneshot::channel();
         self.cmd_sender
             .send(Command::GetProviders { file_name, responder }) // Use unbounded_send
@@ -229,7 +229,7 @@ impl Client {
     }
 
     /// Initiate the process of getting a file by name.
-    pub(crate) async fn download_file(&mut self, full_file_name: String) {
+    pub(crate) async fn download_file(&self, full_file_name: String) {
         //let (sender, _) = oneshot::channel(); // No need to wait for a result here, EventLoop handles it
         let _ = self.cmd_sender.send(Command::DownloadFile { full_file_name }); // Use unbounded_send
     }

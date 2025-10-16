@@ -539,12 +539,12 @@ impl P2pServer {
         tracing::info!("📣 >>>> Outbound broadcast: {:?}", topic);
     }
 
-    pub async fn provide_file(&mut self, file_identifier: String, file_path: PathBuf) -> String {
+    pub async fn provide_file(&self, file_identifier: String, file_path: PathBuf) -> String {
         self.client.provide_file(file_identifier, file_path).await;
         "ok".to_string()
     }
 
-    pub async fn download_file(&mut self, full_identifier: &String) -> String {
+    pub async fn download_file(&self, full_identifier: String) -> String {
         self.client.download_file(full_identifier.clone()).await;
         "ok".to_string()
     }

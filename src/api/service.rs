@@ -1,6 +1,7 @@
 use warp::{Filter, Rejection, Reply};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -164,9 +165,9 @@ pub fn start_rest_server() -> bool{
             .and(warp::get())
             .and_then(handle_get_sys_did);
 
-        let get_device_did = warp::path!("api" / "device_did")
+        let get_node_did = warp::path!("api" / "node_did")
             .and(warp::get())
-            .and_then(handle_get_device_did);
+            .and_then(handle_get_node_did);
 
         let get_upstream_did = warp::path!("api" / "upstream_did")
             .and(warp::get())
@@ -244,6 +245,11 @@ pub fn start_rest_server() -> bool{
             .and(warp::get())
             .and_then(|action: String| handle_p2p_mgr(action));
 
+        let p2p_file = warp::path!("api" / "p2p_file" / String)
+            .and(warp::post())
+            .and(warp::body::bytes())
+            .and_then(|action: String, body: Bytes| handle_p2p_file(action, body));
+
         let db_get = warp::path!("api" / "db_get")
             .and(warp::post())
             .and(warp::body::json())
@@ -302,7 +308,7 @@ pub fn start_rest_server() -> bool{
 
         let routes_rest = check_sys
             .or(get_sys_did)
-            .or(get_device_did)
+            .or(get_node_did)
             .or(get_upstream_did)
             .or(get_local_vars)
             .or(get_claim)
@@ -319,6 +325,7 @@ pub fn start_rest_server() -> bool{
             .or(p2p_response)
             .or(p2p_put_msg)
             .or(p2p_mgr)
+            .or(p2p_file)
             .or(db_get)
             .or(db_insert)
             .or(db_remove)
@@ -834,7 +841,7 @@ async fn handle_get_sys_did() -> Result<impl Reply, Rejection> {
     }))
 }
 
-async fn handle_get_device_did() -> Result<impl Reply, Rejection> {
+async fn handle_get_node_did() -> Result<impl Reply, Rejection> {
     let claims = GlobalClaims::instance();
     let claims = claims.lock().unwrap();
     Ok(warp::reply::json(&ApiResponse {
@@ -1233,6 +1240,76 @@ async fn handle_p2p_mgr(
             success: false,
             data: "".to_string(),
             error: Some("P2P Server is not running or failed to start".to_string()),
+        }))
+    }
+}
+
+async fn handle_p2p_file(
+    action: String,
+    body: Bytes,
+) -> Result<impl Reply, Rejection> {
+    let p2p = p2p::get_instance().await;
+    if let Some(p2p) = p2p {
+        //将body的json对象解析成字符串数组
+        let json_params = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or_else(|e| {
+            error!("handle_p2p_file({}) params error: {}", action, e);
+            serde_json::Value::Null
+        });
+        // 匹配action进入各自的处理流程
+        match action.as_str() {
+            "send" => {
+                let file_identifier = json_params.get("file_identifier").unwrap_or(&serde_json::Value::Null).as_str().unwrap_or("").to_string();
+                if file_identifier.is_empty() {
+                    return Ok(warp::reply::json(&ApiResponse {
+                        success: false,
+                        data: "".to_string(),
+                        error: Some("file_identifier is empty".to_string()),
+                    }));
+                }
+                let file_path = json_params.get("file_path").unwrap_or(&serde_json::Value::Null).as_str().unwrap_or("").to_string();
+                if file_path.is_empty() {
+                    return Ok(warp::reply::json(&ApiResponse {
+                        success: false,
+                        data: "".to_string(),
+                        error: Some("file_path is empty".to_string()),
+                    }));
+                }
+                let res = p2p.provide_file(file_identifier, PathBuf::from(file_path)).await;
+                Ok(warp::reply::json(&ApiResponse {
+                    success:!res.is_empty(),
+                    data: res,
+                    error: None,
+                }))
+            }
+            "receive" => {
+                let full_identifier = json_params.get("full_identifier").unwrap_or(&serde_json::Value::Null).as_str().unwrap_or("").to_string();
+                if full_identifier.is_empty() {
+                    return Ok(warp::reply::json(&ApiResponse {
+                        success: false,
+                        data: "".to_string(),
+                        error: Some("full_identifier is empty".to_string()),
+                    }));
+                }
+                let res = p2p.download_file(full_identifier).await;
+                Ok(warp::reply::json(&ApiResponse {
+                    success:!res.is_empty(),
+                    data: res,
+                    error: None,
+                }))
+            }
+            _ => {
+                Ok(warp::reply::json(&ApiResponse {
+                    success: false,
+                    data: "".to_string(),
+                    error: Some("Invalid action".to_string()),
+                }))
+            }
+        }
+    } else {
+        Ok(warp::reply::json(&ApiResponse {
+            success: false,
+            data: "".to_string(),
+            error: Some("P2P not initialized".to_string()),
         }))
     }
 }
