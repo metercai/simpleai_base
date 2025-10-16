@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, OpenFlags, Result, ToSql};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::dids::token_utils;
@@ -62,22 +62,13 @@ impl OnlineMgr {
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX, // 👈 必须加！避免 SQLite 自己加锁
         ) {
             Ok(conn) => {
-                unsafe {
-                    let result =
-                        rusqlite::ffi::sqlite3_config(rusqlite::ffi::SQLITE_CONFIG_SERIALIZED);
-                    if result != rusqlite::ffi::SQLITE_OK {
-                        eprintln!(
-                            "[OnlineMgr] Failed to set SQLite SERIALIZED mode (code: {})",
-                            result
-                        );
-                        panic!("无法配置 SQLite 为 SERIALIZED 模式");
-                    }
-                }
-                conn.execute("PRAGMA journal_mode = WAL;", []).unwrap();
-                conn.execute("PRAGMA synchronous = NORMAL;", []).unwrap();
-                conn.execute("PRAGMA cache_size = 10000;", []).unwrap();
-                conn.execute("PRAGMA foreign_keys = ON;", []).unwrap();
-                conn.execute("PRAGMA temp_store = MEMORY;", []).unwrap();
+                conn.execute("PRAGMA journal_mode = WAL;", []);
+                conn.execute("PRAGMA synchronous = NORMAL;", []);
+                conn.execute("PRAGMA cache_size = 10000;", []);
+                conn.execute("PRAGMA foreign_keys = ON;", []);
+                conn.execute("PRAGMA temp_store = MEMORY;", []);
+                conn.execute("PRAGMA busy_timeout = 5000;", []);
+                conn.execute("PRAGMA wal_autocheckpoint = 1000;", []);
                 Arc::new(Mutex::new(conn))
             }
             Err(e) => {
@@ -483,7 +474,7 @@ impl OnlineUsers {
         let conn = match self.conn.lock() {
             Ok(conn) => conn,
             Err(_) => {
-                eprintln!("[log_register] 获取写连接失败（被其他线程锁定？）");
+                eprintln!("[log_register] 获取读连接失败（被其他线程锁定？）");
                 return 0;
             }
         };
@@ -510,7 +501,7 @@ impl OnlineUsers {
         let conn = match self.conn.lock() {
             Ok(conn) => conn,
             Err(_) => {
-                eprintln!("[log_register] 获取写连接失败（被其他线程锁定？）");
+                eprintln!("[log_register] 获取读连接失败（被其他线程锁定？）");
                 return "".to_string();
             }
         };
@@ -545,7 +536,7 @@ impl OnlineUsers {
         let conn = match self.conn.lock() {
             Ok(conn) => conn,
             Err(_) => {
-                eprintln!("[log_register] 获取写连接失败（被其他线程锁定？）");
+                eprintln!("[log_register] 获取读连接失败（被其他线程锁定？）");
                 return false;
             }
         };
@@ -576,6 +567,7 @@ pub struct OnlineNodeInsts {
     time_period: u64,                  // ✅ 节点独立的时间窗口（如 30 秒）
     last_cleanup_time: Arc<AtomicU64>, // 共享原子时间戳（用于清理）
 }
+
 
 impl OnlineNodeInsts {
     pub fn new(conn: Arc<Mutex<Connection>>, time_period: u64) -> Self {
@@ -669,7 +661,7 @@ impl OnlineNodeInsts {
         let conn = match self.conn.lock() {
             Ok(conn) => conn,
             Err(_) => {
-                eprintln!("[log_access_node_inst] 获取读连接失败");
+                eprintln!("[log_access_node_inst] 获取写连接失败");
                 return false;
             }
         };
@@ -1094,9 +1086,10 @@ impl OnlineMessages {
         match conn.query_row(
             "SELECT MAX(timestamp) FROM online_messages WHERE user_id = ?1;",
             [user_id],
-            |row| row.get::<_, i64>(0),
+            |row| row.get::<_, Option<i64>>(0),
         ) {
-            Ok(ts) => Some(ts as u64),
+            Ok(Some(ts)) => Some(ts as u64),
+            Ok(None) => None,
             Err(rusqlite::Error::QueryReturnedNoRows) => None,
             Err(e) => {
                 eprintln!("获取最新时间戳失败: {}", e);
@@ -1118,9 +1111,10 @@ impl OnlineMessages {
         match conn.query_row(
             "SELECT MIN(timestamp) FROM online_messages WHERE user_id = ?1;",
             [user_id],
-            |row| row.get::<_, i64>(0),
+            |row| row.get::<_, Option<i64>>(0),
         ) {
-            Ok(ts) => Some(ts as u64),
+            Ok(Some(ts)) => Some(ts as u64),
+            Ok(None) => None,
             Err(rusqlite::Error::QueryReturnedNoRows) => None,
             Err(e) => {
                 eprintln!("获取最旧时间戳失败: {}", e);
@@ -1170,9 +1164,10 @@ impl OnlineMessages {
             "SELECT message FROM online_messages
              WHERE user_id = ?1 AND timestamp = ?2;",
             params![user_id, timestamp],
-            |row| row.get::<_, String>(0),
+            |row| row.get::<_, Option<String>>(0),
         ) {
-            Ok(msg) => Some(msg),
+            Ok(Some(msg)) => Some(msg),
+            Ok(None) => None,
             Err(rusqlite::Error::QueryReturnedNoRows) => None,
             Err(e) => {
                 eprintln!("获取单条消息失败: {}", e);
