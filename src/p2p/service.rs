@@ -351,7 +351,7 @@ impl<E: EventHandler> Server<E> {
         let nickname = node_claim.nickname.clone();
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(
-                token_utils::read_key_or_generate_key("Node", &node_claim.get_symbol_hash(), node_phrase, false, false)
+                token_utils::read_key_or_generate_key("Device", &node_claim.get_symbol_hash(), node_phrase, false, false)
             ))?));
         let didtoken = DidToken::instance();
         let sysinfo = didtoken.lock().unwrap().get_sysinfo();
