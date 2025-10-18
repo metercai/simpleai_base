@@ -106,7 +106,7 @@ impl TokenUser {
         let user_claim = LocalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase, None);
         let user_did = self.didtoken.lock().unwrap().add_crypt_secret_for_user(&user_claim, &phrase);
         let identity = self.export_user(&nickname, &user_telephone, &phrase);
-        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+        let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
         fs::write(identity_file.clone(), identity).expect(&format!("Unable to write file: {}", identity_file.display()));
         println!("{} [SimpBase] Create user and save identity_file: {}", token_utils::now_string(), identity_file.display());
 
@@ -125,14 +125,14 @@ impl TokenUser {
         debug!("{} [SimpBase] Remove user: {}, {}, {}", token_utils::now_string(), user_hash_id, user_did, claim.nickname);
         if user_did != "Unknown" {
             if !claim.is_default() {
-                let user_key_file = token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+                let user_key_file = SystemKeys::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
                 if let Err(e) = fs::remove_file(user_key_file.clone()) {
                     debug!("delete user_key_file error: {}", e);
                 } else {
                     debug!("user_key_file was deleted: {}", user_key_file.display());
                 }
                 self.didtoken.lock().unwrap().remove_crypt_secret_for_user(&user_did);
-                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                 if identity_file.exists() {
                     if let Err(e) = fs::remove_file(identity_file.clone()) {
                         debug!("delete identity_file error: {}", e);

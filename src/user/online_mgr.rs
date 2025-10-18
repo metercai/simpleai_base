@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::dids::token_utils;
+use crate::dids::key_mgr::SystemKeys;
 
 const MAX_VARIABLE_NUMBER: usize = 999;
 const USER_EXPIRY_THRESHOLD: u64 = 24 * 3600;
@@ -48,7 +49,7 @@ pub struct OnlineMgr {
 
 impl OnlineMgr {
     pub fn new(region: &str) -> Self {
-        let db_path = token_utils::get_path_in_sys_key_dir("online.db");
+        let db_path = SystemKeys::get_path_in_sys_key_dir("online.db");
 
         // 共享连接
         // 🛡️ IMPORTANT: This connection is shared across threads and processes.

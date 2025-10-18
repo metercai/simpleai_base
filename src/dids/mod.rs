@@ -116,7 +116,7 @@ impl DidToken {
         //println!("{} [SimpBase] SystemKeys::instance()", token_utils::now_string());
         
         let guest_symbol_hash = get_key_symbol_hash("Guest");
-        let mut guest_key = match token_utils::exists_key_file("User", &guest_symbol_hash) {
+        let mut guest_key = match SystemKeys::exists_key_file("User", &guest_symbol_hash) {
             true => {
                 let mut guest_key = get_user_key(&guest_symbol_hash, &guest_phrase);
                 if guest_key == [0u8; 32] {

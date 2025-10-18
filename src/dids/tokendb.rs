@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use serde_json::json;
 use tracing::{error, warn, info, debug, trace};
 use crate::dids::token_utils;
+use crate::dids::key_mgr::SystemKeys;
 use crate::api;
 
 lazy_static::lazy_static! {
@@ -19,7 +20,7 @@ impl TokenDB {
         let mut sled_db: Option<sled::Db> = None;
         let mut trees: HashMap<String, sled::Tree> = HashMap::new();
         if api::service::is_self_service()  {
-            let db_path = token_utils::get_path_in_sys_key_dir("token.db");
+            let db_path = SystemKeys::get_path_in_sys_key_dir("token.db");
             let config = sled::Config::new()
                 .path(&db_path)
                 .cache_capacity(10_000)

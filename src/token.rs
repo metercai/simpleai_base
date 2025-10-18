@@ -583,7 +583,7 @@ impl SimpleAI {
             let (admin_hash_id, admin_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &admin_symbol_hash);
             let admin_did= {
                 let user_did = self.didtoken.lock().unwrap().reverse_lookup_did_by_symbol(admin_symbol_hash);
-                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", admin_hash_id));
+                let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", admin_hash_id));
                 if user_did != "Unknown" && identity_file.exists() {
                     let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
                     self.tokenuser.lock().unwrap().import_user(&URL_SAFE_NO_PAD.encode(admin_symbol_hash), &encrypted_identity, &admin_phrase);
@@ -650,7 +650,7 @@ impl SimpleAI {
         if !claim.is_default() {
             let user_symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &user_symbol_hash);
-            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+            let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
             match identity_file.exists() {
                 true => {
                     let identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
@@ -902,7 +902,7 @@ impl SimpleAI {
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
-        match token_utils::exists_key_file("User", &symbol_hash) {
+        match SystemKeys::exists_key_file("User", &symbol_hash) {
             true => {
                 if SystemKeys::is_original_user_key("User", &symbol_hash)  {
                     let ready_data = self.token_db.read().unwrap().get("ready_users", &user_hash_id);
@@ -933,7 +933,7 @@ impl SimpleAI {
                 }
             },
             false => {
-                let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                 match identity_file.exists() {
                     true => "local".to_string(),
                     false => {
@@ -1108,7 +1108,7 @@ impl SimpleAI {
 
         let (_user_hash_id, user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
         if SystemKeys::is_original_user_key("User", &symbol_hash)  {
-            let _ = token_utils::change_phrase_for_pem_and_identity_files(&symbol_hash, &user_phrase, phrase);
+            let _ = SystemKeys::change_phrase_for_pem_and_identity_files(&symbol_hash, &user_phrase, phrase);
         } else {
             println!("{} [SimpBase] The user_key phrase has been changed and can not to be set: {}, {}.",
                      token_utils::now_string(), nickname, user_did);
@@ -1180,7 +1180,7 @@ impl SimpleAI {
                         user_did
                     },
                     false => {
-                        let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                        let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                         match identity_file.exists() {
                             true => {
                                 let encrypted_identity = fs::read_to_string(identity_file.clone()).expect(&format!("Unable to read file: {}", identity_file.display()));
@@ -1210,7 +1210,7 @@ impl SimpleAI {
                                                 debug!("user_copy_from_cloud, encrypted_identity:{}", encrypted_identity);
                                                 let user_did = self.tokenuser.lock().unwrap().import_user(&symbol_hash_base64, &encrypted_identity, &phrase);
                                                 if user_did != "Unknown" {
-                                                    let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+                                                    let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
                                                     fs::write(identity_file.clone(), encrypted_identity).expect(&format!("Unable to write file: {}", identity_file.display()));
                                                     println!("{} [SimpBase] Parsing encrypted_copy and save identity_file: {}, {}",
                                                              token_utils::now_string(), user_hash_id, user_did);
@@ -1296,7 +1296,7 @@ impl SimpleAI {
                     let result = self.request_token_api("unbind_node", &params);
                     if result != "Unbind_ok" {
                         let encoded_params = self.didtoken.lock().unwrap().encrypt_for_did(params.as_bytes(), &upstream_did, 0);
-                        let unbind_node_file = token_utils::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
+                        let unbind_node_file = SystemKeys::get_path_in_sys_key_dir(&format!("unbind_node_{}_uncompleted.json", user_did));
                         fs::write(unbind_node_file.clone(), encoded_params).expect(&format!("Unable to write file: {}", unbind_node_file.display()));
                     }
                     println!("{} [SimpBase] Unbind user({}) from node({}): {}", token_utils::now_string(), user_did, self.get_sys_did(), result);
@@ -1316,7 +1316,7 @@ impl SimpleAI {
         if !claim.is_default() {
             let symbol_hash = claim.get_symbol_hash();
             let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
-            let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+            let identity_file = SystemKeys::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
             let encrypted_identity = fs::read_to_string(identity_file.clone()).unwrap_or("Unknown".to_string());
             debug!("get_user_copy_string, identity_file({}), encrypted_identity: {}", identity_file.display(), encrypted_identity);
             let context = self.tokenuser.lock().unwrap().get_user_context(&user_did);

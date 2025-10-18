@@ -2,13 +2,15 @@ use aes_gcm::aead::OsRng;
 use argon2::Argon2;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use directories_next::BaseDirs;
 use ed25519_dalek::SigningKey;
 use pkcs8::{
     EncryptedPrivateKeyInfo, LineEnding, ObjectIdentifier, PrivateKeyInfo, SecretDocument,
 };
 use rand::RngCore;
 use std::fs;
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{debug, info};
 
@@ -128,7 +130,7 @@ impl SystemKeys {
         let (device_hash_id, _device_phrase) =
             Self::get_key_hash_id_and_phrase_inner(&symbol_hash.to_vec(), 0);
         let device_key_file =
-            token_utils::get_path_in_sys_key_dir(&format!(".token_device_{}.pem", device_hash_id));
+            Self::get_path_in_sys_key_dir(&format!(".token_device_{}.pem", device_hash_id));
         let device_phrase = format!(
             "{}/{}/{}/{}/{}/{}/{}/{}",
             sysinfo.host_name,
@@ -150,7 +152,7 @@ impl SystemKeys {
         let (sys_hash_id, sys_phrase) =
             Self::get_key_hash_id_and_phrase_inner(&symbol_hash.to_vec(), 0);
         let system_key_file =
-            token_utils::get_path_in_sys_key_dir(&format!(".token_system_{}.pem", sys_hash_id));
+            Self::get_path_in_sys_key_dir(&format!(".token_system_{}.pem", sys_hash_id));
         let local_phrase = format!(
             "{}@{}:{}/{}/{}/{}/{}/{}/{}",
             sysinfo.root_dir,
@@ -188,7 +190,7 @@ impl SystemKeys {
         );
 
         let user_key_file =
-            token_utils::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+            Self::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
         let phrase_text = format!(
             "{}|{}|{}",
             URL_SAFE_NO_PAD.encode(self.get_device_key()),
@@ -417,7 +419,7 @@ impl SystemKeys {
     pub(crate) fn exists_and_valid_user_key(symbol_hash: &[u8; 32], phrase: &str) -> bool {
         let key_type = "User";
         let (key_hash_id, _phrase) = Self::get_key_hash_id_and_phrase(key_type, symbol_hash);
-        let key_file = token_utils::get_path_in_sys_key_dir(&format!(
+        let key_file = Self::get_path_in_sys_key_dir(&format!(
             ".token_{}_{}.pem",
             key_type.to_lowercase(),
             key_hash_id
@@ -436,6 +438,227 @@ impl SystemKeys {
             debug!("user_key do not exists: {}", key_file.display());
             false
         }
+    }
+
+    pub(crate) fn exists_key_file(key_type: &str, symbol_hash: &[u8; 32]) -> bool {
+        let (key_hash_id, _phrase) = Self::get_key_hash_id_and_phrase(key_type, symbol_hash);
+        let key_file = Self::get_path_in_sys_key_dir(&format!(
+            ".token_{}_{}.pem",
+            key_type.to_lowercase(),
+            key_hash_id
+        ));
+        key_file.exists()
+    }
+
+    pub(crate) fn save_key_to_pem(
+        symbol_hash: &[u8; 32],
+        key: &[u8; 32],
+        phrase: &str,
+    ) -> [u8; 32] {
+        let (user_hash_id, user_phrase) = Self::get_key_hash_id_and_phrase("User", symbol_hash);
+        let user_key_file =
+            Self::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+        if let Some(parent_dir) = user_key_file.parent() {
+            if !parent_dir.exists() {
+                fs::create_dir_all(parent_dir).unwrap();
+            }
+        }
+        let id_hash = [0u8; 32];
+        let device_key = get_device_key();
+        let phrase_text = format!(
+            "{}|{}|{}",
+            URL_SAFE_NO_PAD.encode(device_key.as_slice()),
+            phrase,
+            user_phrase
+        );
+        let phrase_bytes = token_utils::hkdf_key_deadline(&phrase_text.as_bytes(), 0);
+
+        let pem_label = "SIMPLE_AI_KEY";
+        let csprng = OsRng {};
+        let secret_key = SigningKey::from_bytes(key).to_bytes();
+
+        let encrypted_key_info = PrivateKeyInfo::new(ALGORITHM_ID, &secret_key)
+            .encrypt(csprng, &phrase_bytes)
+            .unwrap();
+        let pem_content = encrypted_key_info
+            .to_pem(pem_label, LineEnding::default())
+            .unwrap();
+        let mut file = fs::File::create(&user_key_file).unwrap();
+        file.write_all(pem_content.as_bytes()).unwrap();
+        file.sync_all().unwrap();
+        debug!("save key to local pem file: {}", user_key_file.display());
+
+        secret_key
+    }
+
+    pub(crate) fn change_phrase_for_pem_and_identity_files(
+        symbol_hash: &[u8; 32],
+        old_phrase: &str,
+        new_phrase: &str,
+    ) {
+        let (user_hash_id, user_phrase) = Self::get_key_hash_id_and_phrase("User", symbol_hash);
+        let user_key_file =
+            Self::get_path_in_sys_key_dir(&format!(".token_user_{}.pem", user_hash_id));
+        let id_hash = [0u8; 32];
+        let device_key = get_device_key();
+        let old_phrase_text = format!(
+            "{}|{}|{}",
+            URL_SAFE_NO_PAD.encode(device_key.as_slice()),
+            old_phrase,
+            user_phrase
+        );
+        let new_phrase_text = format!(
+            "{}|{}|{}",
+            URL_SAFE_NO_PAD.encode(device_key.as_slice()),
+            new_phrase,
+            user_phrase
+        );
+
+        let old_phrase_bytes = token_utils::hkdf_key_deadline(&old_phrase_text.as_bytes(), 0);
+        let new_phrase_bytes = token_utils::hkdf_key_deadline(&new_phrase_text.as_bytes(), 0);
+        if user_key_file.exists() {
+            let Ok((_, s_doc)) = SecretDocument::read_pem_file(user_key_file.clone()) else {
+                todo!()
+            };
+            let priv_key = match EncryptedPrivateKeyInfo::try_from(s_doc.as_bytes())
+                .unwrap()
+                .decrypt(&old_phrase_bytes)
+            {
+                Ok(key) => {
+                    let mut pkey: [u8; 32] = [0; 32];
+                    pkey.copy_from_slice(
+                        PrivateKeyInfo::try_from(key.as_bytes())
+                            .unwrap()
+                            .private_key,
+                    );
+                    pkey
+                }
+                Err(_e) => {
+                    println!(
+                        "{} [SimpBase] Read key file error: {}",
+                        token_utils::now_string(),
+                        _e
+                    );
+                    let pkey: [u8; 32] = [0; 32];
+                    pkey
+                }
+            };
+            let pem_label = "SIMPLE_AI_KEY";
+            let csprng = OsRng {};
+            PrivateKeyInfo::new(ALGORITHM_ID, &priv_key)
+                .encrypt(csprng, &new_phrase_bytes)
+                .unwrap()
+                .write_pem_file(user_key_file.clone(), pem_label, LineEnding::default())
+                .unwrap();
+            println!(
+                "{} [SimpBase] Change phrase for user_key_file: {}",
+                token_utils::now_string(),
+                user_key_file.display()
+            );
+        }
+        let identity_file =
+            Self::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
+        if identity_file.exists() {
+            let encrypted_identity_base64 =
+                fs::read_to_string(identity_file.clone()).unwrap_or("Unknown".to_string());
+            let encrypted_identity = URL_SAFE_NO_PAD
+                .decode(encrypted_identity_base64.clone())
+                .unwrap_or("Unknown".as_bytes().to_vec());
+            debug!(
+                "import, encrypted_identity: len={}, {}",
+                encrypted_identity.len(),
+                encrypted_identity_base64
+            );
+            let vcode = &encrypted_identity[..2];
+            let identity = &encrypted_identity[2..];
+            if *vcode == token_utils::calc_sha256(identity)[..2] {
+                let telephone_bytes = &encrypted_identity[2..10];
+                let telephone = u64::from_le_bytes(telephone_bytes.try_into().unwrap()).to_string();
+                let nickname_bytes = &encrypted_identity[78..];
+                let nickname = std::str::from_utf8(nickname_bytes).unwrap();
+                let encrypted_secret = &encrypted_identity[10..78];
+                debug!(
+                    "import, identity: nickname: {}, telephone: {}, len={}, {}",
+                    nickname,
+                    telephone,
+                    identity.len(),
+                    URL_SAFE_NO_PAD.encode(identity)
+                );
+                let secret_key = Self::derive_key(old_phrase.as_bytes(), symbol_hash).unwrap();
+                let identity_secret = token_utils::decrypt(encrypted_secret, &secret_key, 0);
+                debug!(
+                    "import, identity_secret: symbol={}, phrase={}, secret_key={}, len={}, {}",
+                    URL_SAFE_NO_PAD.encode(symbol_hash),
+                    old_phrase,
+                    URL_SAFE_NO_PAD.encode(secret_key),
+                    encrypted_secret.len(),
+                    URL_SAFE_NO_PAD.encode(encrypted_secret)
+                );
+                let timestamp_bytes = &identity_secret[..8];
+                let mut user_key = [0u8; 32];
+                user_key.copy_from_slice(&identity_secret[8..]);
+
+                let secret_key = Self::derive_key(new_phrase.as_bytes(), symbol_hash).unwrap();
+                let mut identity_secret =
+                    Vec::with_capacity(timestamp_bytes.len() + user_key.len());
+                identity_secret.extend_from_slice(&timestamp_bytes);
+                identity_secret.extend_from_slice(&user_key);
+                let encrypted_secret = token_utils::encrypt(&identity_secret, &secret_key, 0);
+                debug!(
+                    "export, identity_secret: symbol={}, phrase={}, secret_key={}, len={}, {}",
+                    URL_SAFE_NO_PAD.encode(symbol_hash),
+                    new_phrase,
+                    URL_SAFE_NO_PAD.encode(secret_key),
+                    encrypted_secret.len(),
+                    URL_SAFE_NO_PAD.encode(encrypted_secret.clone())
+                );
+                let length = telephone_bytes.len() + encrypted_secret.len() + nickname_bytes.len();
+                let mut identity = Vec::with_capacity(length);
+                identity.extend_from_slice(&telephone_bytes);
+                identity.extend_from_slice(&encrypted_secret);
+                identity.extend_from_slice(nickname_bytes);
+                debug!(
+                    "export, identity: nickname={}, telephone={}, len={}, {}",
+                    nickname,
+                    telephone,
+                    identity.len(),
+                    URL_SAFE_NO_PAD.encode(identity.clone())
+                );
+                let vcode = &token_utils::calc_sha256(&identity)[..2];
+                let mut encrypted_identity = Vec::with_capacity(vcode.len() + identity.len());
+                encrypted_identity.extend_from_slice(&vcode);
+                encrypted_identity.extend_from_slice(&identity);
+                let encrypted_identity_base64 = URL_SAFE_NO_PAD.encode(encrypted_identity.clone());
+                debug!(
+                    "export, encrypted_identity: len={}, {}",
+                    encrypted_identity.len(),
+                    encrypted_identity_base64
+                );
+                fs::write(identity_file.clone(), encrypted_identity_base64).expect(&format!(
+                    "Unable to write file: {}",
+                    identity_file.display()
+                ));
+                println!(
+                    "{} [SimpBase] Change phrase for identity_file: {}",
+                    token_utils::now_string(),
+                    identity_file.display()
+                );
+            } else {
+                println!("{} [SimpBase] Change phrase for identity_file, parsing encrypted_identity error: {}", token_utils::now_string(), identity_file.display());
+            }
+        }
+    }
+
+    pub(crate) fn get_path_in_sys_key_dir(filename: &str) -> PathBuf {
+        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
+        let home_dirs = match BaseDirs::new() {
+            Some(dirs) => dirs.home_dir().to_path_buf(),
+            None => PathBuf::from(sysinfo.root_dir.clone()),
+        };
+        home_dirs
+            .join(".simpleai.vip")
+            .join(".token")
+            .join(filename)
     }
 
     // 保留原来的全局函数作为兼容性接口

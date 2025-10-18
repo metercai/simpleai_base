@@ -31,6 +31,7 @@ mod utils;
 use once_cell::sync::Lazy;
 use crate::dids::claims::{GlobalClaims, IdClaim};
 use crate::dids::{token_utils, DidToken, TOKIO_RUNTIME};
+use crate::dids::key_mgr::SystemKeys;
 use crate::p2p::service::{Client, EventHandler, NodeStatus};
 use crate::user::shared::{self, SharedData};
 use crate::user::user_vars::GlobalLocalVars;
@@ -1008,7 +1009,7 @@ async fn submit_uncompleted_request_files(upstream_did: &str, sys_did: &str, dev
                 
     loop {
         interval.tick().await; // 等待下一个周期
-        let user_copy_file = token_utils::get_path_in_sys_key_dir("user_copy_xxxxx.json");
+        let user_copy_file = SystemKeys::get_path_in_sys_key_dir("user_copy_xxxxx.json");
         let user_copy_path = match user_copy_file.parent() {
             Some(parent) => {
                 if parent.exists() {

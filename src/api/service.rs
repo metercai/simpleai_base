@@ -20,6 +20,7 @@ use lazy_static::lazy_static;
 use crate::dids::{self, token_utils, DidToken, REQWEST_CLIENT, REQWEST_CLIENT_SYNC, TOKIO_RUNTIME};
 use crate::dids::claims::{IdClaim, GlobalClaims};
 use crate::dids::cert_center::GlobalCerts;
+use crate::dids::key_mgr::SystemKeys;
 use crate::dids::tokendb::TokenDB;
 use crate::user::TokenUser;
 use crate::user::shared;
@@ -34,7 +35,7 @@ static API_PORT: LazyLock<Mutex<u16>> = LazyLock::new(|| Mutex::new(init_api_por
 static SERVER_HANDLE: LazyLock<Mutex<Option<JoinHandle<()>>>> = LazyLock::new(|| Mutex::new(None));
 
 fn init_api_port() -> u16 {
-    let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+    let port_file_path = SystemKeys::get_path_in_sys_key_dir("local.port");
     if !port_file_path.exists() {
         return 0;
     }
@@ -345,7 +346,7 @@ pub fn start_rest_server() -> bool{
         println!("{} [SimpBase] REST server at http://{}:{} has shut down.", 
                  token_utils::now_string(), address, port);
         *API_PORT.lock().unwrap() = 0;
-        let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+        let port_file_path = SystemKeys::get_path_in_sys_key_dir("local.port");
         if let Err(e) = std::fs::remove_file(&port_file_path) {
             eprintln!("{} [SimpBase] INFO: Could not remove port file {}: {}", 
                       token_utils::now_string(), port_file_path.display(), e);
@@ -355,7 +356,7 @@ pub fn start_rest_server() -> bool{
         }
     });
     *SERVER_HANDLE.lock().unwrap() = Some(server);
-    let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+    let port_file_path = SystemKeys::get_path_in_sys_key_dir("local.port");
     if let Err(e) = std::fs::write(&port_file_path, port.to_string()) {
         eprintln!("{} [SimpBase] ERROR: Failed to write port {} to {}: {}. Server will run, but other instances might not find it via file.", 
                     token_utils::now_string(), port, port_file_path.display(), e);
@@ -382,7 +383,7 @@ pub fn stop_rest_server() {
         });
         
         // 清理端口文件
-        let port_file_path = token_utils::get_path_in_sys_key_dir("local.port");
+        let port_file_path = SystemKeys::get_path_in_sys_key_dir("local.port");
         if port_file_path.exists() {
             if let Err(e) = std::fs::remove_file(&port_file_path) {
                 eprintln!("{} [SimpBase] 无法删除端口文件 {}: {}", 

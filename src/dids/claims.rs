@@ -18,6 +18,7 @@ use tracing::{debug, info};
 
 use crate::dids;
 use crate::dids::token_utils;
+use crate::dids::key_mgr::SystemKeys;
 use crate::api;
 
 lazy_static::lazy_static! {
@@ -158,7 +159,7 @@ impl LocalClaims {
             }
         }
 
-        let did_file_path = token_utils::get_path_in_sys_key_dir("user_xxxxx.did");
+        let did_file_path = SystemKeys::get_path_in_sys_key_dir("user_xxxxx.did");
         let root_path = match did_file_path.parent() {
             Some(parent) => {
                 if parent.exists() {
@@ -251,7 +252,7 @@ impl LocalClaims {
             // 同时删除对应的文件
             let claim = claims.get(&did_to_remove);
             if let Some(claim) = claim {
-                let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+                let did_file_path = SystemKeys::get_path_in_sys_key_dir(&format!(
                     "{}_{}.did",
                     claim.id_type.to_lowercase(),
                     did_to_remove
@@ -350,7 +351,7 @@ impl LocalClaims {
 
     pub fn push_claim(&mut self, claim: &IdClaim) {
         self.claims.insert(claim.gen_did(), claim.clone());
-        let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+        let did_file_path = SystemKeys::get_path_in_sys_key_dir(&format!(
             "{}_{}.did",
             claim.id_type.to_lowercase(),
             claim.gen_did()
@@ -361,7 +362,7 @@ impl LocalClaims {
     pub fn pop_claim(&mut self, did: &str) -> IdClaim {
         let claim = self.get_claim_from_local(did);
         self.claims.remove(did);
-        let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+        let did_file_path = SystemKeys::get_path_in_sys_key_dir(&format!(
             "{}_{}.did",
             claim.id_type.to_lowercase(),
             did
@@ -398,7 +399,7 @@ impl LocalClaims {
             );
             let device_did = device_claim.gen_did();
             claims.insert(device_did.clone(), device_claim.clone());
-            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+            let did_file_path = SystemKeys::get_path_in_sys_key_dir(&format!(
                 "{}_{}.did", device_claim.id_type.to_lowercase(), device_claim.gen_did()
             ));
             fs::write(did_file_path, device_claim.to_json_string()).unwrap();
@@ -415,7 +416,7 @@ impl LocalClaims {
             );
             let sys_did = local_claim.gen_did();
             claims.insert(sys_did.clone(), local_claim.clone());
-            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+            let did_file_path = SystemKeys::get_path_in_sys_key_dir(&format!(
                 "{}_{}.did",
                 local_claim.id_type.to_lowercase(),
                 local_claim.gen_did()
@@ -437,7 +438,7 @@ impl LocalClaims {
             );
             let guest_did = guest_claim.gen_did();
             claims.insert(guest_did.clone(), guest_claim.clone());
-            let did_file_path = token_utils::get_path_in_sys_key_dir(&format!(
+            let did_file_path = SystemKeys::get_path_in_sys_key_dir(&format!(
                 "{}_{}.did",
                 guest_claim.id_type.to_lowercase(),
                 guest_claim.gen_did()
@@ -493,13 +494,13 @@ impl LocalClaims {
         let user_did_file_path_root =
             token_utils::get_path_in_root_dir(".did", format!("user_{}.did", did).as_str());
         let user_did_file_path =
-            token_utils::get_path_in_sys_key_dir(format!("user_{}.did", did).as_str());
+            SystemKeys::get_path_in_sys_key_dir(format!("user_{}.did", did).as_str());
         let sys_did_file_path_root =
             token_utils::get_path_in_root_dir(".did", format!("system_{}.did", did).as_str());
         let sys_did_file_path =
-            token_utils::get_path_in_sys_key_dir(format!("system_{}.did", did).as_str());
+            SystemKeys::get_path_in_sys_key_dir(format!("system_{}.did", did).as_str());
         let device_did_file_path =
-            token_utils::get_path_in_sys_key_dir(format!("device_{}.did", did).as_str());
+            SystemKeys::get_path_in_sys_key_dir(format!("device_{}.did", did).as_str());
 
         let did_file_path = if user_did_file_path_root.exists() {
             user_did_file_path_root
