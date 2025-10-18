@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use serde::{Serialize, Deserialize};
 use pyo3::prelude::*;
-use crate::dids::token_utils;
+use crate::dids::utils;
 use crate::user::TokenUser;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -235,7 +235,7 @@ impl ComfyTaskParams {
         let flow_file = Path::new(&flow_file);
         let flow_file = match flow_file.exists() {
             true => PathBuf::from(flow_file),
-            false => token_utils::get_path_in_root_dir("workflows", &filename)
+            false => utils::get_path_in_root_dir("workflows", &filename)
         };
 
         let workflow = match fs::read_to_string(flow_file) {

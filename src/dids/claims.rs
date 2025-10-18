@@ -17,7 +17,7 @@ use pyo3::prelude::*;
 use tracing::{debug, info};
 
 use crate::dids;
-use crate::dids::token_utils;
+use crate::dids::utils;
 use crate::dids::key_mgr::SystemKeys;
 use crate::api;
 
@@ -36,7 +36,7 @@ impl GlobalClaims {
     }
 
     pub fn new() -> Self {
-        //println!("{} [SimpBase] GlobalClaims: new()", token_utils::now_string());
+        //println!("{} [SimpBase] GlobalClaims: new()", utils::now_string());
         let local_claims = LocalClaims::new();
         Self { local_claims }
     }
@@ -112,7 +112,7 @@ pub struct LocalClaims {
 
 impl LocalClaims {
     fn new() -> Self {
-        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+        let sysinfo = utils::SYSTEM_BASE_INFO.clone();
         let root_dir = sysinfo.root_dir.clone();
 
 
@@ -268,7 +268,7 @@ impl LocalClaims {
         }
         
         (device_did, sys_did, guest) = LocalClaims::generate_sys_dev_guest_did(&mut claims, &device_did, &sys_did, &guest);        
-        println!("{} [SimpBase] Loaded claims from local: len={}", token_utils::now_string(), claims.len());
+        println!("{} [SimpBase] Loaded claims from local: len={}", utils::now_string(), claims.len());
         
         LocalClaims {
             claims: claims.clone(),
@@ -385,7 +385,7 @@ impl LocalClaims {
         sys_did: &str, 
         guest_did: &str) -> (String, String, String) { 
         
-        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+        let sysinfo = utils::SYSTEM_BASE_INFO.clone();
         let root_dir = sysinfo.root_dir.clone();
         let disk_uuid = sysinfo.disk_uuid.clone();
 
@@ -465,17 +465,17 @@ impl LocalClaims {
             "generate_did_claim: id_type={}, nickname={}",
             id_type, nickname
         );
-        let nickname = token_utils::truncate_nickname(nickname);
+        let nickname = utils::truncate_nickname(nickname);
         let id_card = id_card.unwrap_or("-".to_string());
         let telephone = telephone.unwrap_or("-".to_string());
         let id_card_hash =
-            token_utils::calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
+            utils::calc_sha256(format!("{}:id_card:{}", nickname, id_card).as_bytes());
         let telephone_hash =
-            token_utils::calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
+            utils::calc_sha256(format!("{}:telephone:{}", nickname, telephone).as_bytes());
         let face_image_hash =
-            token_utils::calc_sha256(format!("{}:face_image:-", nickname).as_bytes());
+            utils::calc_sha256(format!("{}:face_image:-", nickname).as_bytes());
         let file_hash_hash =
-            token_utils::calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
+            utils::calc_sha256(format!("{}:file_hash:-", nickname).as_bytes());
         let claim = IdClaim::new(
             id_type,
             &phrase,
@@ -492,11 +492,11 @@ impl LocalClaims {
 
     pub(crate) fn load_claim_from_local(did: &str) -> IdClaim {
         let user_did_file_path_root =
-            token_utils::get_path_in_root_dir(".did", format!("user_{}.did", did).as_str());
+            utils::get_path_in_root_dir(".did", format!("user_{}.did", did).as_str());
         let user_did_file_path =
             SystemKeys::get_path_in_sys_key_dir(format!("user_{}.did", did).as_str());
         let sys_did_file_path_root =
-            token_utils::get_path_in_root_dir(".did", format!("system_{}.did", did).as_str());
+            utils::get_path_in_root_dir(".did", format!("system_{}.did", did).as_str());
         let sys_did_file_path =
             SystemKeys::get_path_in_sys_key_dir(format!("system_{}.did", did).as_str());
         let device_did_file_path =
@@ -555,11 +555,11 @@ impl LocalClaims {
     }
 
     pub fn verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
-        token_utils::verify_signature(text, signature_str, &claim.get_verify_key())
+        utils::verify_signature(text, signature_str, &claim.get_verify_key())
     }
 
     pub fn cert_verify_by_claim(text: &str, signature_str: &str, claim: &IdClaim) -> bool {
-        token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
+        utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
     }
 }
 
@@ -593,7 +593,7 @@ impl IdClaim {
         file_hash_hash: [u8; 32],
         timestamp: Option<u64>,
     ) -> Self {
-        let nickname = token_utils::truncate_nickname(nickname);
+        let nickname = utils::truncate_nickname(nickname);
         let telephone_base64 = URL_SAFE_NO_PAD.encode(telephone_hash);
         let id_card_base64 = URL_SAFE_NO_PAD.encode(id_card_hash);
         let face_image_base64 = URL_SAFE_NO_PAD.encode(face_image_hash);
@@ -603,16 +603,16 @@ impl IdClaim {
             telephone_base64, id_card_base64, face_image_base64, file_hash_base64
         );
         let fingerprint =
-            URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(&fingerprint_str.as_bytes()));
-        let symbol_hash = token_utils::calc_sha256(
+            URL_SAFE_NO_PAD.encode(utils::calc_sha256(&fingerprint_str.as_bytes()));
+        let symbol_hash = utils::calc_sha256(
             format!("{}|{}|{}", nickname, telephone_base64, id_card_base64).as_bytes(),
         );
         let verify_key =
-            URL_SAFE_NO_PAD.encode(token_utils::get_verify_key(id_type, &symbol_hash, phrase));
+            URL_SAFE_NO_PAD.encode(utils::get_verify_key(id_type, &symbol_hash, phrase));
         let crypt_secret =
-            token_utils::get_specific_secret_key("exchange", id_type, &symbol_hash, phrase);
+            utils::get_specific_secret_key("exchange", id_type, &symbol_hash, phrase);
         let cert_secret =
-            token_utils::get_specific_secret_key("issue", id_type, &symbol_hash, phrase);
+            utils::get_specific_secret_key("issue", id_type, &symbol_hash, phrase);
         debug!(
             "IdClaim new() get {} exchange_key: {}",
             URL_SAFE_NO_PAD.encode(symbol_hash),
@@ -624,10 +624,10 @@ impl IdClaim {
             URL_SAFE_NO_PAD.encode(cert_secret)
         );
 
-        let crypt_key = URL_SAFE_NO_PAD.encode(token_utils::get_crypt_key(crypt_secret));
+        let crypt_key = URL_SAFE_NO_PAD.encode(utils::get_crypt_key(crypt_secret));
         let cert_verify_key =
-            URL_SAFE_NO_PAD.encode(token_utils::get_cert_verify_key(&cert_secret));
-        let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+            URL_SAFE_NO_PAD.encode(utils::get_cert_verify_key(&cert_secret));
+        let sysinfo = utils::SYSTEM_BASE_INFO.clone();
         let claim_time = match id_type {
             "User" => {
                 if let Some(ts) = timestamp {
@@ -647,7 +647,7 @@ impl IdClaim {
             "nickname:{},verify_key:{},cert_verify_key:{},crypt_key:{},fingerprint:{},timestamp:{}",
             nickname, verify_key, cert_verify_key, crypt_key, fingerprint, claim_time
         );
-        let signature = URL_SAFE_NO_PAD.encode(token_utils::get_signature(
+        let signature = URL_SAFE_NO_PAD.encode(utils::get_signature(
             &text_sig,
             id_type,
             &symbol_hash,
@@ -713,9 +713,9 @@ impl IdClaim {
     pub fn gen_did(&self) -> String {
         let did_claim_str = self.get_format_text();
         let mut hasher = Ripemd160::new();
-        hasher.update(token_utils::calc_sha256(&did_claim_str.as_bytes()));
+        hasher.update(utils::calc_sha256(&did_claim_str.as_bytes()));
         let did = hasher.finalize();
-        let did_hash = token_utils::calc_sha256(&did);
+        let did_hash = utils::calc_sha256(&did);
         let mut did_check = [0; 21];
         did_check[..20].copy_from_slice(&did);
         did_check[20..].copy_from_slice(&did_hash[..1]);
@@ -723,7 +723,7 @@ impl IdClaim {
     }
 
     pub fn self_verify(&self) -> bool {
-        token_utils::verify_signature(
+        utils::verify_signature(
             &self.get_format_text(),
             &self.signature,
             &self.get_verify_key(),
@@ -738,7 +738,7 @@ impl IdClaim {
         if did_bytes.len() == 21 {
             let did = did_bytes[..20].to_vec();
             let did_hash1 = did_bytes[20];
-            let did_hash2 = token_utils::calc_sha256(&did)[0];
+            let did_hash2 = utils::calc_sha256(&did)[0];
             if did_hash1 == did_hash2 {
                 return true;
             }
@@ -747,15 +747,15 @@ impl IdClaim {
     }
 
     pub(crate) fn get_verify_key(&self) -> [u8; 32] {
-        token_utils::convert_base64_to_key(&self.verify_key)
+        utils::convert_base64_to_key(&self.verify_key)
     }
 
     pub(crate) fn get_cert_verify_key(&self) -> [u8; 32] {
-        token_utils::convert_base64_to_key(&self.cert_verify_key)
+        utils::convert_base64_to_key(&self.cert_verify_key)
     }
 
     pub(crate) fn get_crypt_key(&self) -> [u8; 32] {
-        token_utils::convert_base64_to_key(&self.crypt_key)
+        utils::convert_base64_to_key(&self.crypt_key)
     }
 
     #[staticmethod]
@@ -764,22 +764,22 @@ impl IdClaim {
         telephone: Option<String>,
         id_card: Option<String>,
     ) -> [u8; 32] {
-        let nickname = token_utils::truncate_nickname(nickname);
+        let nickname = utils::truncate_nickname(nickname);
         let id_card = id_card.unwrap_or("-".to_string());
         let telephone = telephone.unwrap_or("-".to_string());
-        let id_card_hash = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(
+        let id_card_hash = URL_SAFE_NO_PAD.encode(utils::calc_sha256(
             format!("{}:id_card:{}", nickname, id_card).as_bytes(),
         ));
-        let telephone_hash = URL_SAFE_NO_PAD.encode(token_utils::calc_sha256(
+        let telephone_hash = URL_SAFE_NO_PAD.encode(utils::calc_sha256(
             format!("{}:telephone:{}", nickname, telephone).as_bytes(),
         ));
-        token_utils::calc_sha256(
+        utils::calc_sha256(
             format!("{}|{}|{}", nickname, telephone_hash, id_card_hash).as_bytes(),
         )
     }
 
     pub fn get_symbol_hash(&self) -> [u8; 32] {
-        token_utils::calc_sha256(
+        utils::calc_sha256(
             format!(
                 "{}|{}|{}",
                 self.nickname, self.telephone_hash, self.id_card_hash
@@ -901,8 +901,8 @@ impl UserContext {
         let expire = u64::from_le_bytes(auth_sk[32..].try_into().unwrap_or_else(|_| [0; 8]));
         let mut com_key = [0; 64];
         com_key[..32].copy_from_slice(key);
-        com_key[32..].copy_from_slice(&token_utils::calc_sha256(self.sys_did.as_bytes()));
-        token_utils::hkdf_key_deadline(&token_utils::calc_sha256(&com_key), expire)
+        com_key[32..].copy_from_slice(&utils::calc_sha256(self.sys_did.as_bytes()));
+        utils::hkdf_key_deadline(&utils::calc_sha256(&com_key), expire)
     }
 
     pub(crate) fn set_auth_sk(&mut self, auth_sk: &str) {
@@ -910,8 +910,8 @@ impl UserContext {
     }
 
     pub(crate) fn set_auth_sk_with_secret(&mut self, secret_key: &str, expire: u64) {
-        let secret_key_bytes = token_utils::convert_base64_to_key(secret_key);
-        self.auth_sk = URL_SAFE_NO_PAD.encode(token_utils::convert_to_sk_with_expire(
+        let secret_key_bytes = utils::convert_base64_to_key(secret_key);
+        self.auth_sk = URL_SAFE_NO_PAD.encode(utils::convert_to_sk_with_expire(
             &secret_key_bytes,
             expire,
         ));
@@ -936,7 +936,7 @@ impl UserContext {
             let mut claims = claims.lock().unwrap();
             claims.get_claim_from_local(&self.get_did())
         };
-        self.sig = URL_SAFE_NO_PAD.encode(token_utils::get_signature(
+        self.sig = URL_SAFE_NO_PAD.encode(utils::get_signature(
             &text,
             &claim.id_type,
             &claim.get_symbol_hash(),

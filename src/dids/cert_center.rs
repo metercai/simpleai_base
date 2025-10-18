@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{error, warn, info, debug, trace};
 
 use crate::dids::claims::{IdClaim, GlobalClaims};
-use crate::dids::{self, TOKIO_RUNTIME, TOKEN_ENTRYPOINT_DID, token_utils};
+use crate::dids::{self, TOKIO_RUNTIME, TOKEN_ENTRYPOINT_DID, utils};
 
 
 lazy_static::lazy_static! {
@@ -32,8 +32,8 @@ impl GlobalCerts {
         };
         let mut user_certs = HashMap::new();
         let mut issued_certs = HashMap::new();
-        let _ = token_utils::load_token_of_user_certificates(&sys_did, &mut user_certs);
-        let _ = token_utils::load_token_of_issued_certs(&sys_did, &mut issued_certs);
+        let _ = utils::load_token_of_user_certificates(&sys_did, &mut user_certs);
+        let _ = utils::load_token_of_issued_certs(&sys_did, &mut issued_certs);
 
         Self {
             user_certs,
@@ -59,23 +59,23 @@ impl GlobalCerts {
     pub fn get_register_cert(&self, for_did: &str) -> String {
         let member_cert = self.get_member_cert(TOKEN_ENTRYPOINT_DID, for_did);
         if member_cert != "Unknown" {
-            println!("{} [CertCenter] get global register cert for did={}", token_utils::now_string(), for_did);
+            println!("{} [CertCenter] get global register cert for did={}", utils::now_string(), for_did);
             return member_cert;
         }
         
         if !self.upstream_did.is_empty() {
             let member_cert = self.get_member_cert(&self.upstream_did, for_did);
             if member_cert != "Unknown" {
-                println!("{} [CertCenter] get upstream register cert for did={}", token_utils::now_string(), for_did);
+                println!("{} [CertCenter] get upstream register cert for did={}", utils::now_string(), for_did);
                 return member_cert;
             }
         }
         let member_cert = self.get_member_cert(&self.sys_did, for_did);
         if member_cert != "Unknown" {
-            println!("{} [CertCenter] get local register cert for did={}", token_utils::now_string(), for_did);
+            println!("{} [CertCenter] get local register cert for did={}", utils::now_string(), for_did);
             member_cert
         } else {
-            println!("{} [CertCenter] no register cert for did={}", token_utils::now_string(), for_did);
+            println!("{} [CertCenter] no register cert for did={}", utils::now_string(), for_did);
             "Unknown".to_string()
         }
     }
@@ -105,7 +105,7 @@ impl GlobalCerts {
         let cert_key_array: Vec<&str> = cert_key.split("|").collect();
         if cert_key_array.len() > 2 && IdClaim::validity(cert_key_array[0]) && IdClaim::validity(cert_key_array[1]) {
             self.user_certs.insert(cert_key.to_string(), cert.to_string());
-            token_utils::save_user_certificates_to_file(&self.sys_did, &self.user_certs);
+            utils::save_user_certificates_to_file(&self.sys_did, &self.user_certs);
             let mut claims = self.claims.lock().unwrap();
             claims.get_claim_from_local(cert_key_array[0]);
             claims.get_claim_from_local(cert_key_array[1]);
@@ -117,7 +117,7 @@ impl GlobalCerts {
         let issue_key_array: Vec<&str> = issue_key.split("|").collect();
         if issue_key_array.len() > 2 && IdClaim::validity(issue_key_array[0]) && IdClaim::validity(issue_key_array[1]) {
             self.issued_certs.insert(issue_key.to_string(), issue_cert.to_string());
-            token_utils::save_issued_certs_to_file(&self.sys_did, &self.issued_certs);
+            utils::save_issued_certs_to_file(&self.sys_did, &self.issued_certs);
             let mut claims = self.claims.lock().unwrap();
             claims.get_claim_from_local(issue_key_array[0]);
             claims.get_claim_from_local(issue_key_array[1]);

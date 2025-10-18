@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{debug, info};
 
-use crate::dids::{self, token_utils};
+use crate::dids::{self, utils};
 use crate::utils::error::TokenError;
 
 const ALGORITHM_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
@@ -41,7 +41,7 @@ impl SystemKeys {
         // 无缓存的key读取或生成
         let mut device_key = Self::get_device_key_from_file(false);
         if device_key == [0u8; 32] {
-            println!("{} [SimpBase] Device key is invalid, it will be regenerate for your device, then the system will restore default.", token_utils::now_string());
+            println!("{} [SimpBase] Device key is invalid, it will be regenerate for your device, then the system will restore default.", utils::now_string());
             device_key = Self::get_device_key_from_file(true);
             if device_key == [0u8; 32] {
                 panic!("Failed to generate valid device key after regeneration");
@@ -52,7 +52,7 @@ impl SystemKeys {
 
         let mut system_key = Self::get_system_key_from_file(&device_key, false);
         if system_key == [0u8; 32] {
-            println!("{} [SimpBase] System key is invalid, it will be regenerate for your system, then the system will restore default.", token_utils::now_string());
+            println!("{} [SimpBase] System key is invalid, it will be regenerate for your system, then the system will restore default.", utils::now_string());
             system_key = Self::get_system_key_from_file(&device_key, true);
             if system_key == [0u8; 32] {
                 panic!("Failed to generate valid system key after regeneration");
@@ -61,12 +61,12 @@ impl SystemKeys {
         }
         println!("Loaded system key");
 
-        let device_key_hash = token_utils::calc_sha256(&device_key);
-        let local_key_hash = token_utils::calc_sha256(&system_key);
+        let device_key_hash = utils::calc_sha256(&device_key);
+        let local_key_hash = utils::calc_sha256(&system_key);
         let mut com_hash = [0u8; 64];
         com_hash[..32].copy_from_slice(&device_key_hash);
         com_hash[32..].copy_from_slice(&local_key_hash);
-        let file_crypt_key = token_utils::calc_sha256(com_hash.as_ref());
+        let file_crypt_key = utils::calc_sha256(com_hash.as_ref());
 
         let (device_name, system_name, guest_name) = dids::get_system_key_name();
         let device_symbol_hash = dids::get_key_symbol_hash("Device");
@@ -76,7 +76,7 @@ impl SystemKeys {
         let (sys_hash_id, system_phrase) =
             Self::get_key_hash_id_and_phrase_inner(&system_symbol_hash.to_vec(), 0);
 
-        println!("{} [SimpBase] SystemKeys has loaded: system({system_name}, {sys_hash_id}), device({device_name}, {dev_hash_id}).", token_utils::now_string());
+        println!("{} [SimpBase] SystemKeys has loaded: system({system_name}, {sys_hash_id}), device({device_name}, {dev_hash_id}).", utils::now_string());
         Self {
             system_key,
             device_key,
@@ -125,7 +125,7 @@ impl SystemKeys {
     }
 
     fn get_device_key_from_file(regen: bool) -> [u8; 32] {
-        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
+        let sysinfo = &utils::SYSTEM_BASE_INFO;
         let symbol_hash = dids::get_key_symbol_hash("Device");
         let (device_hash_id, _device_phrase) =
             Self::get_key_hash_id_and_phrase_inner(&symbol_hash.to_vec(), 0);
@@ -147,7 +147,7 @@ impl SystemKeys {
     }
 
     fn get_system_key_from_file(device_key: &[u8; 32], regen: bool) -> [u8; 32] {
-        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
+        let sysinfo = &utils::SYSTEM_BASE_INFO;
         let symbol_hash = dids::get_key_symbol_hash("System");
         let (sys_hash_id, sys_phrase) =
             Self::get_key_hash_id_and_phrase_inner(&symbol_hash.to_vec(), 0);
@@ -202,7 +202,7 @@ impl SystemKeys {
     }
 
     fn read_key_or_generate_key_inner(file_path: &Path, phrase: &str, regen: bool) -> [u8; 32] {
-        let phrase_bytes = token_utils::hkdf_key_deadline(phrase.as_bytes(), 0);
+        let phrase_bytes = utils::hkdf_key_deadline(phrase.as_bytes(), 0);
 
         // 核心逻辑
         let result = (|| -> Result<[u8; 32], Box<dyn std::error::Error + Send + Sync>> {
@@ -254,7 +254,7 @@ impl SystemKeys {
                 } else {
                     println!(
                         "[{}] [SimpBase] Read key error and return 0 key: {}",
-                        token_utils::now_string(),
+                        utils::now_string(),
                         file_path.display()
                     );
                     [0; 32] // 返回零密钥
@@ -283,7 +283,7 @@ impl SystemKeys {
 
         println!(
             "{} [SimpBase] generate new key and save: {}",
-            token_utils::now_string(),
+            utils::now_string(),
             file_path.file_name().unwrap_or_default().to_string_lossy()
         );
 
@@ -349,12 +349,12 @@ impl SystemKeys {
     }
 
     fn generate_device_key() -> [u8; 32] {
-        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
+        let sysinfo = &utils::SYSTEM_BASE_INFO;
 
-        let seed_data1 = token_utils::calc_sha256(
+        let seed_data1 = utils::calc_sha256(
             format!("{}{}", sysinfo.disk_uuid, sysinfo.os_time).as_bytes(),
         );
-        let seed_data2 = token_utils::calc_sha256(
+        let seed_data2 = utils::calc_sha256(
             format!("{}{}", sysinfo.host_name, sysinfo.os_time).as_bytes(),
         );
 
@@ -364,12 +364,12 @@ impl SystemKeys {
     }
 
     fn generate_system_key() -> [u8; 32] {
-        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
+        let sysinfo = &utils::SYSTEM_BASE_INFO;
 
-        let seed_data1 = token_utils::calc_sha256(
+        let seed_data1 = utils::calc_sha256(
             format!("{}{}", sysinfo.root_dir, sysinfo.root_time).as_bytes(),
         );
-        let seed_data2 = token_utils::calc_sha256(
+        let seed_data2 = utils::calc_sha256(
             format!("{}{}", sysinfo.exe_name, sysinfo.root_time).as_bytes(),
         );
 
@@ -387,9 +387,9 @@ impl SystemKeys {
     }
 
     fn get_key_hash_id_and_phrase_inner(symbol_hash: &Vec<u8>, period: u64) -> (String, String) {
-        let key_file_hash_id = token_utils::sha256_prefix(symbol_hash, 10);
+        let key_file_hash_id = utils::sha256_prefix(symbol_hash, 10);
         let phrase_text =
-            token_utils::sha256_prefix(&token_utils::hkdf_key_deadline(symbol_hash, period), 10);
+            utils::sha256_prefix(&utils::hkdf_key_deadline(symbol_hash, period), 10);
         (key_file_hash_id, phrase_text)
     }
 
@@ -471,7 +471,7 @@ impl SystemKeys {
             phrase,
             user_phrase
         );
-        let phrase_bytes = token_utils::hkdf_key_deadline(&phrase_text.as_bytes(), 0);
+        let phrase_bytes = utils::hkdf_key_deadline(&phrase_text.as_bytes(), 0);
 
         let pem_label = "SIMPLE_AI_KEY";
         let csprng = OsRng {};
@@ -514,8 +514,8 @@ impl SystemKeys {
             user_phrase
         );
 
-        let old_phrase_bytes = token_utils::hkdf_key_deadline(&old_phrase_text.as_bytes(), 0);
-        let new_phrase_bytes = token_utils::hkdf_key_deadline(&new_phrase_text.as_bytes(), 0);
+        let old_phrase_bytes = utils::hkdf_key_deadline(&old_phrase_text.as_bytes(), 0);
+        let new_phrase_bytes = utils::hkdf_key_deadline(&new_phrase_text.as_bytes(), 0);
         if user_key_file.exists() {
             let Ok((_, s_doc)) = SecretDocument::read_pem_file(user_key_file.clone()) else {
                 todo!()
@@ -536,7 +536,7 @@ impl SystemKeys {
                 Err(_e) => {
                     println!(
                         "{} [SimpBase] Read key file error: {}",
-                        token_utils::now_string(),
+                        utils::now_string(),
                         _e
                     );
                     let pkey: [u8; 32] = [0; 32];
@@ -552,7 +552,7 @@ impl SystemKeys {
                 .unwrap();
             println!(
                 "{} [SimpBase] Change phrase for user_key_file: {}",
-                token_utils::now_string(),
+                utils::now_string(),
                 user_key_file.display()
             );
         }
@@ -571,7 +571,7 @@ impl SystemKeys {
             );
             let vcode = &encrypted_identity[..2];
             let identity = &encrypted_identity[2..];
-            if *vcode == token_utils::calc_sha256(identity)[..2] {
+            if *vcode == utils::calc_sha256(identity)[..2] {
                 let telephone_bytes = &encrypted_identity[2..10];
                 let telephone = u64::from_le_bytes(telephone_bytes.try_into().unwrap()).to_string();
                 let nickname_bytes = &encrypted_identity[78..];
@@ -585,7 +585,7 @@ impl SystemKeys {
                     URL_SAFE_NO_PAD.encode(identity)
                 );
                 let secret_key = Self::derive_key(old_phrase.as_bytes(), symbol_hash).unwrap();
-                let identity_secret = token_utils::decrypt(encrypted_secret, &secret_key, 0);
+                let identity_secret = utils::decrypt(encrypted_secret, &secret_key, 0);
                 debug!(
                     "import, identity_secret: symbol={}, phrase={}, secret_key={}, len={}, {}",
                     URL_SAFE_NO_PAD.encode(symbol_hash),
@@ -603,7 +603,7 @@ impl SystemKeys {
                     Vec::with_capacity(timestamp_bytes.len() + user_key.len());
                 identity_secret.extend_from_slice(&timestamp_bytes);
                 identity_secret.extend_from_slice(&user_key);
-                let encrypted_secret = token_utils::encrypt(&identity_secret, &secret_key, 0);
+                let encrypted_secret = utils::encrypt(&identity_secret, &secret_key, 0);
                 debug!(
                     "export, identity_secret: symbol={}, phrase={}, secret_key={}, len={}, {}",
                     URL_SAFE_NO_PAD.encode(symbol_hash),
@@ -624,7 +624,7 @@ impl SystemKeys {
                     identity.len(),
                     URL_SAFE_NO_PAD.encode(identity.clone())
                 );
-                let vcode = &token_utils::calc_sha256(&identity)[..2];
+                let vcode = &utils::calc_sha256(&identity)[..2];
                 let mut encrypted_identity = Vec::with_capacity(vcode.len() + identity.len());
                 encrypted_identity.extend_from_slice(&vcode);
                 encrypted_identity.extend_from_slice(&identity);
@@ -640,17 +640,17 @@ impl SystemKeys {
                 ));
                 println!(
                     "{} [SimpBase] Change phrase for identity_file: {}",
-                    token_utils::now_string(),
+                    utils::now_string(),
                     identity_file.display()
                 );
             } else {
-                println!("{} [SimpBase] Change phrase for identity_file, parsing encrypted_identity error: {}", token_utils::now_string(), identity_file.display());
+                println!("{} [SimpBase] Change phrase for identity_file, parsing encrypted_identity error: {}", utils::now_string(), identity_file.display());
             }
         }
     }
 
     pub(crate) fn get_path_in_sys_key_dir(filename: &str) -> PathBuf {
-        let sysinfo = &token_utils::SYSTEM_BASE_INFO;
+        let sysinfo = &utils::SYSTEM_BASE_INFO;
         let home_dirs = match BaseDirs::new() {
             Some(dirs) => dirs.home_dir().to_path_buf(),
             None => PathBuf::from(sysinfo.root_dir.clone()),

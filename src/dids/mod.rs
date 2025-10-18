@@ -3,9 +3,8 @@ use std::time::{Duration, SystemTime};
 use std::sync::{Arc, Mutex, RwLock};
 
 use once_cell::sync::Lazy;
-use serde::de;
 use tokio::runtime::Runtime;
-use base58::{ToBase58, FromBase58};
+use base58::ToBase58;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use tracing_subscriber::EnvFilter;
@@ -21,7 +20,7 @@ use crate::user::shared;
 
 pub(crate) mod cert_center;
 pub(crate) mod claims;
-pub(crate) mod token_utils;
+pub(crate) mod utils;
 pub(crate) mod tokendb;
 pub(crate) mod key_mgr;
 
@@ -120,7 +119,7 @@ impl DidToken {
             true => {
                 let mut guest_key = get_user_key(&guest_symbol_hash, &guest_phrase);
                 if guest_key == [0u8; 32] {
-                    println!("{} [SimpBase] Guest key is invalid, it will be regenerate for your system, then the system will restore default.", token_utils::now_string());
+                    println!("{} [SimpBase] Guest key is invalid, it will be regenerate for your system, then the system will restore default.", utils::now_string());
                     guest_key = get_user_key(&guest_symbol_hash, &guest_phrase);
                 }
                 guest_key
@@ -139,17 +138,17 @@ impl DidToken {
         };
         
         let mut crypt_secrets = HashMap::new();
-        let admin = token_utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
+        let admin = utils::load_token_by_authorized2system(&local_did, &mut crypt_secrets);
         //println!("{} [SimpBase] System load_token_by_authorized2system: admin({})", token_utils::now_string(), admin);
 
         let crypt_secrets_len = crypt_secrets.len();
-        token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
-        token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
+        utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
+        utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
 
         let (guest_hash_id, guest_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
-        token_utils::init_user_crypt_secret(&mut crypt_secrets, &guest_claim, &guest_phrase);
+        utils::init_user_crypt_secret(&mut crypt_secrets, &guest_claim, &guest_phrase);
         if crypt_secrets.len() > crypt_secrets_len {
-            token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
+            utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
         }
         //println!("{} [SimpBase] Guest has loaded: guest_name({}, {})", token_utils::now_string(), guest_name, guest_hash_id);
 
@@ -252,7 +251,7 @@ impl DidToken {
 
     pub(crate) fn set_admin_did(&mut self, admin_did: &str) {
         self.admin = admin_did.to_string();
-        token_utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
+        utils::save_secret_to_system_token_file(&self.crypt_secrets, &self.did, &self.admin);
     }
 
     pub fn get_upstream_did(&self) -> String {
@@ -303,9 +302,9 @@ impl DidToken {
             let unknown = "Unknown".to_string();
             let cert_secret_base64 = self.crypt_secrets.get(&issue_key!(issuer_did)).unwrap_or(&unknown);
             if cert_secret_base64 != "Unknown" {
-                let cert_secret = token_utils::convert_base64_to_key(cert_secret_base64);
+                let cert_secret = utils::convert_base64_to_key(cert_secret_base64);
                 if cert_secret != [0u8; 32] {
-                    let item_key = SystemKeys::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
+                    let item_key = SystemKeys::derive_key(item.as_bytes(), &utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
                     if item_key != [0u8; 32] {
                         let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
                         info!("encrypt_item_key: cert_secret.len={}, item_key.len={}, encrypt_item_key.len={}",
@@ -316,7 +315,7 @@ impl DidToken {
                         let cert_text = format!("{}|{}|{}|{}|{}|{}", issuer_did, for_did, item, encrypt_item_key, memo_base64, timestamp);
                         let sig = URL_SAFE_NO_PAD.encode(self.sign_by_issuer_key(&cert_text, &URL_SAFE_NO_PAD.encode(cert_secret)));
                         debug!("{} [SimpBase] Sign and issue a cert by did: issuer_did={}, for_did={}, for_sys_did={}, item={}, memo={}",
-                            token_utils::now_string(), issuer_did, for_did, for_sys_did, item, memo);
+                            utils::now_string(), issuer_did, for_did, for_sys_did, item, memo);
                         debug!("cert_secret_key:{}, cert_text:{}, sig:{}", URL_SAFE_NO_PAD.encode(cert_secret), cert_text, sig);
                         if for_sys_did == self.did {
                             return (format!("{}|{}|{}", issuer_did, for_did, item), format!("{}|{}", cert_text, sig))
@@ -327,7 +326,7 @@ impl DidToken {
                 }
             }
         }
-        println!("{} [SimpBase] Sign and issue a cert by did: invalid params", token_utils::now_string());
+        println!("{} [SimpBase] Sign and issue a cert by did: invalid params", utils::now_string());
         ("Unknown".to_string(), "Unknown".to_string())
     }
 
@@ -338,12 +337,12 @@ impl DidToken {
 
     pub fn sign_by_did(&mut self, text: &str, did: &str, phrase: &str) -> Vec<u8> {
         let claim = self.get_claim(did);
-        token_utils::get_signature(text, &claim.id_type, &claim.get_symbol_hash(), phrase)
+        utils::get_signature(text, &claim.id_type, &claim.get_symbol_hash(), phrase)
     }
 
     pub fn sign_by_issuer_key(&mut self, text: &str, issuer_key: &str) -> Vec<u8> {
-        let issuer_key = token_utils::convert_base64_to_key(issuer_key);
-        token_utils::get_signature_by_key(text, &issuer_key)
+        let issuer_key = utils::convert_base64_to_key(issuer_key);
+        utils::get_signature_by_key(text, &issuer_key)
     }
 
     pub fn verify(&mut self, text: &str, signature: &str) -> bool {
@@ -352,12 +351,12 @@ impl DidToken {
 
     pub fn verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
         let claim = self.get_claim(did);
-        token_utils::verify_signature(text, signature_str, &claim.get_verify_key())
+        utils::verify_signature(text, signature_str, &claim.get_verify_key())
     }
 
     pub fn cert_verify_by_did(&mut self, text: &str, signature_str: &str, did: &str) -> bool {
         let claim = self.get_claim(did);
-        token_utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
+        utils::verify_signature(text, signature_str, &claim.get_cert_verify_key())
     }
 
     pub fn encrypt_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> String {
@@ -371,26 +370,26 @@ impl DidToken {
     }
 
     pub fn encrypt_bytes_for_did(&mut self, text: &[u8], for_did: &str, period:u64) -> Vec<u8> {
-        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
+        let self_crypt_secret = utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let for_did_public = self.get_claim(for_did).get_crypt_key();
-        let shared_key = token_utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
-        token_utils::encrypt(text, &shared_key, period)
+        let shared_key = utils::get_diffie_hellman_key(for_did_public, self_crypt_secret);
+        utils::encrypt(text, &shared_key, period)
     }
 
     pub fn decrypt_bytes_by_did(&mut self, ctext: &[u8], by_did: &str, period:u64) -> Vec<u8> {
-        let self_crypt_secret = token_utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
+        let self_crypt_secret = utils::convert_base64_to_key(self.crypt_secrets.get(&exchange_key!(self.did)).unwrap());
         let by_did_public = self.get_claim(by_did).get_crypt_key();
-        let shared_key = token_utils::get_diffie_hellman_key(by_did_public, self_crypt_secret);
-        token_utils::decrypt(ctext, &shared_key, period)
+        let shared_key = utils::get_diffie_hellman_key(by_did_public, self_crypt_secret);
+        utils::decrypt(ctext, &shared_key, period)
     }
 
     pub(crate) fn add_crypt_secret_for_user(&mut self, user_claim: &IdClaim, phrase: &str) -> String{
         self.push_claim(user_claim);
         let user_did = user_claim.gen_did();
         let crypt_secrets_len = self.crypt_secrets.len();
-        token_utils::init_user_crypt_secret(&mut self.crypt_secrets, user_claim, phrase);
+        utils::init_user_crypt_secret(&mut self.crypt_secrets, user_claim, phrase);
         if self.crypt_secrets.len() > crypt_secrets_len {
-            token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+            utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
         user_did
     }
@@ -400,7 +399,7 @@ impl DidToken {
         let exchange_key_value = self.crypt_secrets.remove(&exchange_key!(user_did));
         let issue_key_value = self.crypt_secrets.remove(&issue_key!(user_did));
         if exchange_key_value.is_some() || issue_key_value.is_some() {
-            let _ = token_utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
+            let _ = utils::save_secret_to_system_token_file(&mut self.crypt_secrets, &self.did, &self.admin);
         }
     }
 
@@ -425,7 +424,7 @@ impl DidToken {
     }
 
     pub fn get_local_crypt_text(&mut self, ua_hash: &str) -> [u8; 32] {
-        token_utils::calc_sha256(
+        utils::calc_sha256(
             format!("{}|{}|{}", ua_hash, self.crypt_secrets[&exchange_key!(self.did)],
                     self.crypt_secrets[&exchange_key!(self.device)]).as_bytes())
     }
@@ -497,7 +496,7 @@ impl DidToken {
             let text = format!("{}|{}|{}|{}|{}|{}", TOKEN_ENTRYPOINT_DID, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
             let claim = LocalClaims::load_claim_from_local(TOKEN_ENTRYPOINT_DID);
             debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
-            if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
+            if utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
                 return true;
             }
         }
@@ -505,7 +504,7 @@ impl DidToken {
             let text = format!("{}|{}|{}|{}|{}|{}", self.upstream_did, user_did, "Member", encrypt_item_key, memo_base64, timestamp);
             let claim = LocalClaims::load_claim_from_local(&self.upstream_did);
             debug!("did({}), cert_str({}), cert_text({}), sign_did({})", user_did, cert_str, text, claim.gen_did());
-            if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
+            if utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
                 return true;
             }
         }
@@ -513,7 +512,7 @@ impl DidToken {
         let claim = LocalClaims::load_claim_from_local(&self.get_sys_did());
         debug!("did({}), cert_str({}), sign_did({})", user_did, cert_str, claim.gen_did());
         debug!("text_system:{}, signature_str:{}, cert_verify_key:{}", text, signature_str, URL_SAFE_NO_PAD.encode(claim.get_cert_verify_key()));
-        if token_utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
+        if utils::verify_signature(&text, &signature_str, &claim.get_cert_verify_key()) {
             return true;
         }
         false
@@ -537,13 +536,13 @@ pub(crate) fn get_system_vars() -> (String, String, String, String, String, Stri
 
 
 pub(crate) fn get_system_key_name() -> (String, String, String)  {
-    let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
-    let device_name = token_utils::truncate_nickname(&sysinfo.host_name);
+    let sysinfo = utils::SYSTEM_BASE_INFO.clone();
+    let device_name = utils::truncate_nickname(&sysinfo.host_name);
     let guest_name = if !sysinfo.disk_uuid.is_empty() {
         let safe_prefix = sysinfo.disk_uuid.chars().take(4).collect::<String>();
         format!("guest_{}", safe_prefix).chars().take(24).collect::<String>()
     } else {
-        let random_chars = token_utils::calc_sha256(format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+        let random_chars = utils::calc_sha256(format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_else(|_| Duration::from_secs(0)).as_nanos()).as_bytes())
             .to_base58()[..4].to_string();
         format!("guest_{}", random_chars).chars().take(24).collect::<String>()
@@ -552,13 +551,13 @@ pub(crate) fn get_system_key_name() -> (String, String, String)  {
     if system_name.len() > 18 {
         system_name = system_name[..18].to_string();
     }
-    system_name = token_utils::truncate_nickname(&format!("{}_{}",  system_name, &token_utils::calc_sha256(sysinfo.root_dir.as_bytes()).to_base58()[..4]));
+    system_name = utils::truncate_nickname(&format!("{}_{}",  system_name, &utils::calc_sha256(sysinfo.root_dir.as_bytes()).to_base58()[..4]));
 
     (device_name, system_name, guest_name)
 }
 
 pub(crate) fn get_key_symbol_hash(key_type: &str) -> [u8; 32] {
-    let sysinfo = token_utils::SYSTEM_BASE_INFO.clone();
+    let sysinfo = utils::SYSTEM_BASE_INFO.clone();
     let (device_name, system_name, guest_name) = get_system_key_name();
 
     let root_dir = sysinfo.root_dir.clone();

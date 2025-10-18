@@ -46,7 +46,7 @@ use crate::p2p::req_resp::*;
 use crate::p2p::config::*;
 use crate::p2p::error::P2pError;
 use crate::p2p::utils::PeerIdExt;
-use crate::dids::{DidToken, token_utils, TOKIO_RUNTIME};
+use crate::dids::{self, DidToken, TOKIO_RUNTIME};
 use crate::dids::claims::IdClaim;
 use crate::dids::key_mgr::get_device_key;
 use crate::user::shared;
@@ -362,7 +362,7 @@ impl<E: EventHandler> Server<E> {
         let is_global = if locale_ip == public_ip || is_upstream_node { true } else { false };
         let debug = if let Some(v) = config.debug { v } else { 0 };
         if (debug & (1 << 0)) != 0 {
-            println!("{} P2P_node({:?}/{:?}) ready to start up.", token_utils::now_string(), locale_ip, public_ip);
+            println!("{} P2P_node({:?}/{:?}) ready to start up.", dids::utils::now_string(), locale_ip, public_ip);
         }
         
         let mut swarm =
@@ -406,7 +406,7 @@ impl<E: EventHandler> Server<E> {
                         match event.unwrap() {
                             SwarmEvent::NewListenAddr { address, .. } => {
                                 if (debug & (1 << 0)) != 0 {
-                                    println!("{} 📣 P2P node listening on address:{}", token_utils::now_string(), address.clone());
+                                    println!("{} 📣 P2P node listening on address:{}", dids::utils::now_string(), address.clone());
                                 }
                                 listened_addresses.push(address.clone());
                                 lan_addresses.push(format!("{}/p2p/{}", address.clone(), swarm.local_peer_id().to_base58()).parse().unwrap());
@@ -425,7 +425,7 @@ impl<E: EventHandler> Server<E> {
         let short_peer_id = swarm.local_peer_id().short_id();
         let short_node_did = node_did.chars().skip(node_did.len() - 7).collect::<String>();
         if is_global {
-            println!("{} P2P_node({}/{}) start up, peer_id({})", token_utils::now_string(), short_node_did, short_peer_id, swarm.local_peer_id().to_base58());
+            println!("{} P2P_node({}/{}) start up, peer_id({})", dids::utils::now_string(), short_node_did, short_peer_id, swarm.local_peer_id().to_base58());
         } 
 
         swarm.behaviour_mut().kademlia
@@ -439,7 +439,7 @@ impl<E: EventHandler> Server<E> {
         let start_time = Instant::now();
         while swarm.dial(upstream_addr.clone()).is_err() {
             if start_time.elapsed() > timeout_duration {
-                println!("{} Timeout reached while trying to connect to upstream nodes. Entering no-upstream mode.", token_utils::now_string());
+                println!("{} Timeout reached while trying to connect to upstream nodes. Entering no-upstream mode.", dids::utils::now_string());
                 break;
             }
             upstream_node = upstream_nodes.get_select();
@@ -449,7 +449,7 @@ impl<E: EventHandler> Server<E> {
             let listener_id = swarm.listen_on(upstream_addr.clone().with(Protocol::P2pCircuit))?;
             if (debug & (1 << 0)) != 0 {
                 println!("{} P2P_node({}/{}) listening on upstream node({}) at listenerid({})", 
-                    token_utils::now_string(), short_node_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
+                    dids::utils::now_string(), short_node_did, short_peer_id, upstream_node.peer_id().short_id(), listener_id);
             }
         }
         for node in upstream_nodes.iter() {
@@ -569,7 +569,7 @@ impl<E: EventHandler> Server<E> {
             Command::GetStatus(responder) => {
                 let status = self.get_status();
                 if let Err(e) = responder.send(status) {
-                    tracing::error!("{} 无法发送节点状态信息: 接收方可能已关闭", token_utils::now_string());
+                    tracing::error!("{} 无法发送节点状态信息: 接收方可能已关闭", dids::utils::now_string());
                 }
             },
             Command::GetKeyValue(key, responder) => self.handle_kad_get_key(key, responder).unwrap(),
@@ -613,12 +613,12 @@ impl<E: EventHandler> Server<E> {
                 self.handle_kad_get_key(file_key.clone(), sender);
                 let value = receiver.await.unwrap();
                 if value.len() == 0 {
-                    tracing::error!("{} 无法下载文件 {}，文件不存在", token_utils::now_string(), full_file_name);
+                    tracing::error!("{} 无法下载文件 {}，文件不存在", dids::utils::now_string(), full_file_name);
                 } else {
                     let value_str = String::from_utf8_lossy(&value);
                     let parts: Vec<&str> = value_str.split('|').collect();
                     if parts.len() != 3 {
-                        tracing::error!("{} 无法下载文件 {}，文件元数据格式错误", token_utils::now_string(), full_file_name);
+                        tracing::error!("{} 无法下载文件 {}，文件元数据格式错误", dids::utils::now_string(), full_file_name);
                     } else {
                         let filename = parts[0].to_string();
                         let filesize = parts[1].parse::<u64>().unwrap();
@@ -643,7 +643,7 @@ impl<E: EventHandler> Server<E> {
             SwarmEvent::Behaviour(ev) => ev,
             SwarmEvent::NewListenAddr { address, .. } => {
                 if (self.debug & (1 << 0)) != 0 {
-                    println!("{} 📣 P2P_node listening on address: {}", token_utils::now_string(), address);
+                    println!("{} 📣 P2P_node listening on address: {}", dids::utils::now_string(), address);
                 }
                 return self.update_listened_addresses(); },
 
@@ -654,7 +654,7 @@ impl<E: EventHandler> Server<E> {
             SwarmEvent::ExternalAddrConfirmed { address } 
             => {
                 if (self.debug & (1 << 0)) != 0 {
-                    println!("{} External address confirmed from relay node: {address}", token_utils::now_string(),);
+                    println!("{} External address confirmed from relay node: {address}", dids::utils::now_string(),);
                 }
                 return;
             }
@@ -663,7 +663,7 @@ impl<E: EventHandler> Server<E> {
                 peer_id, endpoint, ..
             } => {
                 if (self.debug & (1 << 0)) != 0  {
-                    println!("{} Established new connection peer({})={}", token_utils::now_string(), peer_id.short_id(), endpoint.get_remote_address());
+                    println!("{} Established new connection peer({})={}", dids::utils::now_string(), peer_id.short_id(), endpoint.get_remote_address());
                 }
                 let peer_id_clone = peer_id.clone();
                 if self.upstream_nodes.iter().any(|node| node.peer_id() == peer_id) {
@@ -674,12 +674,12 @@ impl<E: EventHandler> Server<E> {
                             None,
                         ) {
                             if (self.debug & (1 << 7)) != 0  {
-                                println!("{} Failed to register after ConnectionEstablished({}): {error}", token_utils::now_string(), peer_id.short_id());
+                                println!("{} Failed to register after ConnectionEstablished({}): {error}", dids::utils::now_string(), peer_id.short_id());
                             }
                             return;
                         }
                         if (self.debug & (1 << 7)) != 0  {
-                            println!("{} Connection established after ConnectionEstablished with rendezvous point: {}", token_utils::now_string(), peer_id.short_id());
+                            println!("{} Connection established after ConnectionEstablished with rendezvous point: {}", dids::utils::now_string(), peer_id.short_id());
                         }
                         rendezvous.discover(
                             Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
@@ -702,9 +702,9 @@ impl<E: EventHandler> Server<E> {
                 if self.record_peer_failure(&remote_peer, "Connection") {
                     if (self.debug & (1 << 0)) != 0  {
                         if self.debug > 0 {
-                            println!("{} Connection failures has reached the threshold, remove the node: {}", token_utils::now_string(), remote_peer.short_id());
+                            println!("{} Connection failures has reached the threshold, remove the node: {}", dids::utils::now_string(), remote_peer.short_id());
                         } else {
-                            println!("{} Connection failures({:?}) has reached the threshold, remove the node: {}", token_utils::now_string(), error, remote_peer.short_id());
+                            println!("{} Connection failures({:?}) has reached the threshold, remove the node: {}", dids::utils::now_string(), error, remote_peer.short_id());
                         }
                         
                     }
@@ -713,7 +713,7 @@ impl<E: EventHandler> Server<E> {
                     if !self.is_global && self.network_service.local_peer_id().to_base58() != remote_peer.to_base58(){
                         let relay_node = self.upstream_nodes.get_select();
                         if (self.debug & (1 << 0)) != 0  {
-                            println!("{} Try to connect to {} with the upstream node: {}", token_utils::now_string(), remote_peer.short_id(), relay_node.peer_id().short_id());
+                            println!("{} Try to connect to {} with the upstream node: {}", dids::utils::now_string(), remote_peer.short_id(), relay_node.peer_id().short_id());
                         }
                         let opts = DialOpts::from(
                             relay_node.address()
@@ -733,7 +733,7 @@ impl<E: EventHandler> Server<E> {
             SwarmEvent::Dialing {
                 peer_id: Some(peer_id),
                 ..
-            } => { println!("{} Dialing {peer_id}", token_utils::now_string()); 
+            } => { println!("{} Dialing {peer_id}", dids::utils::now_string()); 
                 return;
             },
 
@@ -762,7 +762,7 @@ impl<E: EventHandler> Server<E> {
             }) => {
                 if self.record_peer_failure(&peer, "Ping") {
                     if (self.debug & (1 << 8)) != 0  {
-                        println!("{} Ping failures has reached the threshold, remove the node: {:?}", token_utils::now_string(), peer.short_id());
+                        println!("{} Ping failures has reached the threshold, remove the node: {:?}", dids::utils::now_string(), peer.short_id());
                     }
                     self.network_service.behaviour_mut().remove_peer(&peer)
                 }
@@ -771,7 +771,7 @@ impl<E: EventHandler> Server<E> {
             BehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
                 for (peer_id, multiaddr) in list {
                     if (self.debug & (1 << 9)) != 0  {
-                        println!("{} mDNS discovered a new peer: {} at {multiaddr}", token_utils::now_string(), peer_id.short_id());
+                        println!("{} mDNS discovered a new peer: {} at {multiaddr}", dids::utils::now_string(), peer_id.short_id());
                     }
                     self.add_addresses(&peer_id, vec![multiaddr]);
                     self.network_service.behaviour_mut().pubsub.add_explicit_peer(&peer_id);
@@ -780,7 +780,7 @@ impl<E: EventHandler> Server<E> {
             BehaviourEvent::Mdns(mdns::Event::Expired(list)) => {
                 for (peer_id, _multiaddr) in list {
                     if (self.debug & (1 << 9)) != 0  {
-                        tracing::info!("{} mDNS discover peer has expired: {}", token_utils::now_string(), peer_id.short_id());
+                        tracing::info!("{} mDNS discover peer has expired: {}", dids::utils::now_string(), peer_id.short_id());
                     }
                     self.network_service.behaviour_mut().pubsub.remove_explicit_peer(&peer_id);
                 }
@@ -792,7 +792,7 @@ impl<E: EventHandler> Server<E> {
             }) => {
                 if (self.debug & (1 << 0)) != 0  {
                     println!("{} <<==== Got broadcast message with id({id}) from peer({}): '{}'",
-                    token_utils::now_string(), peer_id.short_id(), String::from_utf8_lossy(&message.data));
+                    dids::utils::now_string(), peer_id.short_id(), String::from_utf8_lossy(&message.data));
                 }
                 self.handle_inbound_broadcast(message)
             },
@@ -812,7 +812,7 @@ impl<E: EventHandler> Server<E> {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
                     self.add_addresses(&peer_id, listen_addrs);
                     if (self.debug & (1 << 1)) != 0  {
-                        println!("{} P2P_node({}) add peer({}, {:?})", token_utils::now_string(), self.get_short_id(), peer_id.short_id(), agent_version);
+                        println!("{} P2P_node({}) add peer({}, {:?})", dids::utils::now_string(), self.get_short_id(), peer_id.short_id(), agent_version);
                     }
                     
                     let mut parts = agent_version.splitn(3, '/');
@@ -823,17 +823,17 @@ impl<E: EventHandler> Server<E> {
                         self.shared_data.insert_node_did(&peer_id.to_base58(), &agent_did);
                         let short_did = agent_did.chars().skip(agent_did.len() - 7).collect::<String>();
                         if (self.debug & (1 << 1)) != 0  {
-                            println!("{} P2P_node({}) record id-did mapping({}, {})", token_utils::now_string(), self.get_short_id(), peer_id.short_id(), short_did);
+                            println!("{} P2P_node({}) record id-did mapping({}, {})", dids::utils::now_string(), self.get_short_id(), peer_id.short_id(), short_did);
                         }
                     }                                    
                 };
                 self.network_service.add_external_address(observed_addr.clone());
                 if (self.debug & (1 << 1)) != 0  {
-                    println!("{} P2P_node({}) add external_address({:?})", token_utils::now_string(), self.get_short_id(), observed_addr.clone());
+                    println!("{} P2P_node({}) add external_address({:?})", dids::utils::now_string(), self.get_short_id(), observed_addr.clone());
                 }
                 
                 if peer_id == self.local_peer_id && (self.debug & (1 << 1)) != 0  {
-                    println!("{} ❗ P2P_node({}) add local_address({:?})", token_utils::now_string(), self.get_short_id(), observed_addr.clone());
+                    println!("{} ❗ P2P_node({}) add local_address({:?})", dids::utils::now_string(), self.get_short_id(), observed_addr.clone());
                 }
                 if let Some(rendezvous) = self.network_service.behaviour_mut().rendezvous_client.as_mut() {
                     if let Err(error) = rendezvous.register(
@@ -842,12 +842,12 @@ impl<E: EventHandler> Server<E> {
                         None,
                     ) {
                         if (self.debug & (1 << 1)) != 0  {
-                            println!("{} Failed to register after Identify({}): {error}", token_utils::now_string(), peer_id.short_id());
+                            println!("{} Failed to register after Identify({}): {error}", dids::utils::now_string(), peer_id.short_id());
                         }
                         return;
                     }
                     if (self.debug & (1 << 1)) != 0  {
-                        println!("{} Connection established after Identify with rendezvous point: {}", token_utils::now_string(), peer_id.short_id());
+                        println!("{} Connection established after Identify with rendezvous point: {}", dids::utils::now_string(), peer_id.short_id());
                     }
                 }
 
@@ -859,19 +859,19 @@ impl<E: EventHandler> Server<E> {
                             match self.network_service.listen_on(node_addr.clone().with(Protocol::P2pCircuit)) {
                                 Ok(listener_id) => {
                                     if (self.debug & (1 << 1)) != 0  {
-                                        println!("{} P2P_node({}) listening on upstream node({})", token_utils::now_string(), short_peer_id, node_addr);
+                                        println!("{} P2P_node({}) listening on upstream node({})", dids::utils::now_string(), short_peer_id, node_addr);
                                     }
                                 },
                                 Err(e) => {
                                     if (self.debug & (1 << 1)) != 0  {
-                                        println!("{} Failed to listen on upstream node({}): {}", token_utils::now_string(), node_addr, e);
+                                        println!("{} Failed to listen on upstream node({}): {}", dids::utils::now_string(), node_addr, e);
                                     }
                                 }
                             }
                         },
                         Err(e) => {
                             if (self.debug & (1 << 1)) != 0  {
-                                println!("{} Failed to parse multiaddr for node {}: {}", token_utils::now_string(), node.peer_id().short_id(), e);
+                                println!("{} Failed to parse multiaddr for node {}: {}", dids::utils::now_string(), node.peer_id().short_id(), e);
                             }
                         }
                     }
@@ -906,7 +906,7 @@ impl<E: EventHandler> Server<E> {
             }) => {
                 self.network_service.add_external_address(tested_addr.clone());
                 if (self.debug & (1 << 3)) != 0  {
-                    println!("{} Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Everything Ok and verified.", token_utils::now_string(), server.short_id());
+                    println!("{} Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Everything Ok and verified.", dids::utils::now_string(), server.short_id());
                 }
             }
             BehaviourEvent::AutonatClient(autonat::v2::client::Event {
@@ -916,25 +916,25 @@ impl<E: EventHandler> Server<E> {
                 result: Err(e),
             }) => {
                 if (self.debug & (1 << 3)) != 0  {
-                    println!("{} Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Failed with {e:?}.", token_utils::now_string(), server.short_id());
+                    println!("{} Tested {tested_addr} with {}. Sent {bytes_sent} bytes for verification. Failed with {e:?}.", dids::utils::now_string(), server.short_id());
                 }
             }
 
             BehaviourEvent::Upnp(upnp::Event::NewExternalAddr(addr)) => {
                 if (self.debug & (1 <<10)) != 0  {
-                    println!("{} UPnP address: {}", token_utils::now_string(), addr);
+                    println!("{} UPnP address: {}", dids::utils::now_string(), addr);
                 }
                 self.network_service.add_external_address(addr);
                 self.upnp_mapped = true;
             }
             BehaviourEvent::Upnp(upnp::Event::GatewayNotFound) => {
                 if (self.debug & (1 <<10)) != 0  {
-                    println!("{} UPnP gateway not found", token_utils::now_string());
+                    println!("{} UPnP gateway not found", dids::utils::now_string());
                 }
             }
             BehaviourEvent::Upnp(upnp::Event::NonRoutableGateway) => {
                 if (self.debug & (1 <<10)) != 0  {
-                    println!("{} UPnP gateway unreachable",token_utils::now_string());
+                    println!("{} UPnP gateway unreachable",dids::utils::now_string());
                 }
             }
 
@@ -945,7 +945,7 @@ impl<E: EventHandler> Server<E> {
                     .. },
             ) => {
                 if (self.debug & (1 << 4)) != 0  {
-                    println!("{} Relay({}) accepted our reservation request, limit={:?}.", token_utils::now_string(), relay_peer_id.short_id(), limit);
+                    println!("{} Relay({}) accepted our reservation request, limit={:?}.", dids::utils::now_string(), relay_peer_id.short_id(), limit);
                 }
             }
 
@@ -956,7 +956,7 @@ impl<E: EventHandler> Server<E> {
                     .. },
             ) => {
                 if (self.debug & (1 << 4)) != 0  {
-                    println!("{} Relay({}) accepted our CircuitEstablished limit={:?}.", token_utils::now_string(), relay_peer_id.short_id(), limit);
+                    println!("{} Relay({}) accepted our CircuitEstablished limit={:?}.", dids::utils::now_string(), relay_peer_id.short_id(), limit);
                 }
             }
 
@@ -965,7 +965,7 @@ impl<E: EventHandler> Server<E> {
                 result: Ok(connection_id),
             }) => {
                 if (self.debug & (1 << 5)) != 0  {
-                    println!("{} DCUTR({}) accepted our reservation request.", token_utils::now_string(), remote_peer_id.short_id());
+                    println!("{} DCUTR({}) accepted our reservation request.", dids::utils::now_string(), remote_peer_id.short_id());
                 }
             }
 
@@ -975,7 +975,7 @@ impl<E: EventHandler> Server<E> {
                 if (self.debug & (1 <<6)) != 0  {
                     println!(
                         "{} Peer {} registered for namespace '{}'",
-                        token_utils::now_string(), peer,
+                        dids::utils::now_string(), peer,
                         registration.namespace
                     );
                 }
@@ -989,7 +989,7 @@ impl<E: EventHandler> Server<E> {
                 if (self.debug & (1 <<6)) != 0  {
                     println!(
                         "{} Served peer {} with {} registrations",
-                        token_utils::now_string(), enquirer,
+                        dids::utils::now_string(), enquirer,
                         registrations.len()
                     );
                 }
@@ -1005,7 +1005,7 @@ impl<E: EventHandler> Server<E> {
                 if (self.debug & (1 << 7)) != 0  {
                     println!(
                         "{} Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
-                        token_utils::now_string(), namespace,
+                        dids::utils::now_string(), namespace,
                         rendezvous_node.short_id(),
                         ttl
                     );
@@ -1021,7 +1021,7 @@ impl<E: EventHandler> Server<E> {
                 if (self.debug & (1 << 7)) != 0  {
                     println!(
                         "{} Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                        token_utils::now_string(), rendezvous_node.short_id(),
+                        dids::utils::now_string(), rendezvous_node.short_id(),
                         namespace,
                         error
                     );
@@ -1041,7 +1041,7 @@ impl<E: EventHandler> Server<E> {
                     for address in registration.record.addresses() {
                         let peer = registration.record.peer_id();
                         if (self.debug & (1 << 7)) != 0  {
-                            println!("{} Discovered peer with rendezvous: {}, address={}", token_utils::now_string(), peer.short_id(), address);
+                            println!("{} Discovered peer with rendezvous: {}, address={}", dids::utils::now_string(), peer.short_id(), address);
                         }
 
                         let p2p_suffix = Protocol::P2p(peer);
@@ -1055,12 +1055,12 @@ impl<E: EventHandler> Server<E> {
                         match self.network_service.dial(address_with_p2p.clone()) {
                             Ok(_) => {
                                 if (self.debug & (1 << 7)) != 0  {
-                                    println!("{} Successfully dialed peer {} at {}", token_utils::now_string(), peer.short_id(), address_with_p2p);
+                                    println!("{} Successfully dialed peer {} at {}", dids::utils::now_string(), peer.short_id(), address_with_p2p);
                                 }
                             },
                             Err(e) => {
                                 if (self.debug & (1 << 7)) != 0  {
-                                    println!("{} Failed to dial peer {} at {}: {}", token_utils::now_string(), peer.short_id(), address_with_p2p, e);
+                                    println!("{} Failed to dial peer {} at {}: {}", dids::utils::now_string(), peer.short_id(), address_with_p2p, e);
                                 }
                             }
                         }
@@ -1075,7 +1075,7 @@ impl<E: EventHandler> Server<E> {
                 match result {
                     kad::QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers , ..})) => {
                         if (self.debug & (1 << 2)) != 0  {
-                            println!("{} ☕ Got {} closest peers for key {:?}.", token_utils::now_string(), peers.len(), key);
+                            println!("{} ☕ Got {} closest peers for key {:?}.", dids::utils::now_string(), peers.len(), key);
                         }
                         let target_peer_id = match PeerId::from_bytes(key.as_ref()) {
                             Ok(peer_id) => peer_id,
@@ -1106,7 +1106,7 @@ impl<E: EventHandler> Server<E> {
                     }
                     kad::QueryResult::GetClosestPeers(Err(error)) => {
                         if (self.debug & (1 << 2)) != 0  {
-                            println!("{} ❌ Kad get closest peers failed: {:?}", token_utils::now_string(), error);
+                            println!("{} ❌ Kad get closest peers failed: {:?}", dids::utils::now_string(), error);
                         }
                     }
                     kad::QueryResult::GetRecord(Ok(
@@ -1118,13 +1118,13 @@ impl<E: EventHandler> Server<E> {
                         match std::str::from_utf8(key.as_ref()) {
                             Ok(key_str) => {
                                 if (self.debug & (1 << 2)) != 0  {
-                                    println!("{} ☕ Got record: {} -> {:?}", token_utils::now_string(), key_str, value);
+                                    println!("{} ☕ Got record: {} -> {:?}", dids::utils::now_string(), key_str, value);
                                 }
                                 self.handle_kad_result(id, value.clone());
                             },
                             Err(_) => {
                                 if (self.debug & (1 << 2)) != 0  {
-                                    println!("{} ☕ 获取到记录但无法解析为UTF-8字符串",token_utils::now_string());
+                                    println!("{} ☕ 获取到记录但无法解析为UTF-8字符串",dids::utils::now_string());
                                 }
                                 self.handle_kad_result(id, value.clone());
                             }
@@ -1132,14 +1132,14 @@ impl<E: EventHandler> Server<E> {
                     }
                     kad::QueryResult::GetRecord(Err(err)) => {
                         if (self.debug & (1 << 2)) != 0  {
-                            println!("{} ❌ Kad get record failed: {:?}", token_utils::now_string(), err);
+                            println!("{} ❌ Kad get record failed: {:?}", dids::utils::now_string(), err);
                         }
                         self.handle_kad_failure(id);
                     } 
                     kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
                         if (self.debug & (1 << 2)) != 0  {
                             println!(
-                                "{} Successfully put record {:?}", token_utils::now_string(),
+                                "{} Successfully put record {:?}", dids::utils::now_string(),
                                 std::str::from_utf8(key.as_ref()).unwrap()
                             );
                         }
@@ -1147,7 +1147,7 @@ impl<E: EventHandler> Server<E> {
                     }
                     kad::QueryResult::PutRecord(Err(err)) => {
                         if (self.debug & (1 << 2)) != 0  {
-                            println!("{} ❌ Kad set record failed: {:?}", token_utils::now_string(), err);
+                            println!("{} ❌ Kad set record failed: {:?}", dids::utils::now_string(), err);
                         }
                         self.handle_kad_failure(id);
                     }
@@ -1155,7 +1155,7 @@ impl<E: EventHandler> Server<E> {
                     kad::QueryResult::StartProviding(_) => {
                         if (self.debug & (1 << 2)) != 0  {
                             if let Some(file_name) = self.pending_providing.remove(&id) {
-                                println!("{} Successfully started providing record: {}", token_utils::now_string(), file_name);
+                                println!("{} Successfully started providing record: {}", dids::utils::now_string(), file_name);
                             }
                             
                         }
@@ -1174,7 +1174,7 @@ impl<E: EventHandler> Server<E> {
                                     .query_mut(&id)
                                     .unwrap()
                                     .finish();
-                                println!("{} Successfully got providers: {:?}", token_utils::now_string(), providers);      
+                                println!("{} Successfully got providers: {:?}", dids::utils::now_string(), providers);      
                             // Handle result for GetFile internal use (event return)
                             } else if let Some((file_key, filename, filesize)) = self.pending_downloading.remove(&id) {
                                 // Finish the query. We are only interested in the first result.

@@ -5,7 +5,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::dids::token_utils;
 use crate::dids::key_mgr::SystemKeys;
 
 const MAX_VARIABLE_NUMBER: usize = 999;

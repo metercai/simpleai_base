@@ -9,8 +9,8 @@ use crate::token::SimpleAI;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::utils::systeminfo::SystemInfo;
 use crate::utils::params_mapper::ComfyTaskParams;
-use crate::dids::token_utils::calc_sha256;
-use crate::dids::{token_utils, TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
+use crate::dids::utils::calc_sha256;
+use crate::dids::{TOKIO_RUNTIME, REQWEST_CLIENT, TOKEN_ENTRYPOINT_DID};
 
 
 use pyo3::prelude::*;
@@ -59,7 +59,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
         let claim_system = LocalClaims::load_claim_from_local(&system_did);
         println!("{} cert verify by sys_did:{}, sys_claim_cert_verify_key={}", did, system_did, URL_SAFE_NO_PAD.encode(claim_system.get_cert_verify_key()));
         println!("text_system:{}, signature_str={}", text_system, signature_str);
-        if token_utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
+        if dids::utils::verify_signature(&text_system, &signature_str, &claim_system.get_cert_verify_key()) {
             return true;
         }
     }
@@ -68,7 +68,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
         let text_upstream = format!("{}|{}", upstream_did, text);
         let claim_upstream = LocalClaims::load_claim_from_local(&upstream_did);
         println!("{} cert verify by upstream did {}, is_default={}", did, upstream_did, claim_upstream.is_default());
-        if token_utils::verify_signature(&text_upstream, &signature_str, &claim_upstream.get_cert_verify_key()) {
+        if dids::utils::verify_signature(&text_upstream, &signature_str, &claim_upstream.get_cert_verify_key()) {
             return true;
         }
     }
@@ -76,7 +76,7 @@ fn cert_verify_by_did(cert_str: &str, did: &str) -> bool {
     let text_root = format!("{}|{}", root_did, text);
     let claim_root = LocalClaims::load_claim_from_local(root_did);
     println!("{} cert verify by root did {}, is_default={}", did, root_did, claim_root.is_default());
-    token_utils::verify_signature(&text_root, &signature_str, &claim_root.get_cert_verify_key())
+    dids::utils::verify_signature(&text_root, &signature_str, &claim_root.get_cert_verify_key())
 }
 
 #[pyfunction]
@@ -124,7 +124,7 @@ fn gen_ua_session(client_ip: &str, client_port: &str, ua_agent: &str) -> String 
 
 #[pyfunction]
 fn check_entry_point(entry_point: String) -> bool {
-    token_utils::check_entry_point_of_service(&entry_point)
+    dids::utils::check_entry_point_of_service(&entry_point)
 }
 
 #[pyfunction]

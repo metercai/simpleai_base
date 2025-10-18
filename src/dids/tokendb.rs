@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use serde_json::json;
 use tracing::{error, warn, info, debug, trace};
-use crate::dids::token_utils;
+use crate::dids::utils;
 use crate::dids::key_mgr::SystemKeys;
 use crate::api;
 
@@ -43,7 +43,7 @@ impl TokenDB {
             trees.insert("phone_tree".to_string(), phones);
 
             sled_db = Some(sled_db1);
-            println!("{} [SimpBase] Initialize the local db: {}", token_utils::now_string(), db_path.display());
+            println!("{} [SimpBase] Initialize the local db: {}", utils::now_string(), db_path.display());
         }
         Self {
             sled_db: Arc::new(RwLock::new(sled_db)),

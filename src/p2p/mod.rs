@@ -30,7 +30,7 @@ mod utils;
 
 use once_cell::sync::Lazy;
 use crate::dids::claims::{GlobalClaims, IdClaim};
-use crate::dids::{token_utils, DidToken, TOKIO_RUNTIME};
+use crate::dids::{self, DidToken, TOKIO_RUNTIME};
 use crate::dids::key_mgr::SystemKeys;
 use crate::p2p::service::{Client, EventHandler, NodeStatus};
 use crate::user::shared::{self, SharedData};
@@ -39,7 +39,6 @@ use crate::user::online_mgr::OnlineMgr;
 use crate::user::DidEntryPoint;
 use crate::user::TokenUser;
 use crate::api;
-use crate::dids;
 
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
@@ -52,7 +51,7 @@ static MERGED_CONFIG: RwLock<String> = RwLock::new(String::new());
 
 //address.upstream_nodes = ['/dns4/p2p.simpai.cn/tcp/2316/p2p/12D3KooWGGEDTNkg7dhMnQK9xZAjRnLppAoMMR2q3aUw5vCn4YNc','/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
 pub(crate) static DEFAULT_P2P_CONFIG: &str = r#"
-address.upstream_nodes = ['/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWFapNfD5a27mFPoBexKyAi4E1RTP4ifpfmNKBV8tsBL4X']
+address.upstream_nodes = ['/dns4/p2p.token.tm/tcp/2316/p2p/12D3KooWSDXtBZ6ECNdFi4jmvJo7VmVSmHGDCSpSAzgBpR47feRy']
 pubsub_topics = ['system','user']
 metrics_path = '/metrics' 
 discovery_interval = 60
@@ -82,12 +81,12 @@ impl P2pServer {
             Ok(p2p) => {
                 let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                 *p2p_instance_guard = Some(p2p.clone());
-                println!("{} P2P service(did:{}/id:{}) startup successfully by sys_did: {}", token_utils::now_string(), 
+                println!("{} P2P service(did:{}/id:{}) startup successfully by sys_did: {}", dids::utils::now_string(), 
                     p2p.shared_data.node_did(), p2p.get_peer_id(), p2p.shared_data.sys_did());
                 Ok(p2p)
             },
             Err(e) => {
-                println!("{} P2P service startup failed! {:?}", token_utils::now_string(), e);
+                println!("{} P2P service startup failed! {:?}", dids::utils::now_string(), e);
                 Err(e)
             }
         }
@@ -193,7 +192,7 @@ impl P2pServer {
         }
         let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
         *p2p_instance_guard = None;
-        println!("{} [SimpBase] P2P service({}/{}) stop successfully!", token_utils::now_string(), sys_did, node_did);
+        println!("{} [SimpBase] P2P service({}/{}) stop successfully!", dids::utils::now_string(), sys_did, node_did);
     }
 
     async fn _stop(&self) {
@@ -332,7 +331,7 @@ impl P2pServer {
                         Ok(claim) => {
                             tracing::info!(
                                 "{} [P2pNode] P2P_node({}) 成功从上游节点({}) 获取用户({})的声明",
-                                token_utils::now_string(),
+                                dids::utils::now_string(),
                                 short_peer_id,
                                 upstream_peer_id,
                                 did
@@ -364,7 +363,7 @@ impl P2pServer {
             return IdClaim::default();
         }
 
-        let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
+        let key = dids::utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
         tracing::debug!("尝试从DHT获取声明，DID: {}, 键: {}", did, key);
 
         match self.client.get_key_value(&key).await {
@@ -379,7 +378,7 @@ impl P2pServer {
                         Ok(claim) => {
                             tracing::info!(
                                 "{} [P2pNode] 成功从DHT获取DID({})的声明",
-                                token_utils::now_string(),
+                                dids::utils::now_string(),
                                 did
                             );
                             claim
@@ -412,14 +411,14 @@ impl P2pServer {
 
     pub async fn put_claim_to_DHT(&self, claim: IdClaim) {
         let did = claim.gen_did();
-        let key = token_utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
+        let key = dids::utils::calc_sha256(format!("did_claim_{}", did).as_bytes()).to_base58();
 
         self.client
             .set_key_value(key, claim.to_json_string().as_bytes().to_vec())
             .await;
         tracing::debug!(
             "{} [P2pNode] put did({}) claim to DHT",
-            token_utils::now_string(),
+            dids::utils::now_string(),
             did
         );
     }
@@ -429,7 +428,7 @@ impl P2pServer {
         let short_id = self.client.get_short_id();
         println!(
             "{} [P2pNode] {}",
-            token_utils::now_string(),
+            dids::utils::now_string(),
             node_status.short_format()
         );
         node_status
@@ -604,7 +603,7 @@ impl EventHandler for Handler {
                                         .get_claim_from_local(&req.task_id.clone());
                                     tracing::info!(
                                         "{} [P2pNode] get did({}) claim from upstream.",
-                                        token_utils::now_string(),
+                                        dids::utils::now_string(),
                                         req.task_id
                                     );
                                     claim.to_json_string()
@@ -703,7 +702,7 @@ impl EventHandler for Handler {
                         .push_messages(node_did, message_str);
                     tracing::info!(
                         "{} [P2pNode] added {} new system meaasge.",
-                        token_utils::now_string(),
+                        dids::utils::now_string(),
                         count
                     );
                 }
@@ -769,7 +768,7 @@ async fn get_node_status(client: Client, interval: u64) {
         let node_status = client.get_node_status().await;
         println!(
             "{} [P2pNode] {}",
-            token_utils::now_string(),
+            dids::utils::now_string(),
             node_status.short_format()
         );
     }
@@ -940,7 +939,7 @@ async fn sync_upstream(
             };
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(5),
-                dids::token_utils::request_token_api_async(&upstream_url, sys_did_str, &node_did, "ping", &params),
+                dids::utils::request_token_api_async(&upstream_url, sys_did_str, &node_did, "ping", &params),
             )
                 .await
             {
@@ -949,7 +948,7 @@ async fn sync_upstream(
             }
         };
 
-        debug!("{} [Upstream] {} ping upstream node: {}", token_utils::now_string(), sys_did_str, result_string);
+        debug!("{} [Upstream] {} ping upstream node: {}", dids::utils::now_string(), sys_did_str, result_string);
                         
         if result_string != "Unknown" {
             let mut ping_vars = serde_json::from_str::<HashMap<String, String>>(&result_string).unwrap_or_else(|_| HashMap::new());
@@ -961,9 +960,9 @@ async fn sync_upstream(
                     let top_list = user_online_array[2].to_string();
                     if nodes > 1 && users > 1 {
                         online_mgr.set_nodes_users(nodes, users, top_list.clone());
-                        debug!("{} [Upstream] set_nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
+                        debug!("{} [Upstream] set_nodes_users: {}:{}:{}", dids::utils::now_string(), nodes, users, top_list);
                     } else if nodes == 0 && users == 0 {
-                        debug!("{} [Upstream] get null nodes_users: {}:{}:{}", token_utils::now_string(), nodes, users, top_list);
+                        debug!("{} [Upstream] get null nodes_users: {}:{}:{}", dids::utils::now_string(), nodes, users, top_list);
                         let claims = GlobalClaims::instance();
                         let (local_claim, device_claim) = {
                             let mut claims = claims.lock().unwrap();
@@ -980,9 +979,9 @@ async fn sync_upstream(
                             let ep = entry_point.lock().await;
                             ep.get_entry_point(dids::TOKEN_ENTRYPOINT_DID)
                         };
-                        let response = dids::token_utils::request_token_api_async(&upstream_url, &sys_did, &node_did, "register2", &params).await;
+                        let response = dids::utils::request_token_api_async(&upstream_url, &sys_did, &node_did, "register2", &params).await;
                         ping_vars = serde_json::from_str::<HashMap<String, String>>(&response).unwrap_or_else(|_| HashMap::new());
-                        debug!("{} [Upstream] repair ping: {}", token_utils::now_string(), response);
+                        debug!("{} [Upstream] repair ping: {}", dids::utils::now_string(), response);
                         upstream_did = if let Some(new_did) = ping_vars.get("upstream_did") {
                             new_did.clone()
                         } else { upstream_did.clone() };
@@ -1032,7 +1031,7 @@ async fn submit_uncompleted_request_files(upstream_did: &str, sys_did: &str, dev
                                 if let Some(method) = extract_method_from_filename(file_name_str) {
                                     if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
                                         debug!("submit uncompleted request file: method={}, {}", method, file_path.display());
-                                        let result = dids::token_utils::request_token_api_async(&upstream_url, sys_did, dev_did, &method, &content).await;
+                                        let result = dids::utils::request_token_api_async(&upstream_url, sys_did, dev_did, &method, &content).await;
                                         if result != "Unknown"  {
                                             tokio::fs::remove_file(&file_path).await.expect("remove user copy file failed");
                                             debug!("remove the uncompleted request file: {}", file_path.display());

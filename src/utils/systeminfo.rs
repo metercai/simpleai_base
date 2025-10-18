@@ -11,7 +11,7 @@ use base58::ToBase58;
 use sysinfo::System;
 use tracing::debug;
 
-use crate::dids::token_utils;
+use crate::dids::utils;
 use crate::utils::env_utils;
 
 
@@ -255,7 +255,7 @@ impl SystemInfo {
             tokio::join!(public_ip_task, local_port_task, loopback_port_task, location_task, program_hash_task, mac_address_task);
         let (pyhash, uihash) = program_hash.unwrap_or_else(|_| ("Unknown".to_string(), "Unknown".to_string()));
 
-        let sys_base_info = token_utils::SYSTEM_BASE_INFO.clone();
+        let sys_base_info = utils::SYSTEM_BASE_INFO.clone();
 
         let mut sysinfo = SystemInfo::from_base(sys_base_info);
         sysinfo.local_ip = local_ip.to_string();
@@ -302,7 +302,7 @@ fn get_disk_info() -> (u64, u64, String) {
             }
             if  uuid.is_empty() {
                 let env_uuid_str = run_command("cmd", &["/c", "echo", "%COMPUTERNAME%-%SYSTEMDRIVE%"]).trim().to_string();
-                uuid = token_utils::calc_sha256(&env_uuid_str.as_bytes()).to_base58();
+                uuid = utils::calc_sha256(&env_uuid_str.as_bytes()).to_base58();
             }
             //println!("get_disk_info is ok: {}, {}, {}", total, free, uuid);
             (total/(1024*1024), free/(1024*1024), uuid)
