@@ -62,9 +62,6 @@ req_resp.request_timeout = 30
 "#;
 
 pub struct P2pServer {
-    sys_did: String,
-    node_did: String,
-    nickname: String,
     config: config::Config,
     client: Client,
     shared_data: &'static SharedData,
@@ -84,11 +81,12 @@ impl P2pServer {
             Ok(p2p) => {
                 let mut p2p_instance_guard = P2P_INSTANCE.lock().await;
                 *p2p_instance_guard = Some(p2p.clone());
-                println!("{} [SimpBase] P2P service startup successfully! node_did: {}, node_nickname: {}, app_did: {}", token_utils::now_string(), p2p.node_did, p2p.nickname, p2p.sys_did);
+                println!("{} P2P service(did:{}/id:{}) startup successfully by sys_did: {}", token_utils::now_string(), 
+                    p2p.shared_data.node_did(), p2p.get_peer_id(), p2p.shared_data.sys_did());
                 Ok(p2p)
             },
             Err(e) => {
-                println!("{} [SimpBase] P2P service startup failed! {:?}", token_utils::now_string(), e);
+                println!("{} P2P service startup failed! {:?}", token_utils::now_string(), e);
                 Err(e)
             }
         }
@@ -97,20 +95,17 @@ impl P2pServer {
     pub async fn run() -> Result<Arc<P2pServer>, Box<dyn Error + Send + Sync>> {
         let config_str = Self::get_p2p_config();
         let config = config::Config::from_toml(&config_str).expect("无法解析配置字符串");
+        let shared_data = shared::get_shared_data();
         let didtoken = DidToken::instance();
-        let (sys_did, node_did, node_claim, node_phrase) = {
+        let (node_claim, node_phrase) = {
             let didtoken = didtoken.lock().unwrap();
-            let sys_did = didtoken.get_sys_did();
-            let node_did = didtoken.get_device_did();
-            (sys_did, node_did.clone(), didtoken.get_claim(&node_did), didtoken.get_device_phrase())
+            (didtoken.get_claim(&shared_data.node_did()), didtoken.get_device_phrase())
         };
         let result = service::new(config.clone(), &node_claim, &node_phrase).await;
         let (client, mut server) = match result {
             Ok((c, s)) => (c, s),
             Err(e) => panic!("无法启动服务: {:?}", e),
         };
-        let nickname = node_claim.nickname.clone();
-        let shared_data = shared::get_shared_data();
         let upstream_did = shared_data.upstream_did();
         let online_mgr = shared_data.online_mgr.clone();
         let tokenuser = TokenUser::instance();
@@ -120,8 +115,6 @@ impl P2pServer {
         let pending_task = Arc::new(Mutex::new(HashMap::new()));
 
         let handler = Handler {
-            sys_did: sys_did.clone(),
-            node_did: node_did.clone(),
             shared_data,
             pending_task: pending_task.clone(),
         };
@@ -130,8 +123,8 @@ impl P2pServer {
 
         let config_clone = config.clone();
         let client_clone = client.clone();
-        let sys_did_clone = sys_did.clone();
-        let node_did_clone = node_did.clone();
+        let sys_did_clone = shared_data.sys_did();
+        let node_did_clone = shared_data.node_did();
 
         let handle = TOKIO_RUNTIME.spawn(async move {
             let task_run = server.run();
@@ -159,9 +152,9 @@ impl P2pServer {
         });
 
         let mut message = DidMessage::new(
-            node_did.clone(),
+            shared_data.node_did(),
             "login".to_string(),
-            format!("{}:{}", client.get_peer_id().to_base58(), node_did.clone()),
+            format!("{}:{}", client.get_peer_id().to_base58(), shared_data.node_did()),
         );
         message.signature(&node_phrase);
         match serde_cbor::to_vec(&message) {
@@ -178,9 +171,6 @@ impl P2pServer {
         };
 
         let p2p = Self {
-            sys_did,
-            node_did: node_did,
-            nickname,
             config: config.clone(),
             client: client.clone(),
             shared_data,
@@ -214,11 +204,15 @@ impl P2pServer {
     }
 
     pub fn get_sys_did(&self) -> String {
-        self.sys_did.clone()
+        self.shared_data.sys_did().clone()
     }
 
     pub fn get_node_did(&self) -> String {
-        self.node_did.clone()
+        self.shared_data.node_did().clone()
+    }
+
+    pub fn get_peer_id(&self) -> PeerId {
+        self.client.get_peer_id()
     }
 
     fn get_p2p_config() -> String  {
@@ -553,8 +547,6 @@ impl P2pServer {
 
 #[derive(Debug)]
 struct Handler {
-    sys_did: String,
-    node_did: String,
     shared_data: &'static shared::SharedData,
     pending_task: Arc<Mutex<HashMap<String, String>>>,
 }
@@ -583,7 +575,7 @@ impl EventHandler for Handler {
                 };
                 let target_node = target_did.split_once('.').map(|(_, after)| after).unwrap_or(&target_did).to_string();
                 let target_sys = target_did.split_once('.').map(|(before, _)| before).unwrap_or(&target_did).to_string();
-                if !IdClaim::validity(&target_node) || target_node != self.node_did{
+                if !IdClaim::validity(&target_node) || target_node != self.shared_data.node_did() {
                     tracing::warn!("node did error: not valid or not match self node ");
                     return Ok(format!("target did error: {}", target_did).as_bytes().to_vec());
                 }
@@ -591,7 +583,7 @@ impl EventHandler for Handler {
                 if req.method == "remote_process" && req.task_method != "remote_ping" && !self.shared_data.is_p2p_in_dids(&from_node_did) {
                     return Ok(format!("the request did is not in allow list for remote process: {}", target_did).as_bytes().to_vec());
                 }
-                if target_sys != self.sys_did { //非p2p node当前系统任务，通过websocket转发
+                if target_sys != self.shared_data.sys_did() { //非p2p node当前系统任务，通过websocket转发
                     let response = api::request_api_bin_sync(&format!("ws_task/{}", target_sys), Some(request.clone()))
                         .unwrap_or_else(|e| {
                             error!("call_request_ws_task({}) error: {}, target_did={}, method={}", target_sys, e, req.target_did, req.task_method);
@@ -701,7 +693,7 @@ impl EventHandler for Handler {
             }
             "system" => {
                 let message_str = String::from_utf8_lossy(&message).to_string();
-                let node_did = self.node_did.clone();
+                let node_did = self.shared_data.node_did();
                 // 收到系统消息，更新本地消息队列
                 if !message_str.is_empty() {
                     let count = self

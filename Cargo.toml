@@ -3,6 +3,10 @@ name = "simpleai_base"
 version = "0.4.0"
 edition = "2021"
 
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["-C", "target-cpu=native"]
+
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "simpleai_base"

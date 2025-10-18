@@ -12,6 +12,7 @@ use tracing::{error, warn, info, debug, trace};
 
 use crate::dids::{self, DidToken, tokendb::TokenDB, TOKEN_ENTRYPOINT_DID, TOKEN_ENTRYPOINT_URL};
 use crate::dids::token_utils;
+use crate::dids::key_mgr::SystemKeys;
 use crate::dids::claims::{LocalClaims, IdClaim, UserContext};
 use crate::user::user_vars::GlobalLocalVars;
 use crate::api;
@@ -100,7 +101,7 @@ impl TokenUser {
         }
         let user_telephone = telephone.to_string();
         let user_symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(user_telephone.clone()), None);
-        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+        let (user_hash_id, user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let phrase = phrase.unwrap_or(user_phrase);
         let user_claim = LocalClaims::generate_did_claim("User", &nickname, Some(user_telephone.clone()), id_card, &phrase, None);
         let user_did = self.didtoken.lock().unwrap().add_crypt_secret_for_user(&user_claim, &phrase);
@@ -114,7 +115,7 @@ impl TokenUser {
 
     pub fn remove_user(&mut self, user_symbol_hash_base64: &str) -> String {
         let user_symbol_hash = token_utils::convert_base64_to_key(user_symbol_hash_base64);
-        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+        let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &user_symbol_hash);
         let (user_did, claim) = {
             let mut didtoken = self.didtoken.lock().unwrap();
             let user_did = didtoken.reverse_lookup_did_by_symbol(user_symbol_hash);

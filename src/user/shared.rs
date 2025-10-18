@@ -13,8 +13,9 @@ use crate::user::online_mgr::OnlineMgr;
 #[derive(Debug)]
 pub struct SharedData {
     sys_did: RwLock<String>,
-    node_did: RwLock<String>,
     sys_name: RwLock<String>, 
+    node_did: RwLock<String>,
+    node_name: RwLock<String>,
     capacity: RwLock<u64>,
     service_list: RwLock<String>,
     load: RwLock<u64>,
@@ -33,8 +34,9 @@ impl SharedData {
     pub fn new() -> Self {
         Self {
             sys_did: RwLock::new(String::new()),
-            node_did: RwLock::new(String::new()),
             sys_name: RwLock::new(String::new()),
+            node_did: RwLock::new(String::new()),
+            node_name: RwLock::new(String::new()),
             capacity: RwLock::new(0),
             service_list: RwLock::new(String::new()),
             load: RwLock::new(0),
@@ -61,13 +63,19 @@ impl SharedData {
         self.sys_name.read().unwrap().clone()
     }
 
-    pub fn set_sys_data(&self, sys_did: &str, node_did: &str, sys_name: &str, capacity: u64) {
+    pub fn node_name(&self) -> String {
+        self.node_name.read().unwrap().clone()
+    }
+
+    pub fn set_sys_data(&self, sys_did: &str, sys_name: &str, node_did: &str, node_name: &str, capacity: u64) {
         let mut guard = self.sys_did.write().unwrap();
         *guard = sys_did.to_string();
         let mut guard = self.node_did.write().unwrap();
         *guard = node_did.to_string();
         let mut guard = self.sys_name.write().unwrap();
         *guard = sys_name.to_string();
+        let mut guard = self.node_name.write().unwrap();
+        *guard = node_name.to_string();
         let mut guard = self.capacity.write().unwrap();
         *guard = capacity;
     }

@@ -14,6 +14,7 @@ use tracing::{error, warn, info, debug, trace};
 use crate::dids::claims::{GlobalClaims, LocalClaims, IdClaim};
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::tokendb::TokenDB;
+use crate::dids::key_mgr::{SystemKeys, get_user_key};
 use crate::utils::systeminfo::SystemInfo;
 use crate::api;
 use crate::user::shared;
@@ -22,6 +23,7 @@ pub(crate) mod cert_center;
 pub(crate) mod claims;
 pub(crate) mod token_utils;
 pub(crate) mod tokendb;
+pub(crate) mod key_mgr;
 
 pub(crate) static TOKEN_ENTRYPOINT_URL: &str = "http://120.79.179.136:3030/api_";
 pub(crate) static TOKEN_ENTRYPOINT_DID: &str = "6eR3Pzp9e2VSUC6suwPSycQ93qi6T";
@@ -107,7 +109,7 @@ impl DidToken {
         let token_db = TokenDB::instance();
 
         let was_regenerated = {
-            let systemskeys = token_utils::SystemKeys::instance();
+            let systemskeys = SystemKeys::instance();
             let mut systemskeys = systemskeys.lock().unwrap();
             systemskeys.was_regenerated()
         };
@@ -116,15 +118,15 @@ impl DidToken {
         let guest_symbol_hash = get_key_symbol_hash("Guest");
         let mut guest_key = match token_utils::exists_key_file("User", &guest_symbol_hash) {
             true => {
-                let mut guest_key = token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, false, true);
+                let mut guest_key = get_user_key(&guest_symbol_hash, &guest_phrase);
                 if guest_key == [0u8; 32] {
                     println!("{} [SimpBase] Guest key is invalid, it will be regenerate for your system, then the system will restore default.", token_utils::now_string());
-                    guest_key = token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, true, true);
+                    guest_key = get_user_key(&guest_symbol_hash, &guest_phrase);
                 }
                 guest_key
             } 
             false => {
-                token_utils::read_key_or_generate_key("User", &guest_symbol_hash, &guest_phrase, true, true)
+                get_user_key(&guest_symbol_hash, &guest_phrase)
             }
         };
 
@@ -144,7 +146,7 @@ impl DidToken {
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &local_claim, &sys_phrase);
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &device_claim, &device_phrase);
 
-        let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+        let (guest_hash_id, guest_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
         token_utils::init_user_crypt_secret(&mut crypt_secrets, &guest_claim, &guest_phrase);
         if crypt_secrets.len() > crypt_secrets_len {
             token_utils::save_secret_to_system_token_file(&mut crypt_secrets, &local_did, &admin);
@@ -303,7 +305,7 @@ impl DidToken {
             if cert_secret_base64 != "Unknown" {
                 let cert_secret = token_utils::convert_base64_to_key(cert_secret_base64);
                 if cert_secret != [0u8; 32] {
-                    let item_key = token_utils::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
+                    let item_key = SystemKeys::derive_key(item.as_bytes(), &token_utils::calc_sha256(&cert_secret)).unwrap_or([0u8; 32]);
                     if item_key != [0u8; 32] {
                         let encrypt_item_key = self.encrypt_for_did(&item_key, for_did, 0);
                         info!("encrypt_item_key: cert_secret.len={}, item_key.len={}, encrypt_item_key.len={}",
@@ -525,10 +527,10 @@ pub(crate) fn get_system_vars() -> (String, String, String, String, String, Stri
 
     let (device_name, system_name, guest_name) = get_system_key_name();
 
-    let (dev_hash_id, device_phrase) = token_utils::get_key_hash_id_and_phrase("Device", &zeroed_key);
-    let (sys_hash_id, system_phrase) = token_utils::get_key_hash_id_and_phrase("System", &zeroed_key);
+    let (dev_hash_id, device_phrase) = SystemKeys::get_key_hash_id_and_phrase("Device", &zeroed_key);
+    let (sys_hash_id, system_phrase) = SystemKeys::get_key_hash_id_and_phrase("System", &zeroed_key);
     let guest_symbol_hash = get_key_symbol_hash("Guest");
-    let (guest_hash_id, guest_phrase) = token_utils::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
+    let (guest_hash_id, guest_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &guest_symbol_hash);
     
     (system_name, system_phrase, device_name, device_phrase, guest_name, guest_phrase)
 }

@@ -48,6 +48,7 @@ use crate::p2p::error::P2pError;
 use crate::p2p::utils::PeerIdExt;
 use crate::dids::{DidToken, token_utils, TOKIO_RUNTIME};
 use crate::dids::claims::IdClaim;
+use crate::dids::key_mgr::get_device_key;
 use crate::user::shared;
 
 const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
@@ -273,8 +274,6 @@ pub(crate) enum Command {
 }
 
 pub(crate) struct Server<E: EventHandler> {
-    node_did: String,
-    nickname: String,
     /// The actual network service.
     network_service: Swarm<Behaviour>,
     /// The local peer id.
@@ -347,12 +346,10 @@ impl<E: EventHandler> Server<E> {
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut metric_registry = Registry::default();
-        let node_did = node_claim.gen_did();
-        let nickname = node_claim.nickname.clone();
+        let shared_data = shared::get_shared_data();
+        let node_did = shared_data.node_did();
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
-            try_from_bytes(Zeroizing::new(
-                token_utils::read_key_or_generate_key("Device", &node_claim.get_symbol_hash(), node_phrase, false, false)
-            ))?));
+            try_from_bytes(Zeroizing::new(get_device_key()))?));
         let didtoken = DidToken::instance();
         let sysinfo = didtoken.lock().unwrap().get_sysinfo();
         let is_upstream_node = if let Some(v) = config.is_upstream_node { v } else { false };
@@ -484,11 +481,8 @@ impl<E: EventHandler> Server<E> {
         let interval_secs = config.get_discovery_interval();
         let instant = time::Instant::now() + Duration::from_secs(15);
         let discovery_ticker = time::interval_at(instant, Duration::from_secs(interval_secs));
-        let shared_data = shared::get_shared_data();
         
         Ok(Self {
-            node_did,
-            nickname,
             network_service: swarm,
             local_peer_id: local_keypair.public().into(),
             listened_addresses,
@@ -583,7 +577,7 @@ impl<E: EventHandler> Server<E> {
             Command::Stop => self.stop_flag = true,
 
             Command::StartProviding { file_name, file_path} => {
-                let file_key = format!("{}@{}|DF", file_name.clone(), self.nickname);
+                let file_key = format!("{}@{}|DF", file_name.clone(), self.shared_data.node_name());
                 let filename = file_path
                     .file_name()
                     .map(|name| name.to_string_lossy().to_string())
@@ -1466,7 +1460,7 @@ impl<E: EventHandler> Server<E> {
         let is_debug = self.debug>0;
         NodeStatus {
             local_peer_id: self.local_peer_id.to_base58(),
-            local_node_did: self.node_did.clone(),
+            local_node_did: self.shared_data.node_did(),
             listened_addresses: self.listened_addresses.clone(),
             known_peers_count: known_peers.len(),
             known_peers,
@@ -1524,11 +1518,11 @@ impl<E: EventHandler> Server<E> {
     }
 
     fn get_node_did(&self) -> String {
-        self.node_did.clone()
+        self.shared_data.node_did()
     }
 
     fn get_short_id(&self) -> String {
-        let node_did = self.node_did.clone();
+        let node_did = self.shared_data.node_did();
         let short_sys_did = node_did.chars().skip(node_did.len() - 7).collect::<String>();
         format!("{}/{}", short_sys_did, self.local_peer_id.short_id())
     }

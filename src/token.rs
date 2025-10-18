@@ -28,6 +28,7 @@ use crate::utils::error::TokenError;
 use crate::utils::env_data::EnvData;
 use crate::dids::claims::{GlobalClaims, IdClaim, UserContext, };
 use crate::utils::systeminfo::SystemInfo;
+use crate::dids::key_mgr::SystemKeys;
 use crate::dids::cert_center::GlobalCerts;
 use crate::dids::TOKEN_ENTRYPOINT_DID;
 use crate::user::{TokenUser, DidEntryPoint};
@@ -79,7 +80,7 @@ impl SimpleAI {
         };
 
         let mut shared_data = shared::get_shared_data();
-        shared_data.set_sys_data(&sys_did, &device_did, &system_name, 1);
+        shared_data.set_sys_data(&sys_did, &system_name, &device_did, &device_name, 1);
         if !api::service::is_self_service() {
             if !api::wsclient::WS_CLIENT.is_running() {
                 api::wsclient::WS_CLIENT.clone().start();
@@ -579,7 +580,7 @@ impl SimpleAI {
                 = dids::get_system_vars();
             let admin_name = guest_name.replace("guest_", "admin_");
             let admin_symbol_hash = IdClaim::get_symbol_hash_by_source(&admin_name, Some("8610000000001".to_string()), None);
-            let (admin_hash_id, admin_phrase) = token_utils::get_key_hash_id_and_phrase("User", &admin_symbol_hash);
+            let (admin_hash_id, admin_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &admin_symbol_hash);
             let admin_did= {
                 let user_did = self.didtoken.lock().unwrap().reverse_lookup_did_by_symbol(admin_symbol_hash);
                 let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", admin_hash_id));
@@ -648,7 +649,7 @@ impl SimpleAI {
         let claim = didtoken.lock().unwrap().get_claim(user_did);
         if !claim.is_default() {
             let user_symbol_hash = claim.get_symbol_hash();
-            let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &user_symbol_hash);
+            let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &user_symbol_hash);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
             match identity_file.exists() {
                 true => {
@@ -900,10 +901,10 @@ impl SimpleAI {
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
-        let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
         match token_utils::exists_key_file("User", &symbol_hash) {
             true => {
-                if token_utils::is_original_user_key("User", &symbol_hash)  {
+                if SystemKeys::is_original_user_key("User", &symbol_hash)  {
                     let ready_data = self.token_db.read().unwrap().get("ready_users", &user_hash_id);
                     if ready_data != "Unknown" {
                         let parts: Vec<&str> = ready_data.split('|').collect();
@@ -1015,7 +1016,7 @@ impl SimpleAI {
             return "unknown".to_string();
         }
         let symbol_hash = IdClaim::get_symbol_hash_by_source(&nickname, Some(telephone.to_string()), None);
-        let (user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+        let (user_hash_id, user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
         let symbol_hash_base64 = URL_SAFE_NO_PAD.encode(symbol_hash);
         let ready_data = self.token_db.read().unwrap().get("ready_users", &user_hash_id);
         if ready_data != "Unknown" {
@@ -1105,8 +1106,8 @@ impl SimpleAI {
             return self.get_guest_user_context();
         }
 
-        let (_user_hash_id, user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
-        if token_utils::is_original_user_key("User", &symbol_hash)  {
+        let (_user_hash_id, user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
+        if SystemKeys::is_original_user_key("User", &symbol_hash)  {
             let _ = token_utils::change_phrase_for_pem_and_identity_files(&symbol_hash, &user_phrase, phrase);
         } else {
             println!("{} [SimpBase] The user_key phrase has been changed and can not to be set: {}, {}.",
@@ -1170,9 +1171,9 @@ impl SimpleAI {
             } else {
                 did.to_string()
             };
-            let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+            let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
             let user_did = {
-                match token_utils::exists_and_valid_user_key(&symbol_hash, &phrase) && user_did != "Unknown" {
+                match SystemKeys::exists_and_valid_user_key(&symbol_hash, &phrase) && user_did != "Unknown" {
                     true => {
                         println!("{} [SimpBase] Get user context:{} from local key file: .token_user_{}.pem",
                                  token_utils::now_string(), user_did, user_hash_id);
@@ -1214,7 +1215,7 @@ impl SimpleAI {
                                                     println!("{} [SimpBase] Parsing encrypted_copy and save identity_file: {}, {}",
                                                              token_utils::now_string(), user_hash_id, user_did);
 
-                                                    if token_utils::exists_and_valid_user_key(&symbol_hash, &phrase) {
+                                                    if SystemKeys::exists_and_valid_user_key(&symbol_hash, &phrase) {
                                                         println!("{} [SimpBase] The user encrypted copy is valid: {}", token_utils::now_string(), user_did);
 
                                                         let certificate_string = String::from_utf8_lossy(token_utils::decrypt(&URL_SAFE_NO_PAD.decode(
@@ -1314,7 +1315,7 @@ impl SimpleAI {
         let claim = self.get_claim(user_did);
         if !claim.is_default() {
             let symbol_hash = claim.get_symbol_hash();
-            let (user_hash_id, _user_phrase) = token_utils::get_key_hash_id_and_phrase("User", &symbol_hash);
+            let (user_hash_id, _user_phrase) = SystemKeys::get_key_hash_id_and_phrase("User", &symbol_hash);
             let identity_file = token_utils::get_path_in_sys_key_dir(&format!("user_identity_{}.token", user_hash_id));
             let encrypted_identity = fs::read_to_string(identity_file.clone()).unwrap_or("Unknown".to_string());
             debug!("get_user_copy_string, identity_file({}), encrypted_identity: {}", identity_file.display(), encrypted_identity);
